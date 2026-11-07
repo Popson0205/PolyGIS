@@ -1,0 +1,83 @@
+import type { Activity, App, Crs, CrsDef, Field, FieldType, Filter, GeometryType, Labels, Layer, Me, Project, Row, Selection, Stats, Style, View } from "./types";
+
+export class ApiError extends Error {
+  constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
+}
+export const BASE = import.meta.env.VITE_API_URL ?? "/api";
+
+async function handle<T>(res: Response, path: string): Promise<T> {
+  if (!res.ok) {
+    let p: Record<string, unknown> = {};
+    try { p = await res.json(); } catch { /* not JSON */ }
+    if (res.status === 401 && path !== "/me") window.dispatchEvent(new CustomEvent("gis:signed-out", { detail: p.detail }));
+    throw new ApiError(res.status, String(p.detail ?? p.title ?? res.statusText), p.code as string | undefined, p);
+  }
+  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
+}
+
+/** Signed in by cookie; every change carries X-GeoEstate so another site's form cannot make one. */
+export async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(BASE + path, { method, credentials: "same-origin",
+      headers: { "X-GeoEstate": "1", ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch {
+    throw new ApiError(0, "Can't reach PolyGIS. Check your connection.");
+  }
+  return handle<T>(res, path);
+}
+
+export const signInUrl = (next = window.location.pathname + window.location.search) => `${BASE}/auth/sign-in?next=${encodeURIComponent(next)}`;
+export const tileUrl = (layer: Layer) => `${window.location.origin}${BASE}/layers/${layer.id}/tiles/{z}/{x}/{y}.pbf?v=${layer.version}`;
+export const exportUrl = (layerId: string, format: string, epsg = 4326, ids?: number[]) =>
+  `${BASE}/layers/${layerId}/export?format=${format}&epsg=${epsg}${ids?.length ? `&ids=${ids.join(",")}` : ""}`;
+
+export const api = {
+  me: () => req<Me>("GET", "/me"),
+  apps: () => req<App[]>("GET", "/apps"),
+  signOut: () => req<void>("POST", "/auth/sign-out"),
+  activity: () => req<Activity[]>("GET", "/activity"),
+
+  projects: () => req<Project[]>("GET", "/projects"),
+  project: (id: string) => req<Project>("GET", `/projects/${id}`),
+  createProject: (b: { name: string; description?: string; display_epsg?: number }) => req<Project>("POST", "/projects", b),
+  updateProject: (id: string, b: { name?: string; description?: string; display_epsg?: number; view?: View }) => req<Project>("PATCH", `/projects/${id}`, b),
+  deleteProject: (id: string) => req<void>("DELETE", `/projects/${id}`),
+
+  importFile: async (projectId: string, file: File, epsg?: number): Promise<Layer[]> => {
+    const form = new FormData();
+    form.append("file", file);
+    if (epsg) form.append("epsg", String(epsg));
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/projects/${projectId}/layers/import`, { method: "POST", credentials: "same-origin", headers: { "X-GeoEstate": "1" }, body: form });
+    } catch {
+      throw new ApiError(0, "Can't reach PolyGIS. Check your connection.");
+    }
+    return handle<Layer[]>(res, "/import");
+  },
+  newLayer: (projectId: string, b: { name: string; geometry_type: GeometryType; fields: Field[] }) => req<Layer>("POST", `/projects/${projectId}/layers`, b),
+  updateLayer: (id: string, b: { name?: string; visible?: boolean; style?: Style; labels?: Labels; clear_labels?: boolean }) => req<Layer>("PATCH", `/layers/${id}`, b),
+  deleteLayer: (id: string) => req<void>("DELETE", `/layers/${id}`),
+  order: (projectId: string, ids: string[]) => req<Layer[]>("PUT", `/projects/${projectId}/layer-order`, { layer_ids: ids }),
+  fieldOp: (id: string, b: { op: "add" | "rename" | "delete"; name: string; to?: string; type?: FieldType }) => req<Layer>("POST", `/layers/${id}/fields`, b),
+  rows: (id: string, b: { filters?: Filter[]; sort?: string | null; desc?: boolean; offset?: number; limit?: number; ids?: number[] | null }) =>
+    req<{ total: number; rows: Row[] }>("POST", `/layers/${id}/rows`, b),
+  stats: (id: string, field: string, classes = 5) => req<Stats>("GET", `/layers/${id}/stats?field=${encodeURIComponent(field)}&classes=${classes}`),
+  select: (id: string, b: { filters?: Filter[]; geometry?: GeoJSON.Geometry; relation?: string; distance_m?: number; other_layer_id?: string; other_ids?: number[] | null }) =>
+    req<Selection>("POST", `/layers/${id}/select`, b),
+
+  feature: (layerId: string, fid: number) => req<GeoJSON.Feature>("GET", `/layers/${layerId}/features/${fid}`),
+  features: (layerId: string, ids: number[]) => req<GeoJSON.FeatureCollection>("POST", `/layers/${layerId}/features/geojson`, ids),
+  addFeature: (layerId: string, geometry: GeoJSON.Geometry, properties: Record<string, unknown> = {}) =>
+    req<GeoJSON.Feature>("POST", `/layers/${layerId}/features`, { geometry, properties }),
+  changeFeature: (layerId: string, fid: number, b: { geometry?: GeoJSON.Geometry; properties?: Record<string, unknown> }) =>
+    req<GeoJSON.Feature>("PATCH", `/layers/${layerId}/features/${fid}`, b),
+  deleteFeatures: (layerId: string, ids: number[]) => req<{ deleted: number }>("POST", `/layers/${layerId}/features/delete`, { ids }),
+  calculate: (layerId: string, b: { field: string; value?: unknown; from_field?: string; ids?: number[] | null }) => req<{ changed: number }>("POST", `/layers/${layerId}/calculate`, b),
+  undo: (layerId: string) => req<{ undone: string; feature_id: number }>("POST", `/layers/${layerId}/undo`),
+
+  crs: (q = "") => req<Crs[]>("GET", `/crs${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  crsDef: (epsg: number) => req<CrsDef>("GET", `/crs/${epsg}`),
+};
