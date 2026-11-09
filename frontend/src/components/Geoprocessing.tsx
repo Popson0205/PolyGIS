@@ -41,7 +41,7 @@ export default function Geoprocessing({ projectId, layers, selection, activeId, 
           <ErrorText error={error} />
           {view === "list" ? (
             <div className="ws-panel-body">
-              <input className="ws-find" placeholder="Find a tool: buffer, clip, join…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Find a tool" />
+              <input className="ws-find" placeholder={`Find one of ${tools.length || ""} tools: buffer, hot spot, route…`} value={q} onChange={(e) => setQ(e.target.value)} aria-label="Find a tool" />
               {groups.map(([g, ts]) => (
                 <section key={g} className="ws-toolgroup"><h3>{g}</h3>
                   <ul>{ts.map((t) => <li key={t.id}><button type="button" onClick={() => setTool(t)}><strong>{t.name}</strong><span>{t.about}</span></button></li>)}</ul>
@@ -124,6 +124,10 @@ function ToolForm({ tool, projectId, layers, selection, activeId, canEdit, onBac
         if (p.type === "number") return (
           <div key={p.name} className="ws-f"><label htmlFor={id}>{p.label}{p.unit ? ` (${p.unit === "m" ? "metres" : p.unit})` : ""}</label>
             <input id={id} type="number" step="any" min={p.min} required value={String(v[p.name] ?? "")} onChange={(e) => setV({ ...v, [p.name]: e.target.value === "" ? "" : Number(e.target.value) })} /></div>
+        );
+        if (p.type === "text") return (
+          <div key={p.name} className="ws-f"><label htmlFor={id}>{p.label}{p.optional ? " (optional)" : ""}</label>
+            <input id={id} value={String(v[p.name] ?? "")} required={!p.optional} onChange={(e) => setV({ ...v, [p.name]: e.target.value })} /></div>
         );
         if (p.type === "bool") return (
           <label key={p.name} className="ws-check"><input type="checkbox" checked={!!v[p.name]} onChange={(e) => setV({ ...v, [p.name]: e.target.checked })} /> {p.label}</label>
