@@ -35,7 +35,7 @@ export interface Selection { ids: number[]; count: number; bbox: [number, number
 export interface Activity { actor_name: string; action: string; target_type: string | null; target_id: string | null; details: Record<string, unknown>; at: string }
 
 export interface ToolParam {
-  name: string; label: string; type: "layer" | "layers" | "number" | "bool" | "choice" | "field" | "fields";
+  name: string; label: string; type: "layer" | "layers" | "number" | "bool" | "choice" | "field" | "fields" | "text";
   geometry?: GeometryType[]; unit?: string; min?: number; default?: unknown; choices?: [string, string][]; of?: string;
   numeric?: boolean; optional?: boolean; when?: Record<string, unknown>;
 }

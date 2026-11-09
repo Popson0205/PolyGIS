@@ -10,6 +10,7 @@ A tool is described by PARAMS (which the app turns into a form) and built by a f
 """
 import json
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .errors import Problem
@@ -22,11 +23,12 @@ M_PER_DEG = 111_320.0          # metres in a degree of latitude, for the one too
 
 @dataclass
 class Built:
-    sql: str
+    sql: str | None                 # a SELECT yielding (g, p); or None when `compute` makes the features
     args: dict
     kind: str
     fields: list[dict]
     name: str
+    compute: Callable | None = None  # async (conn) -> [(shapely geometry, props)], for tools worked out in Python
 
 
 def _p(name, label, type, **kw):
@@ -161,6 +163,9 @@ def number(params: dict, name: str, lo: float, hi: float, label: str) -> float:
 def build(tool: str, params: dict, layers: dict[str, dict]) -> Built:
     """`layers` maps each layer parameter to its layer row (and `layers` to a list for merge)."""
     a = layers.get("input")
+    for p in TOOLS.get(tool, {}).get("params", []):      # a setting left out takes the tool's default
+        if "default" in p and params.get(p["name"]) in (None, ""):
+            params[p["name"]] = p["default"]
     args: dict = {}
     for key, lay in layers.items():
         if key == "layers":
@@ -169,6 +174,8 @@ def build(tool: str, params: dict, layers: dict[str, dict]) -> Built:
         ids = params.get(f"{key}_ids")
         args[f"{key}_ids"] = [int(x) for x in ids] if ids else None
     name = lambda what: f"{a['name']} {what}"  # noqa: E731
+    if tool in tools_more.BUILDERS:
+        return tools_more.BUILDERS[tool](params, layers, args, a)
 
     if tool == "buffer":
         d = number(params, "distance", 0.01, 1_000_000, "Distance")
@@ -359,3 +366,8 @@ def build(tool: str, params: dict, layers: dict[str, dict]) -> Built:
         return Built(sql, args, a["geometry_type"], a["fields"], name("copy"))
 
     raise Problem(404, f"No tool called {tool}.", code="not_found")
+
+
+from . import tools_more  # noqa: E402  (registers the rest of the toolbox; it builds on the helpers above)
+
+TOOLS.update(tools_more.TOOLS)

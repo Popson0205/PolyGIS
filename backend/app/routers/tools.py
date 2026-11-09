@@ -3,7 +3,10 @@ runs included (with what went wrong), so a result can always be traced to the to
 import time
 from uuid import UUID
 
+import math
+
 import psycopg
+import shapely
 from fastapi import APIRouter, Depends
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
@@ -82,12 +85,28 @@ async def run(project_id: UUID, tool: str, body: RunIn,
                 (project_id, user["org_id"], out_name, built.kind, Jsonb(built.fields), Jsonb(default_style(built.kind, pos)), pos,
                  Jsonb({"tool": tool, "tool_name": spec["name"]}), user["id"]))
             lid = (await cur.fetchone())["id"]
-            cur = await conn.execute(
-                f"INSERT INTO features (layer_id, geom, props, updated_by) "
-                f"SELECT %(out)s, ST_Multi(q.g), COALESCE(q.p, '{{}}'::jsonb), %(actor)s FROM ({built.sql}) q "
-                f"WHERE q.g IS NOT NULL AND NOT ST_IsEmpty(q.g)",
-                {**built.args, "out": lid, "actor": user["id"]})
-            n = cur.rowcount
+            if built.compute:                                  # worked out in Python (statistics, networks)
+                made = await built.compute(conn)
+                if len(made) > settings.max_features:
+                    raise Problem(422, f"The result has {len(made):,} features, more than the {settings.max_features:,} a layer may hold.",
+                                  code="too_many")
+                n = 0
+                if made:
+                    async with conn.cursor() as c:
+                        await c.executemany(
+                            f"INSERT INTO features (layer_id, geom, props, updated_by) SELECT %s, ST_Multi(q.g), %s, %s FROM "
+                            f"(SELECT ST_CollectionExtract(ST_MakeValid(ST_SetSRID(ST_GeomFromWKB(%s), 4326)), {tools.TYPE_NO[built.kind]}) AS g) q "
+                            f"WHERE NOT ST_IsEmpty(q.g)",
+                            [(lid, Jsonb(_plain(p)), user["id"], shapely.to_wkb(g)) for g, p in made if g is not None and not g.is_empty])
+                    cur = await conn.execute("SELECT count(*) AS n FROM features WHERE layer_id = %s", (lid,))
+                    n = (await cur.fetchone())["n"]
+            else:
+                cur = await conn.execute(
+                    f"INSERT INTO features (layer_id, geom, props, updated_by) "
+                    f"SELECT %(out)s, ST_Multi(q.g), COALESCE(q.p, '{{}}'::jsonb), %(actor)s FROM ({built.sql}) q "
+                    f"WHERE q.g IS NOT NULL AND NOT ST_IsEmpty(q.g)",
+                    {**built.args, "out": lid, "actor": user["id"]})
+                n = cur.rowcount
             if n > settings.max_features:
                 raise Problem(422, f"The result has {n:,} features, more than the {settings.max_features:,} a layer may hold.",
                               code="too_many")
@@ -111,6 +130,18 @@ async def run(project_id: UUID, tool: str, body: RunIn,
     await audit(conn, user, "tool.run", "layer", lid, name=out_name, tool=spec["name"], features=n)
     await _touch(conn, lid, project_id)
     return {"run": r, "layer": await layer_of(conn, lid, user)}
+
+
+def _plain(p: dict) -> dict:
+    """Props as plain JSON: numpy numbers to Python ones, NaN and infinity to null."""
+    out = {}
+    for k, v in p.items():
+        if hasattr(v, "item"):
+            v = v.item()
+        if isinstance(v, float) and not math.isfinite(v):
+            v = None
+        out[k] = v
+    return out
 
 
 def _db_words(e: psycopg.Error) -> str:

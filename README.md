@@ -36,7 +36,7 @@ collectors and viewers are **viewers** (open and export). An expired licence is 
 
 ## Next phases
 
-2. **Geoprocessing**: buffer, clip, intersect, union, dissolve, spatial join and more, run as jobs, results as layers.
+2. **Geoprocessing**: 107 vector tools in nine groups (proximity, overlay, generalization, conversion, topology, sampling, spatial statistics such as hot spots and Moran's I, and network analysis such as routes, closest facility and service areas), run as jobs, results as layers.
 3. **Rasters and print layouts**: raster import and analysis (slope, hillshade, reclassify, zonal statistics), and
    layouts with legend, scale bar, north arrow and grid to PDF.
 4. **Sharing**: publish to Geohub's data hub, live layers from the other products, a model builder, 3D, a desktop app
