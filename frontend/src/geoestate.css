@@ -17,6 +17,7 @@
 .ge-page h2 { font-size: 17px; margin: 0 0 12px; color: var(--ge-navy); }
 .ge-muted { color: var(--ge-muted); } .ge-small { font-size: 13px; }
 .ge-page a { color: var(--ge-navy-2); }
+.ge-page a.ge-btn { color: var(--ge-ink); text-decoration: none; } .ge-page a.ge-btn-primary { color: #fff; } .ge-page a.ge-btn-danger { color: var(--ge-bad); }
 .ge-page :focus-visible { outline: 2px solid var(--ge-green); outline-offset: 2px; }
 
 /* the top bar: logo, the app's name, the app switcher, who is signed in */

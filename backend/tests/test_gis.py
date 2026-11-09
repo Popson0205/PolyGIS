@@ -256,3 +256,9 @@ def test_order_delete_crs_activity(editor, project):
     acts = [a["action"] for a in editor.get("/activity").json()]
     assert "layer.import" in acts and "layer.delete" in acts
     assert ORG
+
+
+def test_a_pasted_secret_is_trimmed(monkeypatch):
+    from app.config import Settings
+    s = Settings(database_url="postgresql://x/y", id_secret='  "xYMOeTlczXWK3DaZ0mWuKN3z8bz_AQdWU1H0aLwfTX4U7Gl0"\n', id_client=" gis ")
+    assert s.id_secret == "xYMOeTlczXWK3DaZ0mWuKN3z8bz_AQdWU1H0aLwfTX4U7Gl0" and s.id_client == "gis"

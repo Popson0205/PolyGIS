@@ -32,6 +32,9 @@ class Settings(BaseSettings):
         self.app_url = self.app_url.strip().rstrip("/")
         self.geohub_url = self.geohub_url.strip().rstrip("/")
         self.geohub_api = self.geohub_api.strip().rstrip("/")
+        # pasted values often carry spaces or quotes; Geohub trims its copy of the secret, so trim this one too
+        self.id_secret = self.id_secret.strip().strip('"').strip("'").strip()
+        self.id_client = self.id_client.strip() or "gis"
         if not self.db_schema.isidentifier() or self.db_schema.lower() == "public":
             raise ValueError("DB_SCHEMA must be a plain name other than public, e.g. gis")
         if self.cookie_secure is None:
