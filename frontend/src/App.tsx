@@ -42,10 +42,10 @@ export default function App() {
   const inWorkspace = loc.pathname.startsWith("/projects/");
   return (
     <div className={inWorkspace ? "gis-app is-workspace" : "gis-app"}>
-      <Bar me={me} onSignOut={signOut} compact={inWorkspace} />
+      {!inWorkspace && <Bar me={me} onSignOut={signOut} />}
       <Routes>
         <Route path="/" element={<ProjectsPage me={me} />} />
-        <Route path="/projects/:id" element={<WorkspacePage me={me} />} />
+        <Route path="/projects/:id" element={<WorkspacePage me={me} onSignOut={signOut} />} />
         <Route path="/activity" element={<ActivityPage />} />
         <Route path="*" element={<div className="ge-main"><div className="ge-card"><h1>Not found</h1><p><a href="/">Back to the projects</a></p></div></div>} />
       </Routes>

@@ -353,3 +353,34 @@ def values_at(meta: dict, lng: float, lat: float) -> list[float | None] | None:
         for x in v:
             out.append(None if np.ma.is_masked(x) or not np.isfinite(float(x)) else (int(x) if float(x).is_integer() else float(x)))
         return out
+
+
+def preview(meta: dict, style: dict, most: int = 320) -> tuple[bytes, tuple[float, float, float, float]] | None:
+    """A small picture of the raster in Web Mercator, coloured by its style, and where it lies (for thumbnails)."""
+    from PIL import Image
+
+    from .raster_style import colourise
+    try:
+        path = local(meta["key"])
+    except RasterError:
+        return None
+    mode = style.get("mode", "ramp")
+    bands = [int(b) for b in style.get("bands", [1, 2, 3])] if mode == "rgb" else [int(style.get("band", 1))]
+    bands = [min(max(1, b), meta["count"]) for b in bands]
+    with rasterio.open(path) as src0:
+        b = transform_bounds(src0.crs, MERC, *src0.bounds, densify_pts=21)
+        k = max(b[2] - b[0], b[3] - b[1]) / most
+        w, h = max(1, round((b[2] - b[0]) / k)), max(1, round((b[3] - b[1]) / k))
+        level = _overview_level(src0, k)
+    with rasterio.open(path, overview_level=level) if level is not None else rasterio.open(path) as src:
+        with WarpedVRT(src, crs=MERC, transform=from_bounds(*b, w, h), width=w, height=h, src_nodata=src.nodata, nodata=src.nodata,
+                       add_alpha=src.nodata is None, resampling=Resampling.nearest if mode == "classes" else Resampling.bilinear) as vrt:
+            data = vrt.read(bands).astype("float64")
+            valid = vrt.dataset_mask() > 0
+    for x in data:
+        valid &= np.isfinite(x)
+        if meta.get("nodata") is not None:
+            valid &= x != meta["nodata"]
+    buf = io.BytesIO()
+    Image.fromarray(colourise(data, valid, style, meta), "RGBA").save(buf, "PNG", optimize=True)
+    return buf.getvalue(), b

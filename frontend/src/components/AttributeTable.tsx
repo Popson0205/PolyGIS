@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Search, Table2, X } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import type { Filter, Layer, Row } from "../lib/types";
-import { ErrorText } from "./ui";
+import { ErrorText, IconButton } from "./ui";
 
 const PAGE = 100;
 
 /** The attribute table: a page at a time, sorted by any field, all or only the selection. Click a row to select it
  *  (Ctrl or Shift to add); double-click to zoom to it. Cells can be changed while the layer is being edited. */
-export default function AttributeTable({ layer, selected, editing, onSelect, onZoomTo, onClose, onEdited }: {
-  layer: Layer; selected: number[]; editing: boolean; onSelect: (ids: number[], add: boolean) => void;
+export default function AttributeTable({ layer, selected, editing, resizer, onSelect, onZoomTo, onClose, onEdited }: {
+  layer: Layer; selected: number[]; editing: boolean; resizer?: ReactNode; onSelect: (ids: number[], add: boolean) => void;
   onZoomTo: (id: number) => void; onClose: () => void; onEdited: () => void;
 }) {
   const [onlySel, setOnlySel] = useState(false);
@@ -40,19 +41,22 @@ export default function AttributeTable({ layer, selected, editing, onSelect, onZ
   const sel = new Set(selected);
   return (
     <section className="ws-table" aria-label={`${layer.name}: attribute table`}>
+      {resizer}
       <div className="ws-table-bar">
+        <Table2 size={16} aria-hidden="true" style={{ color: "var(--c-navy)", flex: "none" }} />
         <strong>{layer.name}</strong>
-        <span className="ws-muted">{data ? `${data.total.toLocaleString("en-GB")} ${onlySel ? "selected" : "features"}` : "…"}{selected.length > 0 && !onlySel ? ` · ${selected.length.toLocaleString("en-GB")} selected` : ""}</span>
+        <span className="ws-count">{data ? `${data.total.toLocaleString("en-GB")} ${onlySel ? "selected" : "features"}` : "…"}{selected.length > 0 && !onlySel ? `, ${selected.length.toLocaleString("en-GB")} selected` : ""}</span>
         <label className="ws-check"><input type="checkbox" checked={onlySel} onChange={(e) => setOnlySel(e.target.checked)} disabled={!selected.length && !onlySel} /> Selected only</label>
         {layer.fields.length > 0 && <span className="ws-search">
+          <Search size={14} aria-hidden="true" style={{ alignSelf: "center", color: "var(--c-faint)" }} />
           <select aria-label="Search in field" value={search.field} onChange={(e) => setSearch({ ...search, field: e.target.value })}>{layer.fields.map((f) => <option key={f.name}>{f.name}</option>)}</select>
           <input aria-label="Search" placeholder="contains…" value={search.text} onChange={(e) => setSearch({ ...search, text: e.target.value })} />
         </span>}
         <span className="ge-spacer" />
-        <button type="button" disabled={page === 0} onClick={() => setPage(page - 1)} aria-label="Previous page">‹</button>
-        <span className="ws-muted">{page + 1} / {pages}</span>
-        <button type="button" disabled={page + 1 >= pages} onClick={() => setPage(page + 1)} aria-label="Next page">›</button>
-        <button type="button" onClick={onClose} aria-label="Close the table">✕</button>
+        <IconButton label="Previous page" disabled={page === 0} onClick={() => setPage(page - 1)}><ChevronLeft size={16} /></IconButton>
+        <span className="ws-muted ws-nowrap">Page {page + 1} of {pages}</span>
+        <IconButton label="Next page" disabled={page + 1 >= pages} onClick={() => setPage(page + 1)}><ChevronRight size={16} /></IconButton>
+        <IconButton label="Close the table" onClick={onClose}><X size={16} /></IconButton>
       </div>
       <ErrorText error={error} />
       <div className="ws-table-scroll">
@@ -62,8 +66,9 @@ export default function AttributeTable({ layer, selected, editing, onSelect, onZ
             {layer.fields.map((f) => (
               <th key={f.name} aria-sort={sort.field === f.name ? (sort.desc ? "descending" : "ascending") : "none"}>
                 <button type="button" onClick={() => setSort({ field: f.name, desc: sort.field === f.name ? !sort.desc : false })}>
-                  {f.name}{sort.field === f.name ? (sort.desc ? " ▼" : " ▲") : ""}</button></th>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>{f.name}{sort.field === f.name ? (sort.desc ? <ArrowDown size={12} aria-hidden="true" /> : <ArrowUp size={12} aria-hidden="true" />) : null}</span></button></th>
             ))}
+            <th className="ws-fill" aria-hidden="true" />
           </tr></thead>
           <tbody>
             {data?.rows.map((r) => (
@@ -77,15 +82,17 @@ export default function AttributeTable({ layer, selected, editing, onSelect, onZ
                   }
                   return <td key={f.name} className={typeof v === "number" ? "ws-num" : ""}
                     onDoubleClick={(e) => { if (editing) { e.stopPropagation(); setCell({ id: r.id, field: f.name, value: v == null ? "" : String(v) }); } }}>
-                    {v == null ? <span className="ws-null">&lt;null&gt;</span> : typeof v === "boolean" ? (v ? "Yes" : "No") : String(v)}</td>;
+                    {v == null ? <span className="ws-null">empty</span> : typeof v === "boolean" ? (v ? "Yes" : "No") : String(v)}</td>;
                 })}
+                <td className="ws-fill" />
               </tr>
             ))}
           </tbody>
         </table>
         {data && data.rows.length === 0 && <p className="ws-empty">No features{search.text ? " match" : ""}.</p>}
       </div>
-      {editing && <p className="ws-hint">Editing: double-click a cell to change it; Enter saves.</p>}
+      {editing ? <p className="ws-hint">Editing: double-click a cell to change it; Enter saves, Esc cancels.</p>
+        : <p className="ws-hint">Click a row to select it (Ctrl-click adds); double-click to zoom to it.</p>}
     </section>
   );
 }

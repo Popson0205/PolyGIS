@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, exportUrl } from "../lib/api";
 import type { Crs, Field, FieldType, Filter, Layer, Selection, VectorType } from "../lib/types";
-import { Button, ErrorText, useAction } from "./ui";
+import { FileUp, X } from "lucide-react";
+import { Button, ErrorText, IconButton, useAction } from "./ui";
 
 export function Dialog({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   useEffect(() => {
@@ -12,7 +13,7 @@ export function Dialog({ title, onClose, children, wide }: { title: string; onCl
   return (
     <div className="ws-dialog-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className={`ws-dialog${wide ? " is-wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
-        <div className="ws-dialog-head"><h2>{title}</h2><button type="button" onClick={onClose} aria-label="Close">✕</button></div>
+        <div className="ws-dialog-head"><h2>{title}</h2><IconButton label="Close" onClick={onClose}><X size={18} /></IconButton></div>
         {children}
       </div>
     </div>
@@ -58,7 +59,8 @@ export function AddData({ projectId, onDone, onClose }: { projectId: string; onD
         <label className={`ws-drop${drag ? " is-over" : ""}`} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
           onDrop={(e) => { e.preventDefault(); setDrag(false); if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); }}>
           <input type="file" accept=".geojson,.json,.zip,.gpkg,.kml,.kmz,.csv,.txt,.dxf,.gpx,.gml,.tif,.tiff,.img,.asc,.jp2,.hgt,.dem,.bil,.nc,.vrt" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          <strong>{file ? file.name : "Drop a file here, or choose one"}</strong>
+          <FileUp size={28} aria-hidden="true" />
+          <strong>{file ? file.name : "Drop a file here, or click to choose one"}</strong>
           <span>GeoJSON, Shapefile (zipped with its .shp, .shx, .dbf and .prj), GeoPackage, KML/KMZ, CSV with longitude/latitude or WKT, DXF, GPX; or a raster: GeoTIFF (elevation models, drone and satellite imagery), Erdas IMG, ASCII grid, JPEG 2000, SRTM .hgt</span>
         </label>
         <CrsPicker value={epsg} onChange={setEpsg} label="Its coordinate system" allowNone="As the file says (WGS 84 if it does not say)" />

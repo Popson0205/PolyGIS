@@ -1,3 +1,4 @@
+import { Building2, LogOut, UserRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { api } from "../lib/api";
@@ -19,7 +20,7 @@ export function licenceNotice(p: Me["product"]): { tone: string; text: string } 
   return null;
 }
 
-function Apps({ apps }: { apps: App[] }) {
+export function Apps({ apps }: { apps: App[] }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -55,27 +56,62 @@ function Apps({ apps }: { apps: App[] }) {
   );
 }
 
-/** GeoEstate's top bar (from the UI kit), with PolyGIS's sections. */
-export default function Bar({ me, onSignOut, compact }: { me: Me; onSignOut: () => void; compact?: boolean }) {
-  const [apps, setApps] = useState<App[]>([]);
+export const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("") || "?";
+
+/** Who is signed in, as a round badge that opens their account menu. */
+export function UserMenu({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
   const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("mousedown", away); window.addEventListener("keydown", esc);
+    return () => { window.removeEventListener("mousedown", away); window.removeEventListener("keydown", esc); };
+  }, [open]);
+  return (
+    <div className="menu-wrap" ref={ref}>
+      <button type="button" className="gis-user" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} aria-label={`${me.name}: account`}>
+        <span className="gis-avatar" aria-hidden="true">{initials(me.name)}</span><span>{me.name.split(" ")[0]}</span>
+      </button>
+      {open && (
+        <div className="gis-user-pop" role="menu">
+          <header><strong>{me.name}</strong><span>{me.email}</span></header>
+          <button type="button" role="menuitem" disabled><Building2 size={16} aria-hidden="true" />{me.org_name ?? "GeoEstate staff"}</button>
+          <button type="button" role="menuitem" disabled><UserRound size={16} aria-hidden="true" />{ROLE_NAME[me.role]}{me.product ? `, ${me.product.plan_name}` : ""}</button>
+          <hr style={{ border: 0, borderTop: "1px solid var(--c-line-2)", margin: "4px 2px" }} />
+          <button type="button" role="menuitem" onClick={onSignOut}><LogOut size={16} aria-hidden="true" />Sign out</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** GeoEstate's top bar (from the UI kit), with PolyGIS's sections. */
+export default function Bar({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
+  const [apps, setApps] = useState<App[]>([]);
   useEffect(() => { void api.apps().then(setApps, () => setApps([])); }, []);
   const notice = licenceNotice(me.product);
   const links: [string, string, boolean][] = [["/", "Projects", true], ["/activity", "Activity", me.role === "admin"]];
   return (
     <>
-      <header className={`ge-bar${compact ? " ge-bar-compact" : ""}`}>
+      <header className="ge-bar">
         <a className="ge-brand" href="/"><img src="/logo.png" alt="GeoEstate" /><span>GeoEstate <strong>PolyGIS</strong></span></a>
-        <nav className={`gis-nav${open ? " is-open" : ""}`} aria-label="Sections" onClick={() => setOpen(false)}>
-          {links.filter((l) => l[2]).map(([to, label]) => <NavLink key={to} to={to} end={to === "/" || to === "/parcels/new"}>{label}</NavLink>)}
+        <nav className="gis-nav" aria-label="Sections">
+          {links.filter((l) => l[2]).map(([to, label]) => <NavLink key={to} to={to} end={to === "/"}>{label}</NavLink>)}
         </nav>
         <span className="ge-spacer" />
         <Apps apps={apps} />
-        <div className="ge-who">{me.name}<span>{me.org_name ?? "GeoEstate staff"} · {ROLE_NAME[me.role]}</span></div>
-        <button type="button" className="ge-btn ge-btn-ghost ge-btn-sm" onClick={onSignOut}>Sign out</button>
-        <button type="button" className="ge-btn ge-btn-sm gis-menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>Menu</button>
+        <UserMenu me={me} onSignOut={onSignOut} />
       </header>
       {notice && <div className={`ge-notice ge-notice-${notice.tone}`} role="status">{notice.text}</div>}
     </>
   );
+}
+
+/** The apps list, loaded once. */
+export function useApps() {
+  const [apps, setApps] = useState<App[]>([]);
+  useEffect(() => { void api.apps().then(setApps, () => setApps([])); }, []);
+  return apps;
 }
