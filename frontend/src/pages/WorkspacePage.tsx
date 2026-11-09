@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router-dom";
 import AttributeTable from "../components/AttributeTable";
 import Contents from "../components/Contents";
 import { AddData, CrsPicker, Dialog, Export, NewLayer, SelectByAttributes, SelectByLocation } from "../components/Dialogs";
+import Geoprocessing from "../components/Geoprocessing";
 import LayerPanel from "../components/LayerPanel";
 import { Button, ErrorText, useToast } from "../components/ui";
 import { ApiError, BASE, api, tileUrl } from "../lib/api";
@@ -42,6 +43,7 @@ export default function WorkspacePage({ me }: { me: Me }) {
   const [zoom, setZoom] = useState(0);
   const [measure, setMeasure] = useState<string>("");
   const [basemap, setBasemap] = useState("streets");
+  const [gp, setGp] = useState<{ open: boolean; start: string | null }>({ open: false, start: null });
 
   const mapEl = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibre | null>(null);
@@ -413,7 +415,14 @@ export default function WorkspacePage({ me }: { me: Me }) {
               <Tb on={tool === "measure-line"} onClick={() => chooseTool("measure-line")} icon="📏" label="Distance" />
               <Tb on={tool === "measure-area"} onClick={() => chooseTool("measure-area")} icon="▱" label="Area" />
             </Group>
-            <Group name="Geoprocessing"><span className="ws-soon">Buffer, clip, intersect, dissolve and more come in phase 2.</span></Group>
+            <Group name="Geoprocessing">
+              <Tb on={gp.open && !gp.start} onClick={() => setGp({ open: !gp.open || !!gp.start, start: null })} icon="🧰" label="Tools" />
+              <Tb onClick={() => setGp({ open: true, start: "buffer" })} icon="◍" label="Buffer" />
+              <Tb onClick={() => setGp({ open: true, start: "clip" })} icon="✂" label="Clip" />
+              <Tb onClick={() => setGp({ open: true, start: "intersect" })} icon="⋂" label="Intersect" />
+              <Tb onClick={() => setGp({ open: true, start: "dissolve" })} icon="⬢" label="Dissolve" />
+              <Tb onClick={() => setGp({ open: true, start: "spatial_join" })} icon="⇆" label="Spatial join" />
+            </Group>
           </>}
         </div>
       </div>
@@ -433,7 +442,11 @@ export default function WorkspacePage({ me }: { me: Me }) {
             reshape: "Drag a vertex to move it; drag a midpoint to add one; right-click a vertex to remove it. Then Save shape.",
           }[tool] ?? ""}</div>}
         </div>
-        {identify && tool === "explore" ? (
+        {gp.open ? (
+          <Geoprocessing projectId={id} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit}
+            allowed={me.features.includes("geoprocessing")} start={gp.start} onClose={() => setGp({ open: false, start: null })}
+            onDone={(l) => { setLayers((cur) => [...cur, l]); setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); toast(`${l.name} added.`, "success"); }} />
+        ) : identify && tool === "explore" ? (
           <aside className="ws-panel" aria-label="Identify">
             <div className="ws-pane-head"><strong>{identify.layer.name}</strong><button type="button" onClick={() => setIdentify(null)} aria-label="Close">✕</button></div>
             <dl className="ws-dl ws-panel-body">

@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from . import errors
 from .config import settings
 from .db import migrate, pool
-from .routers import auth, crs, features, layers, projects
+from .routers import auth, crs, features, layers, projects, tools
 
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -26,7 +26,7 @@ app = FastAPI(title="PolyGIS API", version="1.0.0", lifespan=lifespan,
               docs_url=f"{settings.api_prefix}/docs", openapi_url=f"{settings.api_prefix}/openapi.json")
 errors.install(app)
 P = settings.api_prefix
-for r in (auth.router, projects.router, layers.router, features.router, crs.router):
+for r in (auth.router, projects.router, layers.router, features.router, crs.router, tools.router):
     app.include_router(r, prefix=P)
 
 

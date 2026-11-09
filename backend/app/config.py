@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     # Uploads: the largest file accepted, and the most features one layer may hold.
     max_upload_mb: int = 200
     max_features: int = 500_000
+    tool_timeout_s: int = 120                  # the longest a geoprocessing tool may run
 
     log_level: str = "INFO"
 

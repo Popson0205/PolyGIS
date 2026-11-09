@@ -33,3 +33,14 @@ export interface Crs { epsg: number; name: string; kind?: string }
 export interface CrsDef { epsg: number; name: string; proj4: string; geographic: boolean; unit: string }
 export interface Selection { ids: number[]; count: number; bbox: [number, number, number, number] | null }
 export interface Activity { actor_name: string; action: string; target_type: string | null; target_id: string | null; details: Record<string, unknown>; at: string }
+
+export interface ToolParam {
+  name: string; label: string; type: "layer" | "layers" | "number" | "bool" | "choice" | "field" | "fields";
+  geometry?: GeometryType[]; unit?: string; min?: number; default?: unknown; choices?: [string, string][]; of?: string;
+  numeric?: boolean; optional?: boolean; when?: Record<string, unknown>;
+}
+export interface Tool { id: string; name: string; group: string; about: string; params: ToolParam[] }
+export interface Run {
+  id: number; tool: string; params: Record<string, unknown>; output_layer_id: string | null; output_name: string | null;
+  status: "done" | "failed"; message: string | null; feature_count: number | null; ms: number | null; actor_name: string; at: string;
+}
