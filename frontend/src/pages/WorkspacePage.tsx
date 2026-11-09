@@ -1,15 +1,21 @@
 import maplibregl, { type Map as MapLibre, type MapGeoJSONFeature } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeftRight, ChevronDown, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
+  LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
+  PanelRightClose, PanelRightOpen, Ruler, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Wrench, X, ZoomIn,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import AttributeTable from "../components/AttributeTable";
 import Contents from "../components/Contents";
 import { AddData, CrsPicker, Dialog, Export, NewLayer, SelectByAttributes, SelectByLocation } from "../components/Dialogs";
 import Geoprocessing from "../components/Geoprocessing";
 import LayerPanel from "../components/LayerPanel";
-import { Button, ErrorText, useToast } from "../components/ui";
+import { Apps, UserMenu, licenceNotice, useApps } from "../components/Bar";
+import { Button, ErrorText, IconButton, Resizer, useStored, useToast } from "../components/ui";
 import RasterPanel from "../components/RasterPanel";
-import { ApiError, BASE, api, rasterTileUrl, tileUrl } from "../lib/api";
+import { ApiError, BASE, api, rasterDownloadUrl, rasterTileUrl, tileUrl } from "../lib/api";
 import { formatCoords, loadCrs, metres, squareMetres } from "../lib/coords";
 import { Editor } from "../lib/editor";
 import { BASEMAPS, GLYPHS, allIds, basemapStyle, ids as layerIds, mapLayers, src } from "../lib/mapstyle";
@@ -21,7 +27,7 @@ type DialogName = "add" | "new" | "attr" | "loc" | "export" | "crs" | null;
 const DRAW = { Point: "point", LineString: "linestring", Polygon: "polygon" } as const;
 
 /** A project open in the workspace, laid out like a desktop GIS: ribbon, contents, map, properties, table, status. */
-export default function WorkspacePage({ me }: { me: Me }) {
+export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
   const { id = "" } = useParams();
   const toast = useToast();
   const canEdit = me.role !== "viewer" && me.can_write;
@@ -44,7 +50,24 @@ export default function WorkspacePage({ me }: { me: Me }) {
   const [zoom, setZoom] = useState(0);
   const [measure, setMeasure] = useState<string>("");
   const [basemap, setBasemap] = useState("streets");
-  const [gp, setGp] = useState<{ open: boolean; start: string | null }>({ open: false, start: null });
+  const [gp, setGp] = useState<{ open: boolean; start: string | null; query: string }>({ open: false, start: null, query: "" });
+  const [ribbonFolded, setRibbonFolded] = useStored("ribbon-folded", false);
+  // on a wide screen the panes stay docked (and remembered); on a tablet or phone one at a time slides over the map
+  const narrow = useNarrow(1100);
+  const [leftDocked, setLeftDocked] = useStored("left-open", true);
+  const [rightDocked, setRightDocked] = useStored("right-open", true);
+  const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
+  const leftOpen = narrow ? drawer === "left" : leftDocked;
+  const rightOpen = narrow ? drawer === "right" : rightDocked;
+  const setLeftOpen = (v: boolean) => (narrow ? setDrawer(v ? "left" : drawer === "left" ? null : drawer) : setLeftDocked(v));
+  const setRightOpen = (v: boolean) => (narrow ? setDrawer(v ? "right" : drawer === "right" ? null : drawer) : setRightDocked(v));
+  const [leftW, setLeftW] = useStored("left-width", 272);
+  const [rightW, setRightW] = useStored("right-width", 320);
+  const [tableH, setTableH] = useStored("table-height", 260);
+  const [command, setCommand] = useState("");
+  const [scale, setScale] = useState(0);
+  const commandEl = useRef<HTMLInputElement>(null);
+  const apps = useApps();
 
   const mapEl = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibre | null>(null);
@@ -83,13 +106,19 @@ export default function WorkspacePage({ me }: { me: Me }) {
     const m = new maplibregl.Map({ container: mapEl.current, style: basemapStyle(v.basemap), center: v.center ?? [8.68, 9.08], zoom: v.zoom ?? 5.5,
       bearing: v.bearing ?? 0, attributionControl: { compact: true }, boxZoom: true, doubleClickZoom: true });
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
-    m.addControl(new maplibregl.ScaleControl({ unit: "metric", maxWidth: 120 }), "bottom-right");
+    m.addControl(new maplibregl.ScaleControl({ unit: "metric", maxWidth: 120 }), "bottom-left");
     m.on("style.load", () => {
       if (!m.getStyle().glyphs) m.setGlyphs(GLYPHS);          // labels need fonts, whatever the basemap
       sync();
     });
     m.on("mousemove", (e) => setPointer(e.lngLat ? `${e.lngLat.lng},${e.lngLat.lat}` : ""));
-    m.on("zoom", () => setZoom(m.getZoom()));
+    const rescale = () => {
+      const lat = m.getCenter().lat;
+      setScale((40075016.686 * Math.cos((lat * Math.PI) / 180)) / (512 * 2 ** m.getZoom()) * (96 / 0.0254));
+    };
+    m.on("zoom", () => { setZoom(m.getZoom()); rescale(); });
+    m.on("move", rescale);
+    rescale();
     let saveT: ReturnType<typeof setTimeout>;
     m.on("moveend", () => {
       setZoom(m.getZoom());
@@ -98,7 +127,7 @@ export default function WorkspacePage({ me }: { me: Me }) {
       clearTimeout(saveT);
       saveT = setTimeout(() => { const c = m.getCenter(); void api.updateProject(id, { view: { center: [c.lng, c.lat], zoom: m.getZoom(), bearing: m.getBearing(), basemap: basemapRef.current } }).catch(() => undefined); }, 1500);
     });
-    m.on("click", (e) => void onMapClick(e.point));
+    m.on("click", (e) => { setPointer(`${e.lngLat.lng},${e.lngLat.lat}`); void onMapClick(e.point); });
     map.current = m;
     editor.current = new Editor(m, () => ({ on: state.current.snap, features: snapFeatures.current }));
     setZoom(m.getZoom());
@@ -316,15 +345,26 @@ export default function WorkspacePage({ me }: { me: Me }) {
     replaceLayer({ ...l, visible: !l.visible });
     if (canEdit) await api.updateLayer(l.id, { visible: !l.visible }).catch(() => undefined);
   }
-  async function move(lid: string, dir: 1 | -1) {
-    const order = [...layers].sort((a, b) => a.position - b.position).map((l) => l.id);
-    const k = order.indexOf(lid), j = k + dir;
-    if (j < 0 || j >= order.length) return;
-    [order[k], order[j]] = [order[j], order[k]];
-    setLayers(await api.order(id, order));
+  /** A new drawing order, bottom to top. */
+  async function reorder(ids: string[]) {
+    const pos = new Map(ids.map((x, k) => [x, k]));
+    setLayers((ls) => ls.map((l) => ({ ...l, position: pos.get(l.id) ?? l.position })));
+    try { setLayers(await api.order(id, ids)); } catch (e) { toast(e instanceof ApiError ? e.message : "Could not change the order.", "error"); void load(); }
   }
+
+  // ---------- keyboard: Esc ends a tool, Ctrl+K finds a tool ----------
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); commandEl.current?.focus(); commandEl.current?.select(); return; }
+      const typing = (e.target as HTMLElement)?.closest?.("input, textarea, select, [role=dialog]");
+      if (e.key === "Escape" && !typing && state.current.tool !== "explore") chooseTool("explore");
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  });
   async function remove(l: Layer) {
-    if (!window.confirm(`Remove ${l.name} and its ${l.feature_count.toLocaleString("en-GB")} features from the project? This can't be undone.`)) return;
+    const what = l.raster ? "the raster" : `its ${l.feature_count.toLocaleString("en-GB")} features`;
+    if (!window.confirm(`Remove ${l.name} and ${what} from the project? This can't be undone.`)) return;
     await api.deleteLayer(l.id);
     if (editId === l.id) stopEditing();
     if (tableId === l.id) setTableId(null);
@@ -354,150 +394,221 @@ export default function WorkspacePage({ me }: { me: Me }) {
   if (!project) return <p className="loading">Opening the project…</p>;
   const editable = layers.filter((l) => canEdit && l.geometry_type !== "Raster");
   const totalSel = Object.values(selection).reduce((n, x) => n + x.length, 0);
+  const notice = licenceNotice(me.product);
+  const openTool = (t: string | null, q = "") => { setGp({ open: true, start: t, query: q }); setRightOpen(true); };
+  const kindWord = editLayer?.geometry_type === "Point" ? "points" : editLayer?.geometry_type === "LineString" ? "lines" : "polygons";
+  const hint: Partial<Record<Tool, ReactNode>> = {
+    select: <>Click features of <strong>{active?.name}</strong> to select them. Shift-click adds or removes.</>,
+    "select-area": <>Draw a shape around the features of <strong>{active?.name}</strong>: click the corners, then the first one again.</>,
+    "measure-line": <>{measure ? <strong>{measure}</strong> : "Click along the line"}; click the last point again to finish.</>,
+    "measure-area": <>{measure ? <strong>{measure}</strong> : "Click the corners"}; click the first one again to finish.</>,
+    create: <>Drawing {kindWord} in <strong>{editLayer?.name}</strong>: {editLayer?.geometry_type === "Point" ? "click to place one" : "click each corner, then the last (or first) point again"}.{snap ? " Snapping is on." : ""}</>,
+    "pick-reshape": <>Click the feature of <strong>{editLayer?.name}</strong> to reshape.</>,
+    reshape: <>Drag a vertex to move it, a midpoint to add one; right-click a vertex to remove it.</>,
+  };
+  const right = gp.open ? (
+    <Geoprocessing projectId={id} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit} query={gp.query}
+      allowed={me.features.includes("geoprocessing")} rasterAllowed={me.features.includes("raster")} start={gp.start} onClose={() => setGp({ open: false, start: null, query: "" })}
+      onDone={(l) => { setLayers((cur) => [...cur, l]); setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); toast(`${l.name} added to the map.`, "success"); }} />
+  ) : identify && tool === "explore" ? (
+    <aside className="ws-panel" aria-label="Identify">
+      <div className="ws-pane-head"><Info size={16} aria-hidden="true" className="ws-pane-icon" /><strong>{identify.layer.name}</strong>
+        <IconButton label="Close" onClick={() => setIdentify(null)}><X size={16} /></IconButton></div>
+      <div className="ws-scroll ws-panel-body">
+        <dl className="ws-dl">
+          {identify.layer.geometry_type === "Raster"
+            ? Object.entries(identify.props).map(([k, v]) => <div key={k} className="ws-dl-row"><dt>{k}</dt><dd>{v == null ? <span className="ws-null">no data</span> : String(v)}</dd></div>)
+            : <><dt>ID</dt><dd>{identify.id}</dd>
+              {identify.layer.fields.map((f) => <div key={f.name} className="ws-dl-row"><dt>{f.name}</dt><dd>{identify.props[f.name] == null ? <span className="ws-null">empty</span> : String(identify.props[f.name])}</dd></div>)}</>}
+        </dl>
+        {identify.layer.geometry_type !== "Raster" && <p><button type="button" className="ws-link" onClick={() => void zoomToFeature(identify.layer, identify.id)}><ZoomIn size={14} aria-hidden="true" />Zoom to this feature</button></p>}
+      </div>
+    </aside>
+  ) : newFeature && editLayer ? (
+    <NewFeatureForm layer={editLayer} fid={newFeature.id} onDone={() => { setNewFeature(null); void refreshLayer(editLayer.id); }} />
+  ) : active?.geometry_type === "Raster" ? (
+    <RasterPanel layer={active} canEdit={canEdit} canExport={me.features.includes("export")} onChange={(l) => { replaceLayer(l); }} />
+  ) : active ? (
+    <LayerPanel layer={active} canEdit={canEdit} selected={sel(active.id)} onChange={(l) => { replaceLayer(l); }} onExport={() => setDialog("export")} />
+  ) : (
+    <aside className="ws-panel" aria-label="Properties">
+      <div className="ws-pane-head"><strong>Properties</strong></div>
+      <div className="ws-empty-state"><SlidersHorizontal size={22} aria-hidden="true" />Choose a layer in Contents to style it, label it and see its fields.</div>
+    </aside>
+  );
+  const tabs: [Tab, string][] = [["map", "Map"], ["insert", "Insert"], ["select", "Select"], ["edit", "Edit"], ["analysis", "Analysis"]];
 
   return (
-    <div className={`ws${tableLayer ? " has-table" : ""}`}>
-      <div className="ws-ribbon">
-        <div className="ws-ribbon-tabs" role="tablist">
-          <Link to="/" className="ws-back" aria-label="All projects">‹</Link>
-          <strong className="ws-title" title={project.name}>{project.name}</strong>
-          {(["map", "insert", "select", "edit", "analysis"] as Tab[]).map((t) => (
-            <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>
+    <div className="ws" style={{ "--left": `${leftW}px`, "--right": `${rightW}px`, "--table": `${tableH}px` } as React.CSSProperties}>
+      <div className="ws-top">
+      <header className="ws-titlebar">
+        <a className="ge-brand" href="/" aria-label="GeoEstate PolyGIS: all projects"><img src="/logo.png" alt="" /><span>Poly<strong>GIS</strong></span></a>
+        <nav className="ws-crumbs" aria-label="Where you are">
+          <ChevronRight size={14} aria-hidden="true" /><Link to="/">Projects</Link><ChevronRight size={14} aria-hidden="true" />
+          <strong title={project.description || project.name}>{project.name}</strong>
+        </nav>
+        <form className="ws-command" role="search" onSubmit={(e) => { e.preventDefault(); openTool(null, command); }}>
+          <Search size={15} aria-hidden="true" />
+          <input ref={commandEl} value={command} placeholder="Find a tool…" aria-label="Find a tool"
+            onChange={(e) => { setCommand(e.target.value); if (e.target.value.trim()) openTool(null, e.target.value); }}
+            onKeyDown={(e) => { if (e.key === "Escape") { setCommand(""); e.currentTarget.blur(); } }} />
+          <span className="kbd" aria-hidden="true">Ctrl K</span>
+        </form>
+        <Apps apps={apps} />
+        <UserMenu me={me} onSignOut={onSignOut} />
+      </header>
+      {notice && <div className={`ge-notice ge-notice-${notice.tone}`} role="status">{notice.text}</div>}
+      </div>
+
+      <div className={`ws-ribbon${ribbonFolded ? " is-folded" : ""}`}>
+        <div className="ws-ribbon-tabs" role="tablist" aria-label="Ribbon">
+          {tabs.map(([t, label]) => (
+            <button key={t} role="tab" aria-selected={tab === t} className={t === "edit" && editId ? "ws-tab-ctx" : ""}
+              onClick={() => { if (ribbonFolded && tab === t) setRibbonFolded(false); setTab(t); }} onDoubleClick={() => setRibbonFolded(!ribbonFolded)}>{label}{t === "edit" && editId ? ": editing" : ""}</button>
           ))}
+          <IconButton label={ribbonFolded ? "Show the ribbon" : "Fold the ribbon away"} onClick={() => setRibbonFolded(!ribbonFolded)}>
+            {ribbonFolded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+          </IconButton>
         </div>
-        <div className="ws-ribbon-body">
+        <div className="ws-ribbon-body" role="tabpanel">
           {tab === "map" && <>
             <Group name="Navigate">
-              <Tb on={tool === "explore"} onClick={() => chooseTool("explore")} icon="☝" label="Explore" />
-              <Tb onClick={zoomAll} icon="⤢" label="Full extent" disabled={!layers.some((l) => l.bbox)} />
+              <Tb on={tool === "explore"} onClick={() => chooseTool("explore")} icon={<MousePointer2 />} label="Explore" />
+              <Tb onClick={zoomAll} icon={<Maximize />} label="Full extent" disabled={!layers.some((l) => l.bbox)} />
+              <Tb onClick={() => active?.bbox && zoomTo(active.bbox)} icon={<ZoomIn />} label="Zoom to layer" disabled={!active?.bbox} />
+            </Group>
+            <Group name="Basemap">
+              <div className="ws-basemaps" role="radiogroup" aria-label="Basemap">
+                {BASEMAPS.map((b) => (
+                  <button key={b.id} type="button" role="radio" aria-checked={basemap === b.id} className={`ws-basemap${basemap === b.id ? " is-on" : ""}`} onClick={() => switchBasemap(b.id)} title={b.name}>
+                    <i style={{ background: BASEMAP_LOOK[b.id] ?? "#ddd" }} />{b.name.split(" (")[0]}
+                  </button>
+                ))}
+              </div>
             </Group>
             <Group name="Layer">
-              <label className="ws-tb-select">Basemap<select value={basemap} onChange={(e) => switchBasemap(e.target.value)}>{BASEMAPS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
-              <Tb onClick={() => setDialog("add")} icon="＋" label="Add data" disabled={!canEdit} />
+              <Tb onClick={() => setDialog("add")} icon={<FilePlus2 />} label="Add data" disabled={!canEdit} />
             </Group>
             <Group name="Coordinates">
-              <Tb onClick={() => setDialog("crs")} icon="⌖" label={`EPSG:${project.display_epsg}`} />
+              <Tb onClick={() => setDialog("crs")} icon={<Globe2 />} label={crs ? shortCrs(crs.name) : `EPSG:${project.display_epsg}`} />
             </Group>
           </>}
           {tab === "insert" && <Group name="Data">
-            <Tb onClick={() => setDialog("add")} icon="⇪" label="Add data" disabled={!canEdit} />
-            <Tb onClick={() => setDialog("new")} icon="✎" label="New layer" disabled={!canEdit} />
-            <Tb onClick={() => setDialog("export")} icon="⇩" label="Export layer" disabled={!active} />
+            <Tb onClick={() => setDialog("add")} icon={<FilePlus2 />} label="Add data" disabled={!canEdit} />
+            <Tb onClick={() => setDialog("new")} icon={<Layers />} label="New layer" disabled={!canEdit} />
+            <Tb onClick={() => setDialog("export")} icon={<Download />} label="Export layer" disabled={!active || active.geometry_type === "Raster"} />
           </Group>}
           {tab === "select" && <>
             <Group name="Interactive">
-              <Tb on={tool === "select"} onClick={() => chooseTool("select")} icon="⬚" label="Select" disabled={!active} />
-              <Tb on={tool === "select-area"} onClick={() => chooseTool("select-area")} icon="⬠" label="By shape" disabled={!active} />
+              <Tb on={tool === "select"} onClick={() => chooseTool("select")} icon={<MousePointerClick />} label="Select" disabled={!active || active.geometry_type === "Raster"} />
+              <Tb on={tool === "select-area"} onClick={() => chooseTool("select-area")} icon={<Lasso />} label="By shape" disabled={!active || active.geometry_type === "Raster"} />
             </Group>
             <Group name="Queries">
-              <Tb onClick={() => setDialog("attr")} icon="≡" label="By attributes" disabled={!active} />
-              <Tb onClick={() => setDialog("loc")} icon="◎" label="By location" disabled={!active} />
+              <Tb onClick={() => setDialog("attr")} icon={<ListFilter />} label="By attributes" disabled={!active || active.geometry_type === "Raster"} />
+              <Tb onClick={() => setDialog("loc")} icon={<LocateFixed />} label="By location" disabled={!active || active.geometry_type === "Raster"} />
             </Group>
             <Group name="Selection">
-              <Tb onClick={() => void switchSelection()} icon="⇄" label="Switch" disabled={!active} />
-              <Tb onClick={() => setSelection({})} icon="✕" label="Clear" disabled={!totalSel} />
-              <Tb onClick={() => active && void zoomToSelection(active)} icon="⌕" label="Zoom to" disabled={!active || !sel(active.id).length} />
+              <Tb onClick={() => void switchSelection()} icon={<ArrowLeftRight />} label="Switch" disabled={!active || active.geometry_type === "Raster"} />
+              <Tb onClick={() => setSelection({})} icon={<Eraser />} label="Clear" disabled={!totalSel} />
+              <Tb onClick={() => active && void zoomToSelection(active)} icon={<Scan />} label="Zoom to" disabled={!active || !sel(active.id).length} />
             </Group>
           </>}
           {tab === "edit" && <>
             <Group name="Editing">
               {!editId ? <label className="ws-tb-select">Layer to edit
-                <select value="" onChange={(e) => e.target.value && startEditing(e.target.value)} disabled={!canEdit}>
-                  <option value="">{canEdit ? "Choose a layer…" : "Read-only"}</option>
+                <select value="" onChange={(e) => e.target.value && startEditing(e.target.value)} disabled={!canEdit || !editable.length}>
+                  <option value="">{!canEdit ? "Read-only" : editable.length ? "Choose a layer…" : "No vector layers yet"}</option>
                   {editable.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </select></label>
-                : <Tb onClick={stopEditing} icon="■" label={`Stop editing ${editLayer?.name ?? ""}`} />}
+                : <Tb onClick={stopEditing} icon={<CircleStop />} label="Stop editing" />}
             </Group>
             {editLayer && <>
               <Group name="Features">
-                <Tb on={tool === "create"} onClick={() => chooseTool("create")} icon="✚" label={`Create ${editLayer.geometry_type === "Point" ? "points" : editLayer.geometry_type === "LineString" ? "lines" : "polygons"}`} />
-                <Tb on={tool === "pick-reshape" || tool === "reshape"} onClick={() => chooseTool("pick-reshape")} icon="◇" label="Reshape" />
-                <Tb onClick={() => void deleteSelected()} icon="🗑" label="Delete selected" disabled={!sel(editLayer.id).length} />
-                <Tb onClick={() => void undo()} icon="↶" label="Undo" />
+                <Tb on={tool === "create"} onClick={() => chooseTool("create")} icon={<SquarePen />} label={`Create ${kindWord}`} />
+                <Tb on={tool === "pick-reshape" || tool === "reshape"} onClick={() => chooseTool("pick-reshape")} icon={<Spline />} label="Reshape" />
+                <Tb onClick={() => void deleteSelected()} icon={<Trash2 />} label="Delete selected" disabled={!sel(editLayer.id).length} />
+                <Tb onClick={() => void undo()} icon={<Undo2 />} label="Undo" />
               </Group>
               <Group name="Snapping">
-                <Tb on={snap} onClick={() => setSnap(!snap)} icon="⌁" label={snap ? "Snapping on" : "Snapping off"} />
+                <Tb on={snap} onClick={() => setSnap(!snap)} icon={<Magnet />} label={snap ? "Snapping on" : "Snapping off"} />
               </Group>
               {tool === "reshape" && <Group name="Shape">
-                <Button small variant="primary" onClick={() => void saveReshape()}>Save shape</Button>
-                <Button small onClick={() => chooseTool("pick-reshape")}>Cancel</Button>
+                <div className="ws-tb-stack" style={{ paddingTop: 6 }}>
+                  <Button small variant="primary" onClick={() => void saveReshape()}>Save shape</Button>
+                  <Button small variant="ghost" onClick={() => chooseTool("pick-reshape")}>Cancel</Button>
+                </div>
               </Group>}
             </>}
           </>}
           {tab === "analysis" && <>
             <Group name="Measure">
-              <Tb on={tool === "measure-line"} onClick={() => chooseTool("measure-line")} icon="📏" label="Distance" />
-              <Tb on={tool === "measure-area"} onClick={() => chooseTool("measure-area")} icon="▱" label="Area" />
+              <Tb on={tool === "measure-line"} onClick={() => chooseTool("measure-line")} icon={<Ruler />} label="Distance" />
+              <Tb on={tool === "measure-area"} onClick={() => chooseTool("measure-area")} icon={<LandPlot />} label="Area" />
             </Group>
             <Group name="Geoprocessing">
-              <Tb on={gp.open && !gp.start} onClick={() => setGp({ open: !gp.open || !!gp.start, start: null })} icon="🧰" label="Tools" />
-              <Tb onClick={() => setGp({ open: true, start: "buffer" })} icon="◍" label="Buffer" />
-              <Tb onClick={() => setGp({ open: true, start: "clip" })} icon="✂" label="Clip" />
-              <Tb onClick={() => setGp({ open: true, start: "intersect" })} icon="⋂" label="Intersect" />
-              <Tb onClick={() => setGp({ open: true, start: "dissolve" })} icon="⬢" label="Dissolve" />
-              <Tb onClick={() => setGp({ open: true, start: "spatial_join" })} icon="⇆" label="Spatial join" />
+              <Tb on={gp.open && !gp.start && rightOpen} onClick={() => (gp.open && !gp.start ? setGp({ open: false, start: null, query: "" }) : openTool(null))} icon={<Wrench />} label="All tools" />
+              <Tb onClick={() => openTool("buffer")} icon={<CircleDot />} label="Buffer" />
+              <Tb onClick={() => openTool("clip")} icon={<Scissors />} label="Clip" />
+              <Tb onClick={() => openTool("intersect")} icon={<Combine />} label="Intersect" />
+              <Tb onClick={() => openTool("dissolve")} icon={<Merge />} label="Dissolve" />
+              <Tb onClick={() => openTool("spatial_join")} icon={<Link2 />} label="Spatial join" />
             </Group>
+            {me.features.includes("raster") && <Group name="Raster">
+              <Tb onClick={() => openTool("hillshade")} icon={<Mountain />} label="Hillshade" />
+              <Tb onClick={() => openTool("slope")} icon={<TrendingUp />} label="Slope" />
+              <Tb onClick={() => openTool("contours")} icon={<Waves />} label="Contours" />
+              <Tb onClick={() => openTool("watershed")} icon={<Droplets />} label="Watershed" />
+              <Tb onClick={() => openTool("zonal_statistics")} icon={<Grid3x3 />} label="Zonal statistics" />
+            </Group>}
           </>}
         </div>
       </div>
 
-      <div className="ws-body">
-        <Contents layers={layers} activeId={activeId} editingId={editId} canEdit={canEdit} onActivate={setActiveId} onToggle={(l) => void toggle(l)}
-          onMove={(lid, d) => void move(lid, d)} onZoom={(l) => l.bbox && zoomTo(l.bbox)} onTable={(l) => setTableId(l.id)} onRemove={(l) => void remove(l)} />
+      <div className={`ws-body${leftOpen ? "" : " no-left"}${rightOpen ? "" : " no-right"}`}>
+        {leftOpen ? (
+          <Contents layers={layers} activeId={activeId} editingId={editId} canEdit={canEdit} selection={selection} onActivate={setActiveId} onToggle={(l) => void toggle(l)}
+            onReorder={(ids) => void reorder(ids)} onZoom={(l) => l.bbox && zoomTo(l.bbox)} onTable={(l) => setTableId(l.id)} onRemove={(l) => void remove(l)}
+            onProperties={(l) => { setActiveId(l.id); setGp({ open: false, start: null, query: "" }); setIdentify(null); setRightOpen(true); }}
+            onExport={(l) => { setActiveId(l.id); if (l.geometry_type !== "Raster") setDialog("export"); else window.location.assign(rasterDownloadUrl(l.id)); }}
+            onEdit={(l) => startEditing(l.id)} onAdd={() => setDialog("add")} onCollapse={() => setLeftOpen(false)} />
+        ) : (
+          <div className="ws-rail is-left"><IconButton label="Show Contents" onClick={() => setLeftOpen(true)}><PanelLeftOpen size={18} /></IconButton>
+            <IconButton label="Add data" onClick={() => setDialog("add")} disabled={!canEdit}><FilePlus2 size={18} /></IconButton></div>
+        )}
+        {leftOpen && <Resizer axis="x" value={leftW} min={200} max={480} onChange={setLeftW} label="Resize Contents" className="rs-left" />}
         <div className="ws-map-wrap">
           <div ref={mapEl} className={`ws-map tool-${tool}`} />
-          {tool !== "explore" && <div className="ws-hintbar" role="status">{{
-            select: "Click features of the active layer to select them; Shift-click to add or remove.",
-            "select-area": "Draw a shape: click the corners, then click the first one to finish.",
-            "measure-line": `Click along the line; click the last point again to finish. ${measure}`,
-            "measure-area": `Click the corners; click the first one to finish. ${measure}`,
-            create: `Drawing in ${editLayer?.name}: ${editLayer?.geometry_type === "Point" ? "click to place a point" : "click each corner; click the last (or first) point again to finish"}. ${snap ? "Snaps to features within 12 px." : ""}`,
-            "pick-reshape": "Click the feature to reshape.",
-            reshape: "Drag a vertex to move it; drag a midpoint to add one; right-click a vertex to remove it. Then Save shape.",
-          }[tool] ?? ""}</div>}
+          {tool !== "explore" && hint[tool] && <div className="ws-hintbar" role="status"><span>{hint[tool]}</span>
+            <button type="button" onClick={() => (tool === "create" || tool === "pick-reshape" || tool === "reshape" ? chooseTool("explore") : chooseTool("explore"))}>Done <span className="kbd" style={{ background: "transparent", color: "#cfd6e4", borderColor: "rgba(255,255,255,.3)" }}>Esc</span></button></div>}
         </div>
-        {gp.open ? (
-          <Geoprocessing projectId={id} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit}
-            allowed={me.features.includes("geoprocessing")} rasterAllowed={me.features.includes("raster")} start={gp.start} onClose={() => setGp({ open: false, start: null })}
-            onDone={(l) => { setLayers((cur) => [...cur, l]); setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); toast(`${l.name} added.`, "success"); }} />
-        ) : identify && tool === "explore" ? (
-          <aside className="ws-panel" aria-label="Identify">
-            <div className="ws-pane-head"><strong>{identify.layer.name}</strong><button type="button" onClick={() => setIdentify(null)} aria-label="Close">✕</button></div>
-            <dl className="ws-dl ws-panel-body">
-              {identify.layer.geometry_type === "Raster"
-                ? Object.entries(identify.props).map(([k, v]) => <div key={k} className="ws-dl-row"><dt>{k}</dt><dd>{v == null ? <span className="ws-null">no data</span> : String(v)}</dd></div>)
-                : <><dt>ID</dt><dd>{identify.id}</dd>
-                  {identify.layer.fields.map((f) => <div key={f.name} className="ws-dl-row"><dt>{f.name}</dt><dd>{identify.props[f.name] == null ? <span className="ws-null">&lt;null&gt;</span> : String(identify.props[f.name])}</dd></div>)}</>}
-            </dl>
-            {identify.layer.geometry_type !== "Raster" && <p className="ws-panel-body"><Button small onClick={() => void zoomToFeature(identify.layer, identify.id)}>Zoom to it</Button></p>}
-          </aside>
-        ) : newFeature && editLayer ? (
-          <NewFeatureForm layer={editLayer} fid={newFeature.id} onDone={() => { setNewFeature(null); void refreshLayer(editLayer.id); }} />
-        ) : active?.geometry_type === "Raster" ? (
-          <RasterPanel layer={active} canEdit={canEdit} canExport={me.features.includes("export")} onChange={(l) => { replaceLayer(l); }} />
-        ) : active ? (
-          <LayerPanel layer={active} canEdit={canEdit} selected={sel(active.id)} onChange={(l) => { replaceLayer(l); }} onExport={() => setDialog("export")} />
-        ) : <aside className="ws-panel"><p className="ws-empty">Choose a layer in Contents to see its symbology, labels and fields.</p></aside>}
+        {rightOpen && <Resizer axis="x" value={rightW} min={260} max={560} onChange={setRightW} invert label="Resize the side pane" className="rs-right" />}
+        {rightOpen ? <div className="ws-right">{right}<IconButton className="ws-collapse" label="Hide the side pane" onClick={() => setRightOpen(false)}><PanelRightClose size={16} /></IconButton></div> : (
+          <div className="ws-rail is-right"><IconButton label="Show the side pane" onClick={() => setRightOpen(true)}><PanelRightOpen size={18} /></IconButton>
+            <IconButton label="Geoprocessing tools" onClick={() => openTool(null)}><Wrench size={18} /></IconButton></div>
+        )}
+        {(leftOpen || rightOpen) && <div className="ws-scrim" onClick={() => { setLeftOpen(false); setRightOpen(false); }} aria-hidden="true" />}
       </div>
 
       {tableLayer && <AttributeTable layer={tableLayer} selected={sel(tableLayer.id)} editing={editId === tableLayer.id}
+        resizer={<Resizer axis="y" value={tableH} min={140} max={640} invert onChange={setTableH} label="Resize the table" />}
         onSelect={(ids, add) => setSelection((s) => ({ ...s, [tableLayer.id]: add ? Array.from(new Set([...(s[tableLayer.id] ?? []), ...ids])) : ids }))}
         onZoomTo={(fid) => void zoomToFeature(tableLayer, fid)} onClose={() => setTableId(null)} onEdited={() => void refreshLayer(tableLayer.id)} />}
 
-      <footer className="ws-status">
-        <span className="ws-mono" title={crs?.name}>{pointerText || "—"}</span>
-        <span>{crs ? `${crs.name}` : `EPSG:${project.display_epsg}`}</span>
-        <span>Zoom {zoom.toFixed(1)}</span>
-        {totalSel > 0 && <span>{totalSel.toLocaleString("en-GB")} selected</span>}
-        {measure && <strong>{measure}</strong>}
+      <footer className="ws-status" aria-label="Status">
+        <span className="ws-coords" title="Pointer position">{pointerText || "Point at the map for coordinates"}</span>
+        <button type="button" className="ws-crs" onClick={() => setDialog("crs")} title="Change the coordinate system">{crs ? crs.name : `EPSG:${project.display_epsg}`}</button>
+        <span title="Map scale at the centre">1:{niceScale(scale)}</span>
+        <span className="ws-zoom">Zoom {zoom.toFixed(1)}</span>
+        {totalSel > 0 && <button type="button" className="ws-sel" onClick={() => setSelection({})} title="Clear the selection">{totalSel.toLocaleString("en-GB")} selected <X size={12} aria-hidden="true" /></button>}
+        {measure && <span className="ws-measure">{measure}</span>}
         <span className="ge-spacer" />
-        {!canEdit && <span className="ge-badge">{me.can_write ? "Viewer: read-only" : "Read-only licence"}</span>}
+        {!canEdit && <span>{me.can_write ? "Viewer: read-only" : "Read-only licence"}</span>}
       </footer>
 
       {dialog === "add" && <AddData projectId={id} onClose={() => setDialog(null)} onDone={(ls) => {
-        setLayers((cur) => [...cur, ...ls]); setActiveId(ls[0].id); setDialog(null);
+        setLayers((cur) => [...cur, ...ls]); setActiveId(ls[0].id); setDialog(null); setLeftOpen(true);
         const dropped = ls.reduce((n, l) => n + (l.source.dropped ?? 0), 0);
-        toast(`Added ${ls.map((l) => `${l.name} (${l.feature_count.toLocaleString("en-GB")})`).join(", ")}.${dropped ? ` ${dropped} feature(s) had no usable shape and were left out.` : ""}`, "success");
+        toast(`Added ${ls.map((l) => l.name).join(", ")}.${dropped ? ` ${dropped} feature(s) had no usable shape and were left out.` : ""}`, "success");
         if (ls[0].bbox) zoomTo(ls[0].bbox);
       }} />}
       {dialog === "new" && <NewLayer projectId={id} onClose={() => setDialog(null)} onDone={(l) => { setLayers((cur) => [...cur, l]); setDialog(null); startEditing(l.id, l); }} />}
@@ -509,11 +620,40 @@ export default function WorkspacePage({ me }: { me: Me }) {
   );
 }
 
-function Group({ name, children }: { name: string; children: React.ReactNode }) {
-  return <div className="ws-group"><div className="ws-group-body">{children}</div><div className="ws-group-name">{name}</div></div>;
+/** Whether the window is narrower than `px` (a tablet or phone). */
+function useNarrow(px: number) {
+  const q = `(max-width: ${px}px)`;
+  const [n, setN] = useState(() => typeof window !== "undefined" && window.matchMedia(q).matches);
+  useEffect(() => {
+    const m = window.matchMedia(q);
+    const f = () => setN(m.matches);
+    m.addEventListener("change", f);
+    return () => m.removeEventListener("change", f);
+  }, [q]);
+  return n;
 }
-function Tb({ icon, label, onClick, on, disabled }: { icon: string; label: string; onClick: () => void; on?: boolean; disabled?: boolean }) {
-  return <button type="button" className={`ws-tb${on ? " is-on" : ""}`} onClick={onClick} disabled={disabled} aria-pressed={on}><span aria-hidden="true">{icon}</span>{label}</button>;
+
+/** What each basemap looks like, for its button. */
+const BASEMAP_LOOK: Record<string, string> = {
+  streets: "linear-gradient(135deg, #f2efe6 0 40%, #fbd38d 40% 44%, #f2efe6 44% 70%, #b9dcf0 70%)",
+  light: "linear-gradient(135deg, #f4f4f2 0 55%, #dcdcdc 55% 58%, #f4f4f2 58%)",
+  satellite: "linear-gradient(135deg, #4e6b3a, #7a8f55 45%, #a99a6b 70%, #556b45)",
+  imagery: "linear-gradient(135deg, #3d5a2e, #8a8a5c 60%, #6b7d4a)",
+  none: "#f4f6fa",
+};
+const shortCrs = (name: string) => (name.length > 22 ? `${name.slice(0, 20)}…` : name);
+/** A scale denominator rounded the way maps print it. */
+function niceScale(s: number) {
+  if (!isFinite(s) || s <= 0) return "–";
+  const p = 10 ** Math.max(0, Math.floor(Math.log10(s)) - 1);
+  return (Math.round(s / p) * p).toLocaleString("en-GB");
+}
+
+function Group({ name, children }: { name: string; children: React.ReactNode }) {
+  return <div className="ws-group" role="group" aria-label={name}><div className="ws-group-body">{children}</div><div className="ws-group-name">{name}</div></div>;
+}
+function Tb({ icon, label, onClick, on, disabled }: { icon: ReactNode; label: string; onClick: () => void; on?: boolean; disabled?: boolean }) {
+  return <button type="button" className={`ws-tb${on ? " is-on" : ""}`} onClick={onClick} disabled={disabled} aria-pressed={on}><span aria-hidden="true" className="ws-tb-icon">{icon}</span>{label}</button>;
 }
 
 function NewFeatureForm({ layer, fid, onDone }: { layer: Layer; fid: number; onDone: () => void }) {
