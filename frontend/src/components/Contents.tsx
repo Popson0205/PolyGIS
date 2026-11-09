@@ -1,10 +1,18 @@
 import type { Layer } from "../lib/types";
 import { colour } from "../lib/mapstyle";
+import { gradient, rasterStyle } from "./RasterPanel";
 
 const KIND: Record<string, string> = { Point: "points", LineString: "lines", Polygon: "polygons" };
+const size = (l: Layer) => (l.raster ? `${l.raster.width.toLocaleString("en-GB")} × ${l.raster.height.toLocaleString("en-GB")} cells` : `${l.feature_count.toLocaleString("en-GB")} ${KIND[l.geometry_type]}`);
 
 /** A small swatch drawn the way the layer is drawn. */
 export function Swatch({ layer }: { layer: Layer }) {
+  if (layer.geometry_type === "Raster") {
+    const rs = rasterStyle(layer);
+    const bg = rs.mode === "rgb" ? "linear-gradient(135deg, #d62728, #2ca02c, #1f77b4)" : rs.mode === "classes"
+      ? `linear-gradient(135deg, ${(rs.categories.length ? rs.categories.slice(0, 4).map((c) => c.color) : ["#888", "#ccc"]).join(", ")})` : gradient(rs.ramp, rs.invert);
+    return <span className="ws-swatch-raster" style={{ background: bg }} aria-hidden="true" />;
+  }
   const c = typeof colour(layer) === "string" ? (colour(layer) as string) : layer.style.categories?.[0]?.color ?? layer.style.classes?.[0]?.color ?? layer.style.color;
   if (layer.geometry_type === "Point") return <svg width="18" height="18" aria-hidden="true"><circle cx="9" cy="9" r="5" fill={c} stroke={layer.style.stroke} strokeWidth="1.5" /></svg>;
   if (layer.geometry_type === "LineString") return <svg width="18" height="18" aria-hidden="true"><path d="M2 14 L8 6 L16 10" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" /></svg>;
@@ -27,15 +35,15 @@ export default function Contents({ layers, activeId, editingId, canEdit, onActiv
           <li key={l.id} className={`ws-layer${l.id === activeId ? " is-active" : ""}`}>
             <div className="ws-layer-row">
               <input type="checkbox" checked={l.visible} aria-label={`Show ${l.name}`} onChange={() => onToggle(l)} />
-              <button type="button" className="ws-layer-name" onClick={() => onActivate(l.id)} onDoubleClick={() => onZoom(l)} title={`${l.name}: ${l.feature_count.toLocaleString("en-GB")} ${KIND[l.geometry_type]}`}>
+              <button type="button" className="ws-layer-name" onClick={() => onActivate(l.id)} onDoubleClick={() => onZoom(l)} title={`${l.name}: ${size(l)}`}>
                 <Swatch layer={l} /><span>{l.name}</span>{l.id === editingId && <em className="ws-tag">editing</em>}
               </button>
             </div>
             {l.id === activeId && (
               <div className="ws-layer-actions">
-                <span className="ws-muted">{l.feature_count.toLocaleString("en-GB")} {KIND[l.geometry_type]}</span>
+                <span className="ws-muted">{size(l)}</span>
                 <button type="button" onClick={() => onZoom(l)} disabled={!l.bbox}>Zoom to</button>
-                <button type="button" onClick={() => onTable(l)}>Table</button>
+                {l.geometry_type !== "Raster" && <button type="button" onClick={() => onTable(l)}>Table</button>}
                 {canEdit && <>
                   <button type="button" aria-label={`Move ${l.name} up`} onClick={() => onMove(l.id, 1)} disabled={k === 0}>▲</button>
                   <button type="button" aria-label={`Move ${l.name} down`} onClick={() => onMove(l.id, -1)} disabled={k === top.length - 1}>▼</button>
@@ -43,7 +51,8 @@ export default function Contents({ layers, activeId, editingId, canEdit, onActiv
                 </>}
               </div>
             )}
-            {l.style.type !== "single" && l.visible && (
+            {l.geometry_type === "Raster" && l.visible && <RasterLegend layer={l} />}
+            {l.geometry_type !== "Raster" && l.style.type !== "single" && l.visible && (
               <ul className="ws-legend">
                 {(l.style.type === "categorized" ? (l.style.categories ?? []).slice(0, 12).map((c) => [c.label || c.value || "(empty)", c.color])
                   : (l.style.classes ?? []).map((c) => [`${fmt(c.min)} – ${fmt(c.max)}`, c.color])).map(([t, c]) => (
@@ -59,3 +68,15 @@ export default function Contents({ layers, activeId, editingId, canEdit, onActiv
 }
 
 const fmt = (v: number) => (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString("en-GB") : Number(v.toPrecision(4)).toString());
+
+function RasterLegend({ layer }: { layer: Layer }) {
+  const rs = rasterStyle(layer);
+  if (rs.mode === "classes") return (
+    <ul className="ws-legend">{rs.categories.filter((c) => !c.hidden).slice(0, 12).map((c) => <li key={c.value}><i style={{ background: c.color }} />{c.label || c.value}</li>)}</ul>
+  );
+  if (rs.mode === "rgb") return <p className="ws-legend ws-muted">Bands {rs.bands.join(", ")} as red, green, blue</p>;
+  return (
+    <div className="ws-legend"><div className="ws-ramp" style={{ background: gradient(rs.ramp, rs.invert) }} />
+      <div className="ws-ramp-ends"><span>{fmt(rs.min ?? 0)}</span><span>{fmt(rs.max ?? 0)}</span></div></div>
+  );
+}

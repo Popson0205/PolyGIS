@@ -1,5 +1,5 @@
 import type { ExpressionSpecification, LayerSpecification, StyleSpecification } from "maplibre-gl";
-import type { Layer } from "./types";
+import type { Layer, RasterStyle } from "./types";
 
 /** Basemaps that may be used in a paid product without a key: OpenFreeMap (OpenStreetMap data) and Sentinel-2
  *  cloudless 2016 by EOX (CC BY 4.0). VITE_IMAGERY_URL can add licensed high-resolution imagery. */
@@ -25,7 +25,7 @@ export const SELECT = "#00d5ff";     // the selection colour, as in ArcGIS Pro
 export const src = (l: Layer) => `src-${l.id}`;
 export const ids = (l: Layer) => {
   const base = `lyr-${l.id}`;
-  return { fill: `${base}-fill`, line: `${base}-line`, circle: `${base}-circle`, label: `${base}-label`,
+  return { raster: `${base}-raster`, fill: `${base}-fill`, line: `${base}-line`, circle: `${base}-circle`, label: `${base}-label`,
     selFill: `${base}-sel-fill`, selLine: `${base}-sel-line`, selCircle: `${base}-sel-circle` };
 };
 export const allIds = (l: Layer) => Object.values(ids(l));
@@ -49,6 +49,11 @@ export function colour(l: Layer): ExpressionSpecification | string {
 /** MapLibre layers that draw one PolyGIS layer, its selection and its labels. */
 export function mapLayers(l: Layer, selected: number[], hidden: number[] = []): LayerSpecification[] {
   const i = ids(l);
+  if (l.geometry_type === "Raster") {
+    const rs = l.style as unknown as RasterStyle;
+    return [{ id: i.raster, type: "raster", source: src(l), layout: { visibility: l.visible ? "visible" : "none" },
+      paint: { "raster-opacity": rs.opacity ?? 1, "raster-resampling": rs.mode === "classes" ? "nearest" : "linear", "raster-fade-duration": 0 } } as LayerSpecification];
+  }
   const s = l.style;
   const vis = l.visible ? "visible" : "none";
   const base = { source: src(l), "source-layer": "features", layout: { visibility: vis } } as const;

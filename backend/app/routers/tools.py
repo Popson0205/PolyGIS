@@ -60,6 +60,8 @@ async def run(project_id: UUID, tool: str, body: RunIn,
             lay = await layer_of(conn, v, user)
             if str(lay["project_id"]) != str(project_id):
                 raise Problem(422, f"{lay['name']} is in another project.", code="validation", fields={"params": [p["name"]]})
+            if lay["geometry_type"] == "Raster":
+                raise Problem(422, f"{lay['name']} is a raster: use the raster tools for it.", code="validation", fields={"params": [p["name"]]})
             if p.get("geometry"):
                 tools.need_kind(lay, p["geometry"], p["label"])
             layers[p["name"]] = lay

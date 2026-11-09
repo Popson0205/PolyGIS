@@ -48,6 +48,18 @@ FastAPI with PostgreSQL and PostGIS (the `gis` schema of the platform database) 
 MapLibre GL in front; Terra Draw for drawing. Layers are served to the map as vector tiles straight from PostGIS
 (`ST_AsMVT`). Files are read and written with GDAL (pyogrio, which brings its own GDAL).
 
+## Rasters
+
+Elevation models, drone and satellite imagery, and the results of raster tools are raster layers, listed with the
+vector layers. Each is kept as a Cloud-Optimized GeoTIFF (rasterio, with its own GDAL) and drawn as map tiles warped
+to Web Mercator from the overview that suits the zoom; clicking one shows its values. 69 raster tools (Advanced plan,
+`raster` feature): terrain (slope, aspect, hillshade, curvature, TPI, TRI, roughness, VRM, contours, viewshed, cut and
+fill, profiles), hydrology (fill, flow direction and accumulation, streams with Strahler order, watersheds, basins,
+wetness index, flow length), map algebra (raster calculator, NDVI, SAVI, EVI, reclassify, slice, cell statistics),
+focal and zonal statistics, distance and cost distance, kernel density, interpolation (IDW, TIN, spline), conversion
+(project, resample, clip, mosaic, bands, raster to and from features) and image classification. Cell sizes are worked
+out in metres on the ground, also for rasters in longitude and latitude.
+
 ## Setting it up
 
 1. In Geohub's variables: add PolyGIS to `ID_CLIENTS`
@@ -57,6 +69,10 @@ MapLibre GL in front; Terra Draw for drawing. Layers are served to the map as ve
    `DATABASE_URL` (Geohub's database), `APP_URL`, `GEOHUB_URL`, `GEOHUB_API`, `ID_CLIENT=gis`, `ID_SECRET` (the same
    secret). The `gis` schema is made on start-up. Optional: `MAX_UPLOAD_MB` (200), `MAX_FEATURES` (500000),
    `VITE_IMAGERY_URL` and `VITE_IMAGERY_ATTRIBUTION`.
+   Rasters: set `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `S3_BUCKET` (Geohub's R2 bucket works; files go
+   under `S3_PREFIX`, `polygis/rasters/`), and `RASTER_DIR` is then only a local copy. Without a bucket, mount a
+   Railway volume at `RASTER_DIR` (default `./data/rasters`), or rasters are lost when the service restarts.
+   Optional: `MAX_RASTER_MB` (1000), `MAX_RASTER_CELLS` (60 million), `MAX_HYDRO_CELLS` (16 million).
 3. Give an organization PolyGIS in Geohub's staff console (Products), or from a paid CRM invoice.
 
 ## Developing

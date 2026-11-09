@@ -7,8 +7,8 @@ const WORD: Record<string, string> = { Point: "points", LineString: "lines", Pol
 const when = (d: string) => new Date(d).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 /** The geoprocessing pane: find a tool, fill in its form, run it; the result arrives as a new layer. */
-export default function Geoprocessing({ projectId, layers, selection, activeId, allowed, canEdit, start, onClose, onDone }: {
-  projectId: string; layers: Layer[]; selection: Record<string, number[]>; activeId: string | null; allowed: boolean; canEdit: boolean;
+export default function Geoprocessing({ projectId, layers, selection, activeId, allowed, rasterAllowed, canEdit, start, onClose, onDone }: {
+  projectId: string; layers: Layer[]; selection: Record<string, number[]>; activeId: string | null; allowed: boolean; rasterAllowed?: boolean; canEdit: boolean;
   start?: string | null; onClose: () => void; onDone: (l: Layer) => void;
 }) {
   const [tools, setTools] = useState<Tool[]>([]);
@@ -16,7 +16,10 @@ export default function Geoprocessing({ projectId, layers, selection, activeId, 
   const [q, setQ] = useState("");
   const [tool, setTool] = useState<Tool | null>(null);
   const [error, setError] = useState<unknown>(null);
-  useEffect(() => { void api.tools().then(setTools, setError); }, []);
+  useEffect(() => {
+    void Promise.all([api.tools(), rasterAllowed ? api.rasterTools() : Promise.resolve([] as Tool[])])
+      .then(([v, r]) => setTools([...v, ...r.map((t) => ({ ...t, kind: "raster" as const, group: `Raster: ${t.group}` }))]), setError);
+  }, [rasterAllowed]);
   useEffect(() => { if (start && tools.length) setTool(tools.find((t) => t.id === start) ?? null); }, [start, tools]);
 
   const groups = useMemo(() => {
@@ -60,7 +63,8 @@ function ToolForm({ tool, projectId, layers, selection, activeId, canEdit, onBac
   tool: Tool; projectId: string; layers: Layer[]; selection: Record<string, number[]>; activeId: string | null; canEdit: boolean;
   onBack: () => void; onDone: (l: Layer) => void;
 }) {
-  const fits = (p: ToolParam) => layers.filter((l) => !p.geometry || p.geometry.includes(l.geometry_type));
+  // a raster parameter takes rasters only; any other layer parameter takes vector layers only
+  const fits = (p: ToolParam) => layers.filter((l) => (p.geometry ? p.geometry.includes(l.geometry_type) : l.geometry_type !== "Raster"));
   const [v, setV] = useState<Record<string, unknown>>(() => {
     const out: Record<string, unknown> = {};
     for (const p of tool.params) {
@@ -86,8 +90,10 @@ function ToolForm({ tool, projectId, layers, selection, activeId, canEdit, onBac
     const params: Record<string, unknown> = { ...v };
     for (const p of tool.params) if (p.type === "layer" && onlySel[p.name] && selection[String(v[p.name])]?.length) params[`${p.name}_ids`] = selection[String(v[p.name])];
     try {
-      const r = await api.runTool(projectId, tool.id, params, name.trim() || undefined);
-      setDone(`${r.layer.name}: ${r.layer.feature_count.toLocaleString("en-GB")} ${WORD[r.layer.geometry_type]}, in ${((r.run.ms ?? 0) / 1000).toFixed(1)} s.`);
+      const r = await (tool.kind === "raster" ? api.runRasterTool : api.runTool)(projectId, tool.id, params, name.trim() || undefined);
+      const what = r.layer.raster ? `a raster of ${r.layer.raster.width.toLocaleString("en-GB")} × ${r.layer.raster.height.toLocaleString("en-GB")} cells`
+        : `${r.layer.feature_count.toLocaleString("en-GB")} ${WORD[r.layer.geometry_type]}`;
+      setDone(`${r.layer.name}: ${what}, in ${((r.run.ms ?? 0) / 1000).toFixed(1)} s.`);
       onDone(r.layer);
     } catch (e) { setError(e); } finally { setBusy(false); }
   }
@@ -114,7 +120,7 @@ function ToolForm({ tool, projectId, layers, selection, activeId, canEdit, onBac
           const chosen = (v[p.name] as string[]) ?? [];
           return (
             <fieldset key={p.name} className="ws-f ws-fieldset"><legend>{p.label}</legend>
-              {layers.map((l) => (
+              {fits(p).map((l) => (
                 <label key={l.id} className="ws-check"><input type="checkbox" checked={chosen.includes(l.id)}
                   onChange={(e) => setV({ ...v, [p.name]: e.target.checked ? [...chosen, l.id] : chosen.filter((x) => x !== l.id) })} /> {l.name} <span className="ws-muted">({WORD[l.geometry_type]})</span></label>
               ))}
@@ -174,7 +180,7 @@ function History({ projectId, tools }: { projectId: string; tools: Tool[] }) {
         {runs?.map((r) => (
           <li key={r.id} className={r.status === "failed" ? "is-failed" : ""}>
             <strong>{nameOf(r.tool)}</strong> <span className="ws-muted">{when(r.at)} · {r.actor_name}</span><br />
-            {r.status === "done" ? <span>→ {r.output_name} ({(r.feature_count ?? 0).toLocaleString("en-GB")} features, {((r.ms ?? 0) / 1000).toFixed(1)} s){!r.output_layer_id && <em className="ws-muted"> · layer since removed</em>}</span>
+            {r.status === "done" ? <span>→ {r.output_name} ({r.feature_count == null ? "raster" : `${r.feature_count.toLocaleString("en-GB")} features`}, {((r.ms ?? 0) / 1000).toFixed(1)} s){!r.output_layer_id && <em className="ws-muted"> · layer since removed</em>}</span>
               : <span className="ws-bad">Failed: {r.message}</span>}
           </li>
         ))}

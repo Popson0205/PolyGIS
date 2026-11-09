@@ -26,6 +26,21 @@ class Settings(BaseSettings):
     max_features: int = 500_000
     tool_timeout_s: int = 120                  # the longest a geoprocessing tool may run
 
+    # Rasters (elevation models, imagery, results of raster tools) are kept as Cloud-Optimized GeoTIFFs: in an
+    # S3-compatible bucket when S3_ENDPOINT is set (e.g. the Cloudflare R2 bucket Geohub uses, under S3_PREFIX),
+    # with RASTER_DIR as the local copy the map tiles and tools read; without a bucket, RASTER_DIR alone (give it a
+    # persistent volume then).
+    raster_dir: str = "./data/rasters"
+    s3_endpoint: str = ""
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
+    s3_bucket: str = ""
+    s3_region: str = ""
+    s3_prefix: str = "polygis/rasters/"
+    max_raster_mb: int = 1000                  # the largest raster file accepted
+    max_raster_cells: int = 60_000_000         # the most cells a raster tool works on (per band)
+    max_hydro_cells: int = 16_000_000          # … and a hydrology tool, which needs more memory per cell
+
     log_level: str = "INFO"
 
     @model_validator(mode="after")

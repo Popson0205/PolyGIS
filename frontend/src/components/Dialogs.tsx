@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, exportUrl } from "../lib/api";
-import type { Crs, Field, FieldType, Filter, GeometryType, Layer, Selection } from "../lib/types";
+import type { Crs, Field, FieldType, Filter, Layer, Selection, VectorType } from "../lib/types";
 import { Button, ErrorText, useAction } from "./ui";
 
 export function Dialog({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
@@ -57,9 +57,9 @@ export function AddData({ projectId, onDone, onClose }: { projectId: string; onD
       <form className="ws-form" onSubmit={go}>
         <label className={`ws-drop${drag ? " is-over" : ""}`} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
           onDrop={(e) => { e.preventDefault(); setDrag(false); if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); }}>
-          <input type="file" accept=".geojson,.json,.zip,.gpkg,.kml,.kmz,.csv,.txt,.dxf,.gpx,.gml" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <input type="file" accept=".geojson,.json,.zip,.gpkg,.kml,.kmz,.csv,.txt,.dxf,.gpx,.gml,.tif,.tiff,.img,.asc,.jp2,.hgt,.dem,.bil,.nc,.vrt" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           <strong>{file ? file.name : "Drop a file here, or choose one"}</strong>
-          <span>GeoJSON, Shapefile (zipped with its .shp, .shx, .dbf and .prj), GeoPackage, KML/KMZ, CSV with longitude/latitude or WKT, DXF, GPX</span>
+          <span>GeoJSON, Shapefile (zipped with its .shp, .shx, .dbf and .prj), GeoPackage, KML/KMZ, CSV with longitude/latitude or WKT, DXF, GPX; or a raster: GeoTIFF (elevation models, drone and satellite imagery), Erdas IMG, ASCII grid, JPEG 2000, SRTM .hgt</span>
         </label>
         <CrsPicker value={epsg} onChange={setEpsg} label="Its coordinate system" allowNone="As the file says (WGS 84 if it does not say)" />
         <p className="ws-muted">Choose one when the file does not say, e.g. a CSV of eastings and northings, or a Shapefile without its .prj.</p>
@@ -74,7 +74,7 @@ const TYPES: [FieldType, string][] = [["string", "Text"], ["integer", "Whole num
 
 export function NewLayer({ projectId, onDone, onClose }: { projectId: string; onDone: (l: Layer) => void; onClose: () => void }) {
   const [name, setName] = useState("");
-  const [kind, setKind] = useState<GeometryType>("Polygon");
+  const [kind, setKind] = useState<VectorType>("Polygon");
   const [fields, setFields] = useState<Field[]>([{ name: "name", type: "string" }]);
   const { busy, run } = useAction();
   return (
@@ -82,7 +82,7 @@ export function NewLayer({ projectId, onDone, onClose }: { projectId: string; on
       <form className="ws-form" onSubmit={(e) => { e.preventDefault(); void run("new", () => api.newLayer(projectId, { name: name.trim(), geometry_type: kind, fields: fields.filter((f) => f.name.trim()) }), "Layer made: start editing to draw in it.").then((l) => l && onDone(l)); }}>
         <label className="ws-f">Name <input required maxLength={200} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Plots surveyed in March" /></label>
         <div className="ws-f"><span>It holds</span>
-          <div className="ws-seg">{(["Point", "LineString", "Polygon"] as GeometryType[]).map((k) => (
+          <div className="ws-seg">{(["Point", "LineString", "Polygon"] as VectorType[]).map((k) => (
             <label key={k} className={kind === k ? "is-on" : ""}><input type="radio" name="kind" checked={kind === k} onChange={() => setKind(k)} />{k === "Point" ? "Points" : k === "LineString" ? "Lines" : "Polygons"}</label>))}</div></div>
         <div className="ws-f"><span>Fields</span>
           {fields.map((f, k) => (
