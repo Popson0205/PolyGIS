@@ -61,6 +61,8 @@ def _props_ok(layer: dict, props: dict) -> dict:
 
 
 def _geom_ok(layer: dict, g: dict):
+    if layer["geometry_type"] not in KIND:
+        raise Problem(422, f"{layer['name']} is a raster: features cannot be drawn in it.", code="validation", fields={"geometry": ["kind"]})
     geom = _geom_in(g)
     if geom.geom_type not in KIND[layer["geometry_type"]]:
         raise Problem(422, f"{layer['name']} holds {WORD[layer['geometry_type']]}: a {geom.geom_type} cannot go in it.",

@@ -8,11 +8,12 @@ import { AddData, CrsPicker, Dialog, Export, NewLayer, SelectByAttributes, Selec
 import Geoprocessing from "../components/Geoprocessing";
 import LayerPanel from "../components/LayerPanel";
 import { Button, ErrorText, useToast } from "../components/ui";
-import { ApiError, BASE, api, tileUrl } from "../lib/api";
+import RasterPanel from "../components/RasterPanel";
+import { ApiError, BASE, api, rasterTileUrl, tileUrl } from "../lib/api";
 import { formatCoords, loadCrs, metres, squareMetres } from "../lib/coords";
 import { Editor } from "../lib/editor";
 import { BASEMAPS, GLYPHS, allIds, basemapStyle, ids as layerIds, mapLayers, src } from "../lib/mapstyle";
-import type { CrsDef, Layer, Me, Project, Selection } from "../lib/types";
+import type { CrsDef, Layer, Me, Project, Selection, VectorType } from "../lib/types";
 
 type Tab = "map" | "insert" | "select" | "edit" | "analysis";
 type Tool = "explore" | "select" | "select-area" | "measure-line" | "measure-area" | "create" | "reshape" | "pick-reshape";
@@ -125,7 +126,8 @@ export default function WorkspacePage({ me }: { me: Me }) {
       for (const x of allIds(l)) if (m.getLayer(x)) m.removeLayer(x);
       if (m.getSource(src(l)) && versions.current.get(l.id) !== l.version) m.removeSource(src(l));
       if (!m.getSource(src(l))) {
-        m.addSource(src(l), { type: "vector", tiles: [tileUrl(l)], minzoom: 0, maxzoom: 16, promoteId: undefined });
+        if (l.geometry_type === "Raster") m.addSource(src(l), { type: "raster", tiles: [rasterTileUrl(l)], tileSize: 256, minzoom: 0, maxzoom: 22, bounds: l.bbox ?? undefined });
+        else m.addSource(src(l), { type: "vector", tiles: [tileUrl(l)], minzoom: 0, maxzoom: 16, promoteId: undefined });
         versions.current.set(l.id, l.version);
       }
       for (const spec of mapLayers(l, s[l.id] ?? [], l.id === e && r != null ? [r] : [])) m.addLayer(spec, before);
@@ -150,6 +152,18 @@ export default function WorkspacePage({ me }: { me: Me }) {
       if (t === "select" && !target) return;
       const hits = m.queryRenderedFeatures(box, { layers: hitLayers(target) });
       const f = hits[0];
+      if (t === "explore" && (!f || f.id == null)) {
+        // no feature here: the value of the topmost visible raster under the pointer
+        const at = m.unproject(pt);
+        const r = [...state.current.layers].filter((l) => l.visible && l.geometry_type === "Raster" && l.bbox && at.lng >= l.bbox[0] && at.lng <= l.bbox[2]
+          && at.lat >= l.bbox[1] && at.lat <= l.bbox[3]).sort((a, b) => b.position - a.position)[0];
+        if (r) {
+          try {
+            const v = await api.rasterValue(r.id, at.lng, at.lat);
+            if (v.values) { setIdentify({ layer: r, id: 0, props: Object.fromEntries(v.bands.map((b, k) => [b, v.values![k]])) }); return; }
+          } catch { /* fall through */ }
+        }
+      }
       if (!f || f.id == null) { if (t === "select") setSelection((s) => ({ ...s, [target!.id]: [] })); else setIdentify(null); return; }
       const l = layerOf(f);
       if (!l) return;
@@ -236,7 +250,7 @@ export default function WorkspacePage({ me }: { me: Me }) {
   }
   function startCreate(l: Layer) {
     setTool("create");
-    editor.current?.create(DRAW[l.geometry_type], (g) => {
+    editor.current?.create(DRAW[l.geometry_type as VectorType], (g) => {
       void api.addFeature(l.id, g).then(async (f) => {
         const fid = Number(f.id);
         const fresh = await refreshLayer(l.id);
@@ -338,7 +352,7 @@ export default function WorkspacePage({ me }: { me: Me }) {
 
   if (error) return <div className="ge-main"><ErrorText error={error} /><Link to="/">All projects</Link></div>;
   if (!project) return <p className="loading">Opening the project…</p>;
-  const editable = layers.filter(() => canEdit);
+  const editable = layers.filter((l) => canEdit && l.geometry_type !== "Raster");
   const totalSel = Object.values(selection).reduce((n, x) => n + x.length, 0);
 
   return (
@@ -444,19 +458,23 @@ export default function WorkspacePage({ me }: { me: Me }) {
         </div>
         {gp.open ? (
           <Geoprocessing projectId={id} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit}
-            allowed={me.features.includes("geoprocessing")} start={gp.start} onClose={() => setGp({ open: false, start: null })}
+            allowed={me.features.includes("geoprocessing")} rasterAllowed={me.features.includes("raster")} start={gp.start} onClose={() => setGp({ open: false, start: null })}
             onDone={(l) => { setLayers((cur) => [...cur, l]); setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); toast(`${l.name} added.`, "success"); }} />
         ) : identify && tool === "explore" ? (
           <aside className="ws-panel" aria-label="Identify">
             <div className="ws-pane-head"><strong>{identify.layer.name}</strong><button type="button" onClick={() => setIdentify(null)} aria-label="Close">✕</button></div>
             <dl className="ws-dl ws-panel-body">
-              <dt>ID</dt><dd>{identify.id}</dd>
-              {identify.layer.fields.map((f) => <div key={f.name} className="ws-dl-row"><dt>{f.name}</dt><dd>{identify.props[f.name] == null ? <span className="ws-null">&lt;null&gt;</span> : String(identify.props[f.name])}</dd></div>)}
+              {identify.layer.geometry_type === "Raster"
+                ? Object.entries(identify.props).map(([k, v]) => <div key={k} className="ws-dl-row"><dt>{k}</dt><dd>{v == null ? <span className="ws-null">no data</span> : String(v)}</dd></div>)
+                : <><dt>ID</dt><dd>{identify.id}</dd>
+                  {identify.layer.fields.map((f) => <div key={f.name} className="ws-dl-row"><dt>{f.name}</dt><dd>{identify.props[f.name] == null ? <span className="ws-null">&lt;null&gt;</span> : String(identify.props[f.name])}</dd></div>)}</>}
             </dl>
-            <p className="ws-panel-body"><Button small onClick={() => void zoomToFeature(identify.layer, identify.id)}>Zoom to it</Button></p>
+            {identify.layer.geometry_type !== "Raster" && <p className="ws-panel-body"><Button small onClick={() => void zoomToFeature(identify.layer, identify.id)}>Zoom to it</Button></p>}
           </aside>
         ) : newFeature && editLayer ? (
           <NewFeatureForm layer={editLayer} fid={newFeature.id} onDone={() => { setNewFeature(null); void refreshLayer(editLayer.id); }} />
+        ) : active?.geometry_type === "Raster" ? (
+          <RasterPanel layer={active} canEdit={canEdit} canExport={me.features.includes("export")} onChange={(l) => { replaceLayer(l); }} />
         ) : active ? (
           <LayerPanel layer={active} canEdit={canEdit} selected={sel(active.id)} onChange={(l) => { replaceLayer(l); }} onExport={() => setDialog("export")} />
         ) : <aside className="ws-panel"><p className="ws-empty">Choose a layer in Contents to see its symbology, labels and fields.</p></aside>}

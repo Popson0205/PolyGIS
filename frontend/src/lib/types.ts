@@ -6,10 +6,21 @@ export interface Me {
 }
 export interface App { product: string; name: string; status: string; url: string | null; current: boolean }
 
-export type GeometryType = "Point" | "LineString" | "Polygon";
+export type GeometryType = "Point" | "LineString" | "Polygon" | "Raster";
+export type VectorType = Exclude<GeometryType, "Raster">;
 export type FieldType = "string" | "integer" | "number" | "boolean" | "date";
 export interface Field { name: string; type: FieldType }
 export interface Category { value: string; color: string; label?: string }
+export interface RasterCategory { value: number; color: string; label?: string | null; hidden?: boolean }
+export interface RasterStyle {
+  type: "raster"; mode: "ramp" | "rgb" | "classes"; band: number; bands: [number, number, number]; min?: number | null; max?: number | null;
+  mins: [number, number, number]; maxs: [number, number, number]; ramp: string; invert?: boolean; categories: RasterCategory[]; opacity: number;
+}
+export interface RasterBand { band: number; name: string; min?: number; max?: number; mean?: number; std?: number; p2?: number; p98?: number; values?: number[] }
+export interface RasterMeta {
+  key: string; width: number; height: number; count: number; dtype: string; nodata: number | null; crs: string; epsg: number | null; crs_name: string;
+  geographic: boolean; res: [number, number]; res_m: [number, number]; bbox: [number, number, number, number]; bands: RasterBand[]; size_bytes: number;
+}
 export interface ClassBreak { min: number; max: number; color: string }
 export interface Style {
   type: "single" | "categorized" | "graduated"; color: string; stroke: string; width: number; size: number; opacity: number;
@@ -18,8 +29,9 @@ export interface Style {
 export interface Labels { field: string; size: number; color: string; halo: string }
 export interface Layer {
   id: string; project_id: string; name: string; geometry_type: GeometryType; fields: Field[]; style: Style; labels: Labels | null;
-  visible: boolean; position: number; source: { filename?: string; crs?: string | null; dropped?: number; drawn?: boolean };
-  feature_count: number; bbox: [number, number, number, number] | null; version: number; updated_at: string;
+  visible: boolean; position: number;
+  source: { filename?: string; crs?: string | null; dropped?: number; drawn?: boolean; tool?: string; tool_name?: string; summary?: Record<string, unknown> };
+  raster?: RasterMeta | null; feature_count: number; bbox: [number, number, number, number] | null; version: number; updated_at: string;
 }
 export interface View { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; basemap?: string }
 export interface Project {
@@ -35,11 +47,11 @@ export interface Selection { ids: number[]; count: number; bbox: [number, number
 export interface Activity { actor_name: string; action: string; target_type: string | null; target_id: string | null; details: Record<string, unknown>; at: string }
 
 export interface ToolParam {
-  name: string; label: string; type: "layer" | "layers" | "number" | "bool" | "choice" | "field" | "fields";
+  name: string; label: string; type: "layer" | "layers" | "number" | "bool" | "choice" | "field" | "fields" | "text";
   geometry?: GeometryType[]; unit?: string; min?: number; default?: unknown; choices?: [string, string][]; of?: string;
   numeric?: boolean; optional?: boolean; when?: Record<string, unknown>;
 }
-export interface Tool { id: string; name: string; group: string; about: string; params: ToolParam[] }
+export interface Tool { id: string; name: string; group: string; about: string; params: ToolParam[]; kind?: "raster" }
 export interface Run {
   id: number; tool: string; params: Record<string, unknown>; output_layer_id: string | null; output_name: string | null;
   status: "done" | "failed"; message: string | null; feature_count: number | null; ms: number | null; actor_name: string; at: string;

@@ -42,6 +42,8 @@ async def layers_of(conn, project_id) -> list[dict]:
 
 def _shape(r: dict) -> dict:
     r["feature_count"] = r.get("feature_count") or 0
+    if r.get("geometry_type") == "Raster" and r.get("raster"):
+        r["bbox"] = r["raster"]["bbox"]
     r["version"] = int(r["updated_at"].timestamp() * 1000)
     return r
 
@@ -69,10 +71,14 @@ async def _touch(conn, layer_id, project_id=None) -> None:
 
 # ---------- adding layers ----------
 @router.post("/projects/{project_id}/layers/import", status_code=201,
-             summary="Add the layers in a file: GeoJSON, zipped Shapefile, GeoPackage, KML/KMZ, CSV, DXF, GPX")
+             summary="Add the layers in a file: GeoJSON, zipped Shapefile, GeoPackage, KML/KMZ, CSV, DXF, GPX; or a raster "
+                     "(GeoTIFF, IMG, ASCII grid, JPEG 2000, SRTM .hgt)")
 async def import_layers(project_id: UUID, file: UploadFile = File(...), epsg: int | None = Form(None),
                         user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     await project_of(conn, project_id, user)
+    from . import rasters as rasters_router
+    if rasters_router.is_raster(file.filename or ""):
+        return [await rasters_router.import_raster(conn, project_id, file, epsg, user)]
     data = await file.read(settings.max_upload_mb * 1024 * 1024 + 1)
     if len(data) > settings.max_upload_mb * 1024 * 1024:
         raise Problem(413, f"The file is larger than {settings.max_upload_mb} MB.", code="too_large")
@@ -272,6 +278,9 @@ async def change_fields(layer_id: UUID, body: FieldOp, user=Depends(need("editor
 async def delete_layer(layer_id: UUID, user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     layer = await layer_of(conn, layer_id, user)
     await conn.execute("DELETE FROM layers WHERE id = %s", (layer_id,))
+    if layer.get("raster"):
+        from .. import rasters
+        await anyio.to_thread.run_sync(rasters.remove, layer["raster"].get("key"))
     await audit(conn, user, "layer.delete", "layer", layer_id, name=layer["name"], features=layer["feature_count"])
     return Response(status_code=204)
 

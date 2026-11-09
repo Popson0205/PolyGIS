@@ -1,4 +1,4 @@
-import type { Activity, App, Crs, CrsDef, Field, FieldType, Filter, GeometryType, Labels, Layer, Me, Project, Row, Run, Selection, Stats, Style, Tool, View } from "./types";
+import type { Activity, App, Crs, CrsDef, Field, FieldType, Filter, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
@@ -30,6 +30,8 @@ export async function req<T>(method: string, path: string, body?: unknown): Prom
 
 export const signInUrl = (next = window.location.pathname + window.location.search) => `${BASE}/auth/sign-in?next=${encodeURIComponent(next)}`;
 export const tileUrl = (layer: Layer) => `${window.location.origin}${BASE}/layers/${layer.id}/tiles/{z}/{x}/{y}.pbf?v=${layer.version}`;
+export const rasterTileUrl = (layer: Layer) => `${window.location.origin}${BASE}/layers/${layer.id}/raster/{z}/{x}/{y}.png?v=${layer.version}`;
+export const rasterDownloadUrl = (layerId: string) => `${BASE}/layers/${layerId}/raster/download`;
 export const exportUrl = (layerId: string, format: string, epsg = 4326, ids?: number[]) =>
   `${BASE}/layers/${layerId}/export?format=${format}&epsg=${epsg}${ids?.length ? `&ids=${ids.join(",")}` : ""}`;
 
@@ -57,7 +59,7 @@ export const api = {
     }
     return handle<Layer[]>(res, "/import");
   },
-  newLayer: (projectId: string, b: { name: string; geometry_type: GeometryType; fields: Field[] }) => req<Layer>("POST", `/projects/${projectId}/layers`, b),
+  newLayer: (projectId: string, b: { name: string; geometry_type: VectorType; fields: Field[] }) => req<Layer>("POST", `/projects/${projectId}/layers`, b),
   updateLayer: (id: string, b: { name?: string; visible?: boolean; style?: Style; labels?: Labels; clear_labels?: boolean }) => req<Layer>("PATCH", `/layers/${id}`, b),
   deleteLayer: (id: string) => req<void>("DELETE", `/layers/${id}`),
   order: (projectId: string, ids: string[]) => req<Layer[]>("PUT", `/projects/${projectId}/layer-order`, { layer_ids: ids }),
@@ -81,6 +83,12 @@ export const api = {
   tools: () => req<Tool[]>("GET", "/tools"),
   runTool: (projectId: string, tool: string, params: Record<string, unknown>, output_name?: string) =>
     req<{ run: Run; layer: Layer }>("POST", `/projects/${projectId}/tools/${tool}`, { params, output_name: output_name || null }),
+  rasterTools: () => req<Tool[]>("GET", "/raster-tools"),
+  runRasterTool: (projectId: string, tool: string, params: Record<string, unknown>, output_name?: string) =>
+    req<{ run: Run; layer: Layer }>("POST", `/projects/${projectId}/raster-tools/${tool}`, { params, output_name: output_name || null }),
+  rasterStyle: (id: string, style: RasterStyle) => req<Layer>("PUT", `/layers/${id}/raster-style`, style),
+  rasterValue: (id: string, lng: number, lat: number) => req<{ values: (number | null)[] | null; bands: string[] }>("GET", `/layers/${id}/raster/value?lng=${lng}&lat=${lat}`),
+  histogram: (id: string, band: number) => req<{ counts: number[]; edges: number[] }>("GET", `/layers/${id}/raster/histogram?band=${band}`),
   runs: (projectId: string) => req<Run[]>("GET", `/projects/${projectId}/runs`),
   crs: (q = "") => req<Crs[]>("GET", `/crs${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   crsDef: (epsg: number) => req<CrsDef>("GET", `/crs/${epsg}`),
