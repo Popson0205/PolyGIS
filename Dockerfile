@@ -13,10 +13,12 @@ RUN npm run build
 # ---- 2. the API, serving the built web app ----
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+# libexpat1: rasterio's GDAL (bundled in its wheel) reads XML with the system's expat, which slim images leave out
+RUN apt-get update && apt-get install -y --no-install-recommends curl libexpat1 && rm -rf /var/lib/apt/lists/*
 WORKDIR /srv
 COPY backend/requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install -r requirements.txt \
+ && python -c "import rasterio, pyogrio, shapely, pyproj, skimage, contourpy, scipy, networkx; print('GIS libraries load: GDAL', rasterio.__gdal_version__)"
 COPY backend/app ./app
 COPY backend/migrations ./migrations
 COPY --from=web /web/dist ./web
