@@ -95,9 +95,16 @@ async def current_user(request: Request, response: Response) -> dict:
     return u
 
 
-def need(role: str = "viewer", write: bool = False):
-    """A signed-in person with at least this role; `write` also needs a licence that allows changes."""
+FEATURE_WORDS = {"geoprocessing": "Geoprocessing tools", "raster": "Raster analysis", "layouts": "Print layouts"}
+
+
+def need(role: str = "viewer", write: bool = False, feature: str | None = None):
+    """A signed-in person with at least this role; `write` also needs a licence that allows changes; `feature`, a
+    plan that includes it."""
     async def dep(user=Depends(current_user)) -> dict:
+        if feature and feature not in (user.get("features") or []):
+            raise Problem(403, f"{FEATURE_WORDS.get(feature, feature)} are in PolyGIS Advanced. Ask GeoEstate NIG Limited to "
+                               "move your organization to Advanced.", code="not_in_plan")
         if RANK[user["role"]] < RANK[role]:
             words = {"editor": "Only editors and admins can do this.", "admin": "Only admins can do this."}
             raise Problem(403, words.get(role, "You cannot do this."), code="forbidden")

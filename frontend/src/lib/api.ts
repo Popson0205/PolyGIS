@@ -1,4 +1,4 @@
-import type { Activity, App, Crs, CrsDef, Field, FieldType, Filter, GeometryType, Labels, Layer, Me, Project, Row, Selection, Stats, Style, View } from "./types";
+import type { Activity, App, Crs, CrsDef, Field, FieldType, Filter, GeometryType, Labels, Layer, Me, Project, Row, Run, Selection, Stats, Style, Tool, View } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
@@ -78,6 +78,10 @@ export const api = {
   calculate: (layerId: string, b: { field: string; value?: unknown; from_field?: string; ids?: number[] | null }) => req<{ changed: number }>("POST", `/layers/${layerId}/calculate`, b),
   undo: (layerId: string) => req<{ undone: string; feature_id: number }>("POST", `/layers/${layerId}/undo`),
 
+  tools: () => req<Tool[]>("GET", "/tools"),
+  runTool: (projectId: string, tool: string, params: Record<string, unknown>, output_name?: string) =>
+    req<{ run: Run; layer: Layer }>("POST", `/projects/${projectId}/tools/${tool}`, { params, output_name: output_name || null }),
+  runs: (projectId: string) => req<Run[]>("GET", `/projects/${projectId}/runs`),
   crs: (q = "") => req<Crs[]>("GET", `/crs${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   crsDef: (epsg: number) => req<CrsDef>("GET", `/crs/${epsg}`),
 };

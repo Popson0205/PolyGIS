@@ -95,3 +95,14 @@
 .ws-seg { display: flex; border: 1px solid #c9d1de; border-radius: 8px; overflow: hidden; } .ws-seg label { flex: 1; text-align: center; padding: 6px; cursor: pointer; font-weight: 400; }
 .ws-seg label.is-on { background: var(--ge-navy); color: #fff; } .ws-seg input { display: none; }
 @media (max-width: 1000px) { .ws-body { grid-template-columns: 200px minmax(0, 1fr); } .ws-body > .ws-panel { display: none; } }
+
+/* geoprocessing pane */
+.ws-find { width: 100%; font: 13px var(--ge-font); padding: 6px 8px; border: 1px solid #c9d1de; border-radius: 6px; margin-bottom: 6px; }
+.ws-toolgroup h3 { margin: 12px 0 4px; } .ws-toolgroup ul { list-style: none; margin: 0; padding: 0; }
+.ws-toolgroup button { display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left; border: 0; background: none; padding: 6px 8px; border-radius: 6px; cursor: pointer; font: 13px var(--ge-font); color: var(--ge-ink); }
+.ws-toolgroup button:hover { background: var(--ge-navy-50); } .ws-toolgroup button span { color: var(--ge-muted); font-size: 12px; }
+.ws-fieldset { border: 1px solid var(--ge-line); border-radius: 6px; padding: 6px 8px; } .ws-fieldset legend { font-weight: 600; font-size: 12px; padding: 0 4px; }
+.ws-ok { color: var(--ge-green); background: var(--ge-green-50); padding: 6px 8px; border-radius: 6px; margin: 0; }
+.ws-bad { color: var(--ge-bad); }
+.ws-runs { list-style: none; margin: 0; padding: 0; } .ws-runs li { padding: 7px 0; border-bottom: 1px solid #eef1f6; font-size: 12.5px; }
+.ws-runs li.is-failed { background: var(--ge-bad-50); padding-left: 6px; }
