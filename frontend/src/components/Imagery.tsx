@@ -19,11 +19,12 @@ export function describeBox([w, s, e, n]: Box): string {
 
 /** Get open remote-sensing data for the map's view (imagery, radar, elevation, land cover, rainfall) from Planetary Computer, Earth Search or Google Earth Engine, with only the bands wanted, as a new raster layer. */
 export function ImageryDialog({ projectId, viewBox, layerBox, layerName, onDone, onClose }:
-  { projectId: string; viewBox: Box; layerBox: Box | null; layerName?: string; onDone: (l: Layer) => void; onClose: () => void }) {
+  { projectId: string; viewBox: Box; layerBox: Box | null; layerName?: string; onDone: (l: Layer[]) => void; onClose: () => void }) {
   const [view] = useState(viewBox);                                   // the map does not move while the dialog is open
   const [providers, setProviders] = useState<ImageryProvider[] | null>(null);
   const [provider, setProvider] = useState<ImageryProviderId>("planetary-computer");
   const [dataset, setDataset] = useState<ImageryDatasetId>("sentinel2");
+  const [combine, setCombine] = useState(false);                         // false: each band becomes its own layer
   const [wanted, setWanted] = useState<string[] | null>(null);          // null: the dataset's usual bands
   const [start, setStart] = useState(day(90));
   const [end, setEnd] = useState(day(0));
@@ -57,7 +58,18 @@ export function ImageryDialog({ projectId, viewBox, layerBox, layerName, onDone,
   async function add(e: FormEvent) {
     e.preventDefault();
     setBusy("fetch"); setError(null);
-    try { onDone(await api.fetchImagery(projectId, { ...request(), scene_ids: picked, name: name.trim() || undefined })); } catch (x) { setError(x); } finally { setBusy(null); }
+    try {
+      const base = { ...request(), scene_ids: picked };
+      const label = name.trim();
+      if (combine || bands.length < 2) { onDone([await api.fetchImagery(projectId, { ...base, name: label || undefined })]); return; }
+      const made: Layer[] = [];                                         // one request, and so one layer, for each band ticked
+      try {
+        for (const b of bands) {
+          const lbl = ds?.bands.find((x) => x.id === b)?.label ?? b;
+          made.push(await api.fetchImagery(projectId, { ...base, bands: [b], name: `${label || ds?.name || dataset} · ${lbl}`.slice(0, 200) }));
+        }
+      } finally { if (made.length) onDone(made); }                        // keep the layers already made if a later band fails
+    } catch (x) { setError(x); } finally { setBusy(null); }
   }
   const toggle = (id: string) => setPicked((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : cur.length < MOST_SCENES ? [...cur, id] : cur));
   const ready = !!current?.ready && !!ds && bands.length > 0 && (!ds.dated || start <= end);
@@ -88,6 +100,10 @@ export function ImageryDialog({ projectId, viewBox, layerBox, layerName, onDone,
                 <span>{b.label} <span className="ws-muted">({b.res} m)</span></span>
               </label>
             ))}
+            <label className="ws-check">
+              <input type="checkbox" checked={combine} onChange={(e) => setCombine(e.target.checked)} />
+              <span>Combine the bands into one layer (needed for true or false colour)</span>
+            </label>
             <span className="ws-help">Fewer bands make a smaller file and, for a large area, finer cells. Bands of different sizes are matched to the finest one chosen.{" "}
               <button type="button" className="ws-link" onClick={() => change(setWanted)(null)}>Use the usual bands</button></span>
           </fieldset>
@@ -133,7 +149,7 @@ export function ImageryDialog({ projectId, viewBox, layerBox, layerName, onDone,
         {busy === "fetch" && <p className="ws-muted" role="status">Fetching the data: this can take a minute or two for a large area.</p>}
         <div className="ws-row">
           <Button type="submit" variant="primary" busy={busy === "fetch"} disabled={!ready || busy === "search"}>
-            {picked.length ? `Add ${picked.length} chosen scene${picked.length > 1 ? "s" : ""} to the map` : "Add to the map"}
+            {picked.length ? `Add ${picked.length} chosen scene${picked.length > 1 ? "s" : ""} to the map` : !combine && bands.length > 1 ? `Add ${bands.length} bands as separate layers` : "Add to the map"}
           </Button>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
         </div>
