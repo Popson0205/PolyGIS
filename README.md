@@ -60,6 +60,26 @@ focal and zonal statistics, distance and cost distance, kernel density, interpol
 (project, resample, clip, mosaic, bands, raster to and from features) and image classification. Cell sizes are worked
 out in metres on the ground, also for rasters in longitude and latitude.
 
+## Satellite imagery from open sources
+
+No need to download scenes by hand: **Add data > Get satellite imagery from an open source** fetches the part of a scene
+inside the area you choose (what the map shows, or the selected layer's extent) and adds it as a raster layer, with red,
+green, blue and near-infrared bands (true colour out of the box, and the NDVI tool works on it straight away).
+
+- **Microsoft Planetary Computer** and **Earth Search** (Element 84, AWS): public STAC catalogues, no account or key.
+  Sentinel-2 (10 m) from both, Landsat 8/9 (30 m) from Planetary Computer. Scenes are read from their Cloud-Optimized
+  GeoTIFFs, only the part inside the area, and the least cloudy ones are joined where one does not cover it.
+- **Google Earth Engine**: offered once the server has a project (`GEE_PROJECT`), with a service account
+  (`GEE_SERVICE_ACCOUNT` and `GEE_PRIVATE_KEY`, the key file's JSON or a path to it) or the credentials the server's
+  environment already holds. Sentinel-2 and Landsat 8/9, clouds masked, a median composite over the chosen period.
+  Earth Engine limits a direct download to about 48 MB, so cells are made larger (`IMAGERY_GEE_MAX_CELLS`, 5 million per
+  band) for large areas.
+
+*Find scenes* lists what is there (date, cloud cover) so scenes can be chosen by hand; otherwise the least cloudy are used.
+Layers are in the UTM zone of the area, as unsigned 16-bit integers as the providers store them (Sentinel-2 surface
+reflectance times 10 000), with 0 for no data. Optional: `IMAGERY_MAX_CELLS` (16 million per band; larger areas get larger
+cells, up to 8 times the satellite's own, then the area is refused) and `IMAGERY_TIMEOUT_S` (240).
+
 ## Setting it up
 
 1. In Geohub's variables: add PolyGIS to `ID_CLIENTS`

@@ -128,7 +128,7 @@ function Source({ layer, canExport }: { layer: Layer; canExport: boolean }) {
         <dt>Cell size</dt><dd>{fmt(m.res[0])}{unit}{m.geographic ? ` (about ${fmt(m.res_m[0])} m)` : ""}</dd>
         <dt>Coordinate system</dt><dd>{m.crs_name}{m.epsg ? ` (EPSG:${m.epsg})` : ""}</dd>
         <dt>No data</dt><dd>{m.nodata ?? "–"}</dd>
-        <dt>File</dt><dd>{layer.source.filename ?? layer.source.tool_name ?? "–"} · {(m.size_bytes / 1048576).toFixed(1)} MB</dd>
+        <dt>File</dt><dd>{layer.source.filename ?? layer.source.tool_name ?? (layer.source.imagery ? "Open satellite imagery" : "–")} · {(m.size_bytes / 1048576).toFixed(1)} MB</dd>
         {m.bands.map((b) => <div key={b.band} className="ws-dl-row"><dt>{b.name}</dt><dd>{fmt(b.min)} – {fmt(b.max)}, mean {fmt(b.mean)}</dd></div>)}
         {Object.entries(summary).map(([k, v]) => <div key={k} className="ws-dl-row"><dt>{k.replace(/_/g, " ")}</dt><dd>{typeof v === "number" ? fmt(v) : Array.isArray(v) ? v.map((x) => fmt(Number(x))).join(", ") : String(v)}</dd></div>)}
       </dl>

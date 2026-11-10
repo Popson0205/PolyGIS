@@ -58,3 +58,11 @@ describe("snapping", () => {
     expect(snapPoint(50, 50, [sq], project, unproject, 10)).toBeNull();
   });
 });
+
+describe("describeBox", () => {
+  it("names the corners and the size on the ground", async () => {
+    const { describeBox } = await import("../src/components/Imagery");
+    expect(describeBox([6.54, 9.61, 6.55, 9.62])).toBe("6.540° to 6.550° E, 9.610° to 9.620° N · about 1.1 × 1.1 km");
+    expect(describeBox([3, 6, 5, 8])).toMatch(/about 2\d\d × 2\d\d km$/);      // two degrees near the equator is over 200 km
+  });
+});

@@ -16,3 +16,4 @@ pyproj==3.7.0
 pyogrio==0.10.0
 networkx==3.4.2
 scipy==1.14.1
+earthengine-api==1.7.40
