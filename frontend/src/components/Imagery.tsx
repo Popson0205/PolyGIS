@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../lib/api";
-import type { ImageryProvider, ImageryProviderId, ImageryRequest, ImageryScene, Layer, Satellite } from "../lib/types";
+import type { ImageryDatasetId, ImageryProvider, ImageryProviderId, ImageryRequest, ImageryScene, Layer } from "../lib/types";
 import { Dialog } from "./Dialogs";
 import { Button, ErrorText } from "./ui";
 
@@ -17,13 +17,14 @@ export function describeBox([w, s, e, n]: Box): string {
   return `${w.toFixed(3)}° to ${e.toFixed(3)}° E, ${s.toFixed(3)}° to ${n.toFixed(3)}° N · about ${km(wide)} × ${km(high)} km`;
 }
 
-/** Get satellite imagery for the map's view from an open source (Planetary Computer, Earth Search, Google Earth Engine) as a new raster layer. */
+/** Get open remote-sensing data for the map's view (imagery, radar, elevation, land cover, rainfall) from Planetary Computer, Earth Search or Google Earth Engine, with only the bands wanted, as a new raster layer. */
 export function ImageryDialog({ projectId, viewBox, layerBox, layerName, onDone, onClose }:
   { projectId: string; viewBox: Box; layerBox: Box | null; layerName?: string; onDone: (l: Layer) => void; onClose: () => void }) {
   const [view] = useState(viewBox);                                   // the map does not move while the dialog is open
   const [providers, setProviders] = useState<ImageryProvider[] | null>(null);
   const [provider, setProvider] = useState<ImageryProviderId>("planetary-computer");
-  const [satellite, setSatellite] = useState<Satellite>("sentinel2");
+  const [dataset, setDataset] = useState<ImageryDatasetId>("sentinel2");
+  const [wanted, setWanted] = useState<string[] | null>(null);          // null: the dataset's usual bands
   const [start, setStart] = useState(day(90));
   const [end, setEnd] = useState(day(0));
   const [cloud, setCloud] = useState(30);
@@ -36,13 +37,16 @@ export function ImageryDialog({ projectId, viewBox, layerBox, layerName, onDone,
 
   useEffect(() => { void api.imageryProviders().then(setProviders, () => setProviders([])); }, []);
   const current = providers?.find((p) => p.id === provider);
-  const satellites = current?.satellites ?? [];
-  useEffect(() => {                                                  // a source may not have the satellite chosen: take its first
-    if (satellites.length && !satellites.some((s) => s.id === satellite)) setSatellite(satellites[0].id);
-  }, [satellites, satellite]);
+  const datasets = current?.datasets ?? [];
+  const ds = datasets.find((d) => d.id === dataset);
+  useEffect(() => {                                                  // a source may not have the dataset chosen: take its first
+    if (datasets.length && !datasets.some((d) => d.id === dataset)) { setDataset(datasets[0].id); setWanted(null); }
+  }, [datasets, dataset]);
+  const bands = wanted ?? ds?.bands.filter((b) => b.default).map((b) => b.id) ?? [];
+  const toggleBand = (id: string) => change(setWanted)(bands.includes(id) ? bands.filter((b) => b !== id) : [...bands, id]);
 
   const bbox = areaOf === "layer" && layerBox ? layerBox : view;
-  const request = (): ImageryRequest => ({ provider, satellite, bbox, start, end, max_cloud: cloud });
+  const request = (): ImageryRequest => ({ provider, dataset, bands, bbox, max_cloud: cloud, ...(ds?.dated ? { start, end } : {}) });
   /** Changing what is asked for makes the list of scenes found before out of date. */
   const change = <T,>(set: (v: T) => void) => (v: T) => { set(v); setScenes(null); setPicked([]); };
 
@@ -56,13 +60,12 @@ export function ImageryDialog({ projectId, viewBox, layerBox, layerName, onDone,
     try { onDone(await api.fetchImagery(projectId, { ...request(), scene_ids: picked, name: name.trim() || undefined })); } catch (x) { setError(x); } finally { setBusy(null); }
   }
   const toggle = (id: string) => setPicked((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : cur.length < MOST_SCENES ? [...cur, id] : cur));
-  const ready = !!current?.ready && start <= end;
+  const ready = !!current?.ready && !!ds && bands.length > 0 && (!ds.dated || start <= end);
 
   return (
-    <Dialog title="Satellite imagery from an open source" onClose={onClose} wide>
+    <Dialog title="Get data from an open source" onClose={onClose} wide>
       <form className="ws-form" onSubmit={add}>
-        <p className="ws-muted">PolyGIS fetches the part of the image inside the area you choose and adds it as a raster layer, so you need not download scenes yourself.
-          The bands are red, green, blue and near-infrared, so the NDVI tool works on it straight away.</p>
+        <p className="ws-muted">PolyGIS fetches the part of the data inside the area you choose, with only the bands you tick, and adds it as a raster layer, so you need not download anything yourself.</p>
         <div className="ws-row">
           <label className="ws-f">Source
             <select value={provider} onChange={(e) => change(setProvider)(e.target.value as ImageryProviderId)} disabled={!providers}>
@@ -70,29 +73,49 @@ export function ImageryDialog({ projectId, viewBox, layerBox, layerName, onDone,
             </select>
             {current && <span className="ws-help">{current.note}</span>}
           </label>
-          <label className="ws-f">Satellite
-            <select value={satellite} onChange={(e) => change(setSatellite)(e.target.value as Satellite)} disabled={!satellites.length}>
-              {satellites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          <label className="ws-f">Data
+            <select value={dataset} onChange={(e) => { change(setDataset)(e.target.value as ImageryDatasetId); setWanted(null); }} disabled={!datasets.length}>
+              {datasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </label>
         </div>
-        <div className="ws-row">
-          <label className="ws-f">From <input type="date" value={start} max={end} onChange={(e) => change(setStart)(e.target.value)} required /></label>
-          <label className="ws-f">To <input type="date" value={end} min={start} max={day(0)} onChange={(e) => change(setEnd)(e.target.value)} required /></label>
-        </div>
-        <label className="ws-f">Most cloud allowed: {cloud} %
-          <input type="range" min={0} max={100} step={5} value={cloud} onChange={(e) => change(setCloud)(Number(e.target.value))} />
-        </label>
+        {ds && (ds.bands.length > 1
+          ? <fieldset className="ws-fieldset">
+            <legend>Bands to import ({bands.length} of {ds.bands.length})</legend>
+            {ds.bands.map((b) => (
+              <label key={b.id} className="ws-check">
+                <input type="checkbox" checked={bands.includes(b.id)} onChange={() => toggleBand(b.id)} />
+                <span>{b.label} <span className="ws-muted">({b.res} m)</span></span>
+              </label>
+            ))}
+            <span className="ws-help">Fewer bands make a smaller file and, for a large area, finer cells. Bands of different sizes are matched to the finest one chosen.{" "}
+              <button type="button" className="ws-link" onClick={() => change(setWanted)(null)}>Use the usual bands</button></span>
+          </fieldset>
+          : <p className="ws-muted">Band: {ds.bands[0]?.label}.</p>)}
+        {ds?.dated && (
+          <div className="ws-row">
+            <label className="ws-f">From <input type="date" value={start} max={end} onChange={(e) => change(setStart)(e.target.value)} required /></label>
+            <label className="ws-f">To <input type="date" value={end} min={start} max={day(0)} onChange={(e) => change(setEnd)(e.target.value)} required /></label>
+          </div>
+        )}
+        {ds?.kind === "total" && <p className="ws-muted">The layer holds the total over this period.</p>}
+        {ds?.cloud && (
+          <label className="ws-f">Most cloud allowed: {cloud} %
+            <input type="range" min={0} max={100} step={5} value={cloud} onChange={(e) => change(setCloud)(Number(e.target.value))} />
+          </label>
+        )}
         <div className="ws-f"><span>Area</span>
           <label className="ws-check"><input type="radio" name="area" checked={areaOf === "view"} onChange={() => change(setAreaOf)("view")} />What the map shows now</label>
           {layerBox && <label className="ws-check"><input type="radio" name="area" checked={areaOf === "layer"} onChange={() => change(setAreaOf)("layer")} />Extent of the selected layer{layerName ? `: ${layerName}` : ""}</label>}
-          <span className="ws-help">{describeBox(bbox)}. Zoom in first for a small area: it is quicker, and keeps the cells at the satellite&apos;s own size.</span>
+          <span className="ws-help">{describeBox(bbox)}. Zoom in first for a small area: it is quicker, and keeps the cells at the data&apos;s own size.</span>
         </div>
 
-        <div className="ws-row" style={{ justifyContent: "flex-start" }}>
-          <Button variant="default" busy={busy === "search"} disabled={!ready || busy === "fetch"} onClick={() => void find()}>Find scenes</Button>
-          <span className="ws-muted">Optional: choose the scenes yourself. Otherwise PolyGIS uses the least cloudy{provider === "gee" ? " ones, as a cloud-masked median composite" : " ones, joining them where one does not cover the area"}.</span>
-        </div>
+        {ds?.scenes
+          ? <div className="ws-row" style={{ justifyContent: "flex-start" }}>
+            <Button variant="default" busy={busy === "search"} disabled={!ready || busy === "fetch"} onClick={() => void find()}>Find scenes</Button>
+            <span className="ws-muted">Optional: choose the scenes yourself. Otherwise PolyGIS uses {ds.cloud ? "the least cloudy" : "the most recent"}{provider === "gee" ? " ones, as a composite" : " ones, joining them where one does not cover the area"}.</span>
+          </div>
+          : ds && <p className="ws-muted">PolyGIS joins the {ds.kind === "static" ? "tiles" : "data"} covering the area{provider === "gee" && ds.cloud ? " as a cloud-masked composite" : ""}.</p>}
         {scenes && (scenes.length === 0
           ? <p className="ws-muted" role="status">No scenes found for that area and period. Try a longer period, or allow more cloud.</p>
           : <fieldset className="ws-fieldset" style={{ maxHeight: 180, overflowY: "auto" }}>
@@ -107,10 +130,10 @@ export function ImageryDialog({ projectId, viewBox, layerBox, layerName, onDone,
 
         <label className="ws-f">Layer name (optional) <input maxLength={200} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Minna, dry season" /></label>
         <ErrorText error={error} />
-        {busy === "fetch" && <p className="ws-muted" role="status">Fetching the imagery: this can take a minute or two for a large area.</p>}
+        {busy === "fetch" && <p className="ws-muted" role="status">Fetching the data: this can take a minute or two for a large area.</p>}
         <div className="ws-row">
           <Button type="submit" variant="primary" busy={busy === "fetch"} disabled={!ready || busy === "search"}>
-            {picked.length ? `Add ${picked.length} chosen scene${picked.length > 1 ? "s" : ""} to the map` : "Add the least cloudy imagery to the map"}
+            {picked.length ? `Add ${picked.length} chosen scene${picked.length > 1 ? "s" : ""} to the map` : "Add to the map"}
           </Button>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
         </div>

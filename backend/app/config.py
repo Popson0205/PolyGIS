@@ -47,8 +47,8 @@ class Settings(BaseSettings):
     gee_project: str = ""
     gee_service_account: str = ""
     gee_private_key: str = ""
-    imagery_max_cells: int = 16_000_000        # the most cells (per band) one imagery request may fetch; larger areas get larger cells
-    imagery_gee_max_cells: int = 5_000_000     # … from Earth Engine, whose direct download is limited to about 48 MB
+    imagery_max_mb: int = 128                  # the most memory one imagery request may use (cells x bands x bytes); larger areas get larger cells
+    imagery_gee_max_mb: int = 40               # … for Earth Engine, whose direct download is limited to about 48 MB
     imagery_timeout_s: int = 240               # the longest an imagery request may take
 
     log_level: str = "INFO"

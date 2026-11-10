@@ -63,7 +63,7 @@ export function AddData({ projectId, onDone, onClose, onImagery }: { projectId: 
           <strong>{file ? file.name : "Drop a file here, or click to choose one"}</strong>
           <span>GeoJSON, Shapefile (zipped with its .shp, .shx, .dbf and .prj), GeoPackage, KML/KMZ, CSV with longitude/latitude or WKT, DXF, GPX; or a raster: GeoTIFF (elevation models, drone and satellite imagery), Erdas IMG, ASCII grid, JPEG 2000, SRTM .hgt</span>
         </label>
-        {onImagery && <p className="ws-muted">No imagery file? <button type="button" className="ws-link" onClick={onImagery}>Get satellite imagery from an open source</button> (Sentinel-2, Landsat; Planetary Computer, Earth Search or Google Earth Engine) instead of downloading it yourself.</p>}
+        {onImagery && <p className="ws-muted">No imagery file? <button type="button" className="ws-link" onClick={onImagery}>Get data from an open source</button> (Sentinel-2, Landsat, radar, elevation, land cover, rainfall; Planetary Computer, Earth Search or Google Earth Engine) instead of downloading it yourself.</p>}
         <CrsPicker value={epsg} onChange={setEpsg} label="Its coordinate system" allowNone="As the file says (WGS 84 if it does not say)" />
         <p className="ws-muted">Choose one when the file does not say, e.g. a CSV of eastings and northings, or a Shapefile without its .prj.</p>
         <ErrorText error={error} />

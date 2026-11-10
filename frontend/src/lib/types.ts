@@ -31,14 +31,16 @@ export interface Layer {
   id: string; project_id: string; name: string; geometry_type: GeometryType; fields: Field[]; style: Style; labels: Labels | null;
   visible: boolean; position: number;
   source: { filename?: string; crs?: string | null; dropped?: number; drawn?: boolean; tool?: string; tool_name?: string; summary?: Record<string, unknown>;
-    imagery?: { provider: ImageryProviderId; satellite: Satellite; start: string; end: string; max_cloud: number; scenes: string[]; cell_m: number } };
+    imagery?: { provider: ImageryProviderId; dataset: ImageryDatasetId; bands: string[]; start: string | null; end: string | null; max_cloud: number | null; scenes: string[]; cell_m: number } };
   raster?: RasterMeta | null; feature_count: number; bbox: [number, number, number, number] | null; version: number; updated_at: string;
 }
 export type ImageryProviderId = "planetary-computer" | "earth-search" | "gee";
-export type Satellite = "sentinel2" | "landsat";
-export interface ImageryProvider { id: ImageryProviderId; name: string; ready: boolean; note: string; satellites: { id: Satellite; name: string }[] }
+export type ImageryDatasetId = "sentinel2" | "landsat" | "sentinel1" | "copdem" | "nasadem" | "worldcover" | "chirps";
+export interface ImageryBand { id: string; label: string; res: number; default: boolean }
+export interface ImageryDataset { id: ImageryDatasetId; name: string; kind: "optical" | "radar" | "static" | "total"; dated: boolean; cloud: boolean; scenes: boolean; bands: ImageryBand[] }
+export interface ImageryProvider { id: ImageryProviderId; name: string; ready: boolean; note: string; datasets: ImageryDataset[] }
 export interface ImageryScene { id: string; datetime: string | null; cloud: number | null; platform: string | null }
-export interface ImageryRequest { provider: ImageryProviderId; satellite: Satellite; bbox: [number, number, number, number]; start: string; end: string; max_cloud: number }
+export interface ImageryRequest { provider: ImageryProviderId; dataset: ImageryDatasetId; bands: string[]; bbox: [number, number, number, number]; start?: string; end?: string; max_cloud: number }
 export interface View { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; basemap?: string }
 export interface Project {
   id: string; name: string; description: string; view: View; display_epsg: number; created_by: string | null; created_by_name: string;
