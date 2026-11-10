@@ -1,4 +1,4 @@
-import type { Activity, App, Crs, CrsDef, Field, FieldType, Filter, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
+import type { Activity, App, Crs, CrsDef, Field, FieldType, Filter, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
@@ -59,6 +59,9 @@ export const api = {
     }
     return handle<Layer[]>(res, "/import");
   },
+  imageryProviders: () => req<ImageryProvider[]>("GET", "/imagery/providers"),
+  searchImagery: (b: ImageryRequest) => req<{ count: number; scenes: ImageryScene[] }>("POST", "/imagery/search", b),
+  fetchImagery: (projectId: string, b: ImageryRequest & { scene_ids: string[]; name?: string }) => req<Layer>("POST", `/projects/${projectId}/imagery`, b),
   newLayer: (projectId: string, b: { name: string; geometry_type: VectorType; fields: Field[] }) => req<Layer>("POST", `/projects/${projectId}/layers`, b),
   updateLayer: (id: string, b: { name?: string; visible?: boolean; style?: Style; labels?: Labels; clear_labels?: boolean }) => req<Layer>("PATCH", `/layers/${id}`, b),
   deleteLayer: (id: string) => req<void>("DELETE", `/layers/${id}`),

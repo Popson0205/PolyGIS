@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link, useParams } from "react-router-dom";
 import AttributeTable from "../components/AttributeTable";
 import Contents from "../components/Contents";
+import { ImageryDialog } from "../components/Imagery";
 import { AddData, CrsPicker, Dialog, Export, NewLayer, SelectByAttributes, SelectByLocation } from "../components/Dialogs";
 import Geoprocessing from "../components/Geoprocessing";
 import LayerPanel from "../components/LayerPanel";
@@ -23,7 +24,7 @@ import type { CrsDef, Layer, Me, Project, Selection, VectorType } from "../lib/t
 
 type Tab = "map" | "insert" | "select" | "edit" | "analysis";
 type Tool = "explore" | "select" | "select-area" | "measure-line" | "measure-area" | "create" | "reshape" | "pick-reshape";
-type DialogName = "add" | "new" | "attr" | "loc" | "export" | "crs" | null;
+type DialogName = "add" | "imagery" | "new" | "attr" | "loc" | "export" | "crs" | null;
 const DRAW = { Point: "point", LineString: "linestring", Polygon: "polygon" } as const;
 
 /** A project open in the workspace, laid out like a desktop GIS: ribbon, contents, map, properties, table, status. */
@@ -227,6 +228,11 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     toast(`${s.count.toLocaleString("en-GB")} selected.`, "success");
     if (s.bbox && s.count) zoomTo(s.bbox);
     setDialog(null);
+  }
+  /** What the map shows now, as west, south, east, north (the whole world's extent when the map is not ready). */
+  function mapBox(): [number, number, number, number] {
+    const b = map.current?.getBounds();
+    return b ? [Math.max(-180, b.getWest()), Math.max(-85, b.getSouth()), Math.min(180, b.getEast()), Math.min(85, b.getNorth())] : [-180, -85, 180, 85];
   }
   function zoomTo(b: [number, number, number, number]) {
     const m = map.current;
@@ -605,12 +611,14 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
         {!canEdit && <span>{me.can_write ? "Viewer: read-only" : "Read-only licence"}</span>}
       </footer>
 
-      {dialog === "add" && <AddData projectId={id} onClose={() => setDialog(null)} onDone={(ls) => {
+      {dialog === "add" && <AddData projectId={id} onClose={() => setDialog(null)} onImagery={() => setDialog("imagery")} onDone={(ls) => {
         setLayers((cur) => [...cur, ...ls]); setActiveId(ls[0].id); setDialog(null); setLeftOpen(true);
         const dropped = ls.reduce((n, l) => n + (l.source.dropped ?? 0), 0);
         toast(`Added ${ls.map((l) => l.name).join(", ")}.${dropped ? ` ${dropped} feature(s) had no usable shape and were left out.` : ""}`, "success");
         if (ls[0].bbox) zoomTo(ls[0].bbox);
       }} />}
+      {dialog === "imagery" && <ImageryDialog projectId={id} viewBox={mapBox()} layerBox={active?.bbox ?? null} layerName={active?.name} onClose={() => setDialog(null)}
+        onDone={(l) => { setLayers((cur) => [...cur, l]); setActiveId(l.id); setDialog(null); setLeftOpen(true); toast(`${l.name} added to the map.`, "success"); if (l.bbox) zoomTo(l.bbox); }} />}
       {dialog === "new" && <NewLayer projectId={id} onClose={() => setDialog(null)} onDone={(l) => { setLayers((cur) => [...cur, l]); setDialog(null); startEditing(l.id, l); }} />}
       {dialog === "attr" && active && <SelectByAttributes layer={active} onClose={() => setDialog(null)} onDone={(s, add) => applySelection(active.id, s, add)} />}
       {dialog === "loc" && active && <SelectByLocation layer={active} layers={layers} selection={selection} onClose={() => setDialog(null)} onDone={(s, add) => applySelection(active.id, s, add)} />}

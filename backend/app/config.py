@@ -41,6 +41,16 @@ class Settings(BaseSettings):
     max_raster_cells: int = 60_000_000         # the most cells a raster tool works on (per band)
     max_hydro_cells: int = 16_000_000          # … and a hydrology tool, which needs more memory per cell
 
+    # Satellite imagery from open sources (Add data > Satellite imagery). Planetary Computer and Earth Search need nothing.
+    # Google Earth Engine is offered when GEE_PROJECT is set: with a service account (GEE_SERVICE_ACCOUNT and GEE_PRIVATE_KEY,
+    # the key file's JSON or a path to it), or with the credentials the server's environment already holds.
+    gee_project: str = ""
+    gee_service_account: str = ""
+    gee_private_key: str = ""
+    imagery_max_mb: int = 128                  # the most memory one imagery request may use (cells x bands x bytes); larger areas get larger cells
+    imagery_gee_max_mb: int = 40               # … for Earth Engine, whose direct download is limited to about 48 MB
+    imagery_timeout_s: int = 240               # the longest an imagery request may take
+
     log_level: str = "INFO"
 
     @model_validator(mode="after")
