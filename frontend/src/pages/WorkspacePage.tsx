@@ -618,7 +618,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
         if (ls[0].bbox) zoomTo(ls[0].bbox);
       }} />}
       {dialog === "imagery" && <ImageryDialog projectId={id} viewBox={mapBox()} layerBox={active?.bbox ?? null} layerName={active?.name} onClose={() => setDialog(null)}
-        onDone={(l) => { setLayers((cur) => [...cur, l]); setActiveId(l.id); setDialog(null); setLeftOpen(true); toast(`${l.name} added to the map.`, "success"); if (l.bbox) zoomTo(l.bbox); }} />}
+        onDone={(ls) => { setLayers((cur) => [...cur, ...ls]); setActiveId(ls[ls.length - 1].id); setDialog(null); setLeftOpen(true); toast(ls.length === 1 ? `${ls[0].name} added to the map.` : `${ls.length} layers added to the map.`, "success"); if (ls[0].bbox) zoomTo(ls[0].bbox); }} />}
       {dialog === "new" && <NewLayer projectId={id} onClose={() => setDialog(null)} onDone={(l) => { setLayers((cur) => [...cur, l]); setDialog(null); startEditing(l.id, l); }} />}
       {dialog === "attr" && active && <SelectByAttributes layer={active} onClose={() => setDialog(null)} onDone={(s, add) => applySelection(active.id, s, add)} />}
       {dialog === "loc" && active && <SelectByLocation layer={active} layers={layers} selection={selection} onClose={() => setDialog(null)} onDone={(s, add) => applySelection(active.id, s, add)} />}
