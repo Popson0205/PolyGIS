@@ -99,7 +99,7 @@ def test_clouds_are_masked_pixel_by_pixel_and_the_median_taken(cat):
     s2_scene(cat, "a", "2026-01-05", {"Red": 0.10, "NIR": 0.40})
     s2_scene(cat, "b", "2026-01-15", {"Red": 0.30, "NIR": 0.20}, scl=half)
     s2_scene(cat, "c", "2026-01-25", {"Red": 0.20, "NIR": 0.30})
-    res = pe.composite_tool({**BASE, "start": "2026-01-01", "end": "2026-01-31", "bands": "rgbn"}, ctx({}))
+    res = pe.composite_tool({**BASE, "start": "2026-01-01", "end": "2026-01-31", "bands": "rgbn", "method": "median"}, ctx({}))
     o = res.outs[0]
     red = o.data[0].astype(float) / 10000
     w = g["width"] // 2
@@ -205,7 +205,8 @@ def test_monthly_ndvi_series_for_points_and_polygons(cat):
     assert [o.summary["mean"] for o in whole.outs] == pytest.approx([0.2, 0.5, 0.7142857], abs=1e-4)          # a raster for each interval
     feats = [{"id": 2, "geom": poly, "props": {}}]
     layers = {"zones": {"name": "Farms", "geometry_type": "Polygon", "fields": []}}
-    yr = pe.time_series_tool({"bbox": MINNA, "measure": "index", "index": "ndvi", "start": "2026-01-01", "end": "2026-03-31", "step": "year"}, ctx({}, layers, {"zones": feats}))
+    yr = pe.time_series_tool({"bbox": MINNA, "measure": "index", "index": "ndvi", "start": "2026-01-01", "end": "2026-03-31", "step": "year",
+                              "pick": "median"}, ctx({}, layers, {"zones": feats}))
     assert yr.chart["x"] == ["2026"] and yr.chart["series"][0]["values"][0] == pytest.approx(0.5, abs=1e-4)      # median of the three scenes
 
 
@@ -539,3 +540,39 @@ def test_api_clips_to_a_polygon_layer(analyst, cat):
     lines = analyst.post(f"/projects/{pid}/layers", json={"name": "Roads", "geometry_type": "LineString", "fields": []}).json()
     bad = analyst.post(f"/projects/{pid}/poly-earth/index", json={"params": {"clip": lines["id"]}})
     assert bad.status_code == 422 and "must be polygons" in bad.json()["detail"]
+
+
+
+# ---------- the clearest scene, not all of them ----------
+def test_the_clearest_scene_over_the_area_is_used_and_only_its_gaps_filled(cat, monkeypatch):
+    g = G()
+    H, W = g["height"], g["width"]
+    cloudy_here = np.full((H, W), 9, np.uint8)                                 # 1 % cloud for its whole tile, but all of it here
+    west_cloud = np.full((H, W), 4, np.uint8)
+    west_cloud[:, :10] = 9                                                     # clear here except a strip
+    s2_scene(cat, "tile-clear", "2026-01-05", {"Red": 0.10, "NIR": 0.40}, scl=cloudy_here, cloud=1)
+    s2_scene(cat, "mostly-clear", "2026-01-15", {"Red": 0.05, "NIR": 0.45}, scl=west_cloud, cloud=30)
+    east_cloud = np.full((H, W), 4, np.uint8)
+    east_cloud[:, 50:] = 9
+    only_east = np.full((H, W), 9, np.uint8)
+    only_east[:, W - 40:] = 4
+    s2_scene(cat, "other", "2026-01-25", {"Red": 0.20, "NIR": 0.30}, scl=east_cloud, cloud=40)
+    s2_scene(cat, "spare", "2026-01-28", {"Red": 0.30, "NIR": 0.30}, scl=only_east, cloud=45)
+    read = []
+    real = pe.read_scene
+    monkeypatch.setattr(pe, "read_scene", lambda *a, **k: (read.append(a[2]["id"]), real(*a, **k))[1])
+    r = pe.index_tool({**BASE, "index": "ndvi", "start": "2026-01-01", "end": "2026-01-31"}, ctx({}))
+    v = r.outs[0].data
+    assert sorted(read) == ["mostly-clear", "other"]                             # bands of two scenes read, not four
+    assert np.allclose(v[:, 10:], 0.8) and np.allclose(v[:, :10], 0.2)           # the clearest, its cloudy strip from the next
+    assert r.outs[0].summary["scenes"] == 2
+
+
+def test_median_still_combines_every_scene(cat):
+    s2_scene(cat, "a", "2026-01-05", {"Red": 0.10, "NIR": 0.40})
+    s2_scene(cat, "b", "2026-01-15", {"Red": 0.30, "NIR": 0.20})
+    s2_scene(cat, "c", "2026-01-25", {"Red": 0.20, "NIR": 0.30})
+    best = pe.composite_tool({**BASE, "start": "2026-01-01", "end": "2026-01-31", "bands": "rgbn"}, ctx({}))
+    med = pe.composite_tool({**BASE, "start": "2026-01-01", "end": "2026-01-31", "bands": "rgbn", "method": "median"}, ctx({}))
+    assert best.outs[0].summary["scenes"] == 1 and "clearest-scene mosaic" in best.outs[0].name
+    assert med.outs[0].summary["scenes"] == 3 and np.allclose(med.outs[0].data[0], 2000)
