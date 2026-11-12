@@ -134,6 +134,7 @@ async def _run(jid: str, project_id: UUID, tool: str, spec: dict, params: dict, 
 
     def say(message: str, done: float | None = None):
         ctx.check()
+        j["_last"] = time.monotonic()
         j["message"] = message
         if done is not None:
             j["progress"] = round(max(j["progress"], min(0.99, float(done))), 3)
@@ -157,27 +158,49 @@ async def _run(jid: str, project_id: UUID, tool: str, spec: dict, params: dict, 
         if ctx.stop.is_set():                                       # stopped while waiting for a slot
             await _stopped(j, project_id, tool, spec, params, output_name, user, 0)
             return
-        j["status"], j["message"] = "running", "Starting"
+        j["status"], j["message"], j["started"] = "running", "Starting", time.time()
+        j["_last"] = time.monotonic()
+        why_stopped: list[str] = []
+
+        async def watch():
+            """No fixed time limit while the run keeps making progress: it is stopped only when nothing has moved for
+            EARTH_STALL_S (a stuck file or step), or after EARTH_TIMEOUT_S in all."""
+            while True:
+                await anyio.sleep(2)
+                now = time.monotonic()
+                if now - j["_last"] > settings.earth_stall_s:
+                    why_stopped.append(f"it made no progress for {_words(settings.earth_stall_s)} (a source may not be answering). "
+                                       "Try again, or choose a smaller area or a shorter period.")
+                elif settings.earth_timeout_s and now - started > settings.earth_timeout_s:
+                    why_stopped.append(f"it was still running after {_words(settings.earth_timeout_s)}: choose a smaller area, "
+                                       "a shorter period or fewer scenes.")
+                if why_stopped:
+                    ctx.stop.set()
+                    return
         try:
-            with anyio.fail_after(settings.earth_timeout_s):
-                res, metas = await anyio.to_thread.run_sync(work, abandon_on_cancel=True)
+            watcher = asyncio.create_task(watch())
+            try:
+                res, metas = await anyio.to_thread.run_sync(work)
+            finally:
+                watcher.cancel()
             ctx.check()                                              # stopped while saving the files: keep nothing
             made = await _save(project_id, tool, spec, params, output_name, res, metas, user, int((time.monotonic() - started) * 1000))
             j.update(status="done", progress=1.0, message="Done", layers=made, chart=res.chart, report=res.report, notes=res.notes,
                      ms=int((time.monotonic() - started) * 1000))
             return
         except polyearth.Stopped:
-            for m in metas or []:
-                if m:
-                    rasters.remove(m["key"])
-            await _stopped(j, project_id, tool, spec, params, output_name, user, int((time.monotonic() - started) * 1000))
-            return
+            if why_stopped:                                          # stopped by the watch, not the person: a failure
+                why = why_stopped[0]
+            else:
+                for m in metas or []:
+                    if m:
+                        rasters.remove(m["key"])
+                await _stopped(j, project_id, tool, spec, params, output_name, user, int((time.monotonic() - started) * 1000))
+                return
         except Problem as e:
             why = e.detail or "it did not finish."
         except ImageryError as e:
             why = str(e)
-        except TimeoutError:
-            why = f"it took longer than {settings.earth_timeout_s // 60} minutes: choose a smaller area, a shorter period or fewer scenes."
         except MemoryError:
             why = "it needs more memory than the server has: choose a smaller area, a shorter period or fewer scenes."
         except Exception as e:  # noqa: BLE001
@@ -195,6 +218,10 @@ async def _run(jid: str, project_id: UUID, tool: str, spec: dict, params: dict, 
                                    (project_id, user["org_id"], f"earth:{tool}", Jsonb(_plain(params)), output_name or spec["name"], why, ms, user["id"], user["name"]))
         except psycopg.Error:
             log.exception("could not record the failed run")
+
+
+def _words(s: int) -> str:
+    return f"{s // 3600} hours" if s >= 7200 else f"{s // 60} minutes" if s >= 120 else f"{s} seconds"
 
 
 async def _stopped(j: dict, project_id, tool, spec, params, output_name, user, ms: int) -> None:

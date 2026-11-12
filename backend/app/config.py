@@ -52,7 +52,8 @@ class Settings(BaseSettings):
     imagery_timeout_s: int = 240               # the longest an imagery request may take
     # Poly Earth (Earth Engine-style analyses on open data), run in the background with progress shown
     earth_max_mb: int = 384                    # the most memory one run's scenes may take; larger areas get larger cells
-    earth_timeout_s: int = 900                 # the longest a run may take
+    earth_stall_s: int = 600                   # a run is stopped only when it makes no progress for this long (a file or a step stuck)
+    earth_timeout_s: int = 3 * 3600            # and, whatever its progress, after this long (0: never)
     earth_workers: int = 12                    # files read at once (the work waits on the network, not the processor)
     earth_jobs: int = 2                        # runs at once on the server (others wait their turn)
 
