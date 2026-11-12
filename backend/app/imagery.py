@@ -17,9 +17,16 @@ Three sources, one result:
   account: ``GEE_SERVICE_ACCOUNT`` with ``GEE_PRIVATE_KEY``). Clouds are masked and scenes combined into a median composite,
   which Earth Engine clips and sends back as a GeoTIFF.
 
-Values stay as the providers store them (Sentinel-2 surface reflectance times 10 000, Landsat Collection 2 scaled integers,
-radar backscatter as linear power, elevation in metres, rainfall in millimetres); optical bands are unsigned 16-bit with 0 for
-no data.
+Optical bands come out the same from every source: surface reflectance times 10 000, unsigned 16-bit, 0 for no data (1 for
+reflectance at or below zero). Two corrections make that so:
+
+* Sentinel-2 scenes processed with baseline 04.00 or later (from 25 January 2022) carry a +1000 offset as ESA delivers them;
+  Planetary Computer serves them that way, so it is taken off (Earth Search has already done so; Earth Engine's
+  S2_SR_HARMONIZED likewise), and scenes from before and after can be joined and compared.
+* Landsat Collection 2 Level-2 stores reflectance as DN x 0.0000275 - 0.2; it is turned into reflectance times 10 000.
+
+Without these, an NDVI or any band ratio would be wrong, and a mosaic of older and newer Sentinel-2 scenes would show seams.
+Other values are as the providers hold them: radar backscatter as linear power, elevation in metres, rainfall in millimetres.
 """
 import datetime as dt
 import logging
@@ -271,6 +278,36 @@ def _signed(provider: str, coll: str, tokens: dict, href: str) -> str:
     return href + ("&" if "?" in href else "?") + tokens[coll]
 
 
+S2_OFFSET_FROM = dt.date(2022, 1, 25)          # processing baseline 04.00: L2A values gain +1000
+
+
+def _baseline_offset(it: dict) -> bool:
+    """Whether a Sentinel-2 scene's values carry ESA's +1000 offset (processing baseline 04.00 or later)."""
+    p = it.get("properties", {})
+    b = p.get("s2:processing_baseline")
+    if b not in (None, ""):
+        try:
+            return float(b) >= 4.0
+        except (TypeError, ValueError):
+            pass
+    when = (p.get("datetime") or p.get("start_datetime") or "")[:10]
+    try:
+        return dt.date.fromisoformat(when) >= S2_OFFSET_FROM
+    except ValueError:
+        return False
+
+
+def to_reflectance(provider: str, dataset: str, it: dict, a: np.ndarray, ok: np.ndarray) -> np.ndarray:
+    """A scene's optical band as surface reflectance x 10 000 (uint16; 0 stays no data, values at or below 0 become 1)."""
+    if dataset == "sentinel2" and provider == PC and _baseline_offset(it):
+        v = a.astype(np.int32) - 1000
+    elif dataset == "landsat":
+        v = np.rint(a.astype(np.float64) * 0.275 - 2000)
+    else:
+        return a
+    return np.where(ok, np.clip(v, 1, 65535), 0).astype(np.uint16)
+
+
 def stac_mosaic(provider: str, dataset: str, items: list[dict], grid: dict, bands: list[dict]) -> tuple[np.ndarray, list[dict]]:
     """The scenes read onto the grid (only the bands asked for), least cloudy first, each filling only what the earlier ones left empty."""
     ds = DATASETS[dataset]
@@ -299,7 +336,11 @@ def stac_mosaic(provider: str, dataset: str, items: list[dict], grid: dict, band
                     with rasterio.open(href) as src, WarpedVRT(src, crs=grid["crs"], transform=grid["transform"], width=w, height=h, resampling=rs,
                                                                  src_nodata=src.nodata, nodata=nodata, add_alpha=src.nodata is None) as vrt:
                         a = vrt.read(1)
-                        ok &= (vrt.dataset_mask() > 0) & np.isfinite(a)
+                        good = (vrt.dataset_mask() > 0) & np.isfinite(a)
+                        if ds["kind"] == "optical":
+                            good &= a != 0
+                            a = to_reflectance(provider, dataset, it, a, good)
+                        ok &= good
                         got.append(a)
         except rasterio.errors.RasterioError as e:
             log.warning("scene %s could not be read: %s", it.get("id"), e)
@@ -360,7 +401,11 @@ def _gee_collection(ee, dataset: str, bands: list[dict], bbox, start: dt.date, e
                 good = scl.neq(3).And(scl.neq(8)).And(scl.neq(9)).And(scl.neq(10)).And(scl.neq(11))   # shadow, cloud (medium, high), cirrus, snow
             else:
                 good = img.select("QA_PIXEL").bitwiseAnd(0b11010).eq(0)                               # dilated cloud, cloud, cloud shadow
-            return img.updateMask(good).select(gbands, names).set("cloud", img.get(cloud_prop))
+            out = img.updateMask(good).select(gbands, names)
+            if dataset == "landsat":                                                                  # DN to reflectance x 10 000
+                out = out.multiply(0.275).subtract(2000).max(1)
+            # merge() renames system:index ("1_…", "2_…"), so each scene keeps its own id as "scene"
+            return out.set("cloud", img.get(cloud_prop)).set("scene", img.get("system:id")).set("system:time_start", img.get("system:time_start"))
         return f
 
     merged = None
@@ -382,7 +427,7 @@ def gee_search(dataset: str, bands: list[dict], bbox, start: dt.date, end: dt.da
     for f in feats:
         p = f.get("properties", {})
         t = p.get("system:time_start")
-        out.append({"id": f["id"], "datetime": dt.datetime.fromtimestamp(t / 1000, dt.timezone.utc).isoformat() if t else None,
+        out.append({"id": p.get("scene") or f["id"], "datetime": dt.datetime.fromtimestamp(t / 1000, dt.timezone.utc).isoformat() if t else None,
                     "cloud": p.get("cloud"), "platform": None})
     return out
 
@@ -396,13 +441,13 @@ def _gee_image(ee, dataset: str, bands: list[dict], bbox, start, end, max_cloud:
     if ds["kind"] == "optical":
         col, region = _gee_collection(ee, dataset, bands, bbox, start, end, 100 if scene_ids else max_cloud)
         if scene_ids:
-            col = col.filter(ee.Filter.inList("system:index", [i.rsplit("/", 1)[-1] for i in scene_ids]))
+            col = col.filter(ee.Filter.inList("scene", list(scene_ids)))
             image = col.sort("cloud", False).mosaic()                # the least cloudy scene on top
         else:
             image = col.median()
         if not col.size().getInfo():
             raise ImageryError("No scenes found for that area and period. Try a longer period or allow more cloud.")
-        used = [{"id": f["id"], "datetime": None, "cloud": f["properties"].get("cloud"), "platform": None}
+        used = [{"id": f["properties"].get("scene") or f["id"], "datetime": None, "cloud": f["properties"].get("cloud"), "platform": None}
                 for f in col.sort("cloud").limit(MAX_SCENES).getInfo()["features"]]
         return image.select(names).round().toUint16(), used, region
     last = (end + dt.timedelta(days=1)).isoformat() if end else None
