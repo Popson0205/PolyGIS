@@ -114,14 +114,16 @@ async def start(project_id: UUID, tool: str, body: RunIn, user=Depends(need("edi
     now = time.time()
     for k in [k for k, j in JOBS.items() if now - j["_at"] > KEEP_S]:
         JOBS.pop(k, None)
-    if sum(1 for j in JOBS.values() if j["_user"] == user["id"] and j["status"] in ("queued", "running")) >= 3:
+    if sum(1 for j in JOBS.values() if j["_user"] == user["id"] and j["status"] in ("queued", "running", "stopping")) >= 3:
         raise Problem(429, "You have three Poly Earth runs going already: wait for one to finish.", code="too_many")
     jid = uuid.uuid4().hex
     JOBS[jid] = {"id": jid, "tool": tool, "tool_name": spec["name"], "status": "queued", "message": "Waiting for a free slot", "progress": 0.0,
                  "layers": [], "chart": None, "report": None, "notes": [], "error": None, "ms": None,
                  "_user": user["id"], "_at": now}
     _slots = _slots or asyncio.Semaphore(max(1, settings.earth_jobs))
-    task = asyncio.create_task(_run(jid, project_id, tool, spec, params, body.output_name, polyearth.Ctx(params, raster_tools.Inputs(layers, feats), clip=clip), user))
+    ctx = polyearth.Ctx(params, raster_tools.Inputs(layers, feats), clip=clip)
+    JOBS[jid]["_ctx"] = ctx
+    task = asyncio.create_task(_run(jid, project_id, tool, spec, params, body.output_name, ctx, user))
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
     return _public(JOBS[jid])
@@ -131,6 +133,7 @@ async def _run(jid: str, project_id: UUID, tool: str, spec: dict, params: dict, 
     j = JOBS[jid]
 
     def say(message: str, done: float | None = None):
+        ctx.check()
         j["message"] = message
         if done is not None:
             j["progress"] = round(max(j["progress"], min(0.99, float(done))), 3)
@@ -149,15 +152,25 @@ async def _run(jid: str, project_id: UUID, tool: str, spec: dict, params: dict, 
 
     assert _slots is not None
     async with _slots:
-        j["status"], j["message"] = "running", "Starting"
         started = time.monotonic()
         res = metas = None
+        if ctx.stop.is_set():                                       # stopped while waiting for a slot
+            await _stopped(j, project_id, tool, spec, params, output_name, user, 0)
+            return
+        j["status"], j["message"] = "running", "Starting"
         try:
             with anyio.fail_after(settings.earth_timeout_s):
                 res, metas = await anyio.to_thread.run_sync(work, abandon_on_cancel=True)
+            ctx.check()                                              # stopped while saving the files: keep nothing
             made = await _save(project_id, tool, spec, params, output_name, res, metas, user, int((time.monotonic() - started) * 1000))
             j.update(status="done", progress=1.0, message="Done", layers=made, chart=res.chart, report=res.report, notes=res.notes,
                      ms=int((time.monotonic() - started) * 1000))
+            return
+        except polyearth.Stopped:
+            for m in metas or []:
+                if m:
+                    rasters.remove(m["key"])
+            await _stopped(j, project_id, tool, spec, params, output_name, user, int((time.monotonic() - started) * 1000))
             return
         except Problem as e:
             why = e.detail or "it did not finish."
@@ -182,6 +195,29 @@ async def _run(jid: str, project_id: UUID, tool: str, spec: dict, params: dict, 
                                    (project_id, user["org_id"], f"earth:{tool}", Jsonb(_plain(params)), output_name or spec["name"], why, ms, user["id"], user["name"]))
         except psycopg.Error:
             log.exception("could not record the failed run")
+
+
+async def _stopped(j: dict, project_id, tool, spec, params, output_name, user, ms: int) -> None:
+    j.update(status="stopped", message="Stopped", error=None, ms=ms)
+    try:
+        async with pool.connection() as conn:
+            await conn.execute("INSERT INTO runs (project_id, org_id, tool, params, output_name, status, message, ms, actor_id, actor_name) "
+                               "VALUES (%s, %s, %s, %s, %s, 'failed', %s, %s, %s, %s)",
+                               (project_id, user["org_id"], f"earth:{tool}", Jsonb(_plain(params)), output_name or spec["name"],
+                                f"Stopped by {user['name']}.", ms, user["id"], user["name"]))
+    except psycopg.Error:
+        log.exception("could not record the stopped run")
+
+
+@router.post("/poly-earth/jobs/{job_id}/stop", summary="Stop a Poly Earth run; nothing it made is kept")
+async def stop(job_id: str, user=Depends(need())):
+    j = JOBS.get(job_id)
+    if not j or j["_user"] != user["id"]:
+        raise Problem(404, "That run is not known (runs are kept for three hours).", code="not_found")
+    if j["status"] in ("queued", "running"):
+        j["_ctx"].stop.set()
+        j.update(status="stopping", message="Stopping: finishing the files being read")
+    return _public(j)
 
 
 async def _save(project_id, tool, spec, params, output_name, res: polyearth.Result, metas, user, ms) -> list[dict]:

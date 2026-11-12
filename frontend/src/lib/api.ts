@@ -96,6 +96,7 @@ export const api = {
   startEarth: (projectId: string, tool: string, params: Record<string, unknown>, output_name?: string) =>
     req<EarthJob>("POST", `/projects/${projectId}/poly-earth/${tool}`, { params, output_name: output_name || null }),
   earthJob: (id: string) => req<EarthJob>("GET", `/poly-earth/jobs/${id}`),
+  stopEarth: (id: string) => req<EarthJob>("POST", `/poly-earth/jobs/${id}/stop`),
   runs: (projectId: string) => req<Run[]>("GET", `/projects/${projectId}/runs`),
   crs: (q = "") => req<Crs[]>("GET", `/crs${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   crsDef: (epsg: number) => req<CrsDef>("GET", `/crs/${epsg}`),

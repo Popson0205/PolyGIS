@@ -57,6 +57,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [panelTab, setPanelTab] = useState<{ tab: PanelTab; n: number }>({ tab: "symbology", n: 0 });
   const earthJobs = useEarthJobs((j) => {
     if (j.status === "failed") { toast(`${j.tool_name} did not finish: ${j.error}`, "bad"); return; }
+    if (j.status === "stopped") { toast(`${j.tool_name} stopped. Nothing was kept.`, "info"); return; }
     if (j.layers.length) {
       setLayers((cur) => [...cur.filter((l) => !j.layers.some((x) => x.id === l.id)), ...j.layers]);
       setActiveId(j.layers[0].id);
@@ -485,7 +486,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   };
   const right = earth.open ? (
     <PolyEarth projectId={id} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit} allowed={me.features.includes("raster")}
-      start={earth.start} jobs={earthJobs.jobs} viewBox={mapBox} onStarted={earthJobs.add} onClose={() => setEarth({ open: false, start: null })}
+      start={earth.start} jobs={earthJobs.jobs} viewBox={mapBox} onStarted={earthJobs.add} onStop={(jid) => void earthJobs.stop(jid)} onClose={() => setEarth({ open: false, start: null })}
       onShowLayer={(l) => { setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); }} />
   ) : gp.open ? (
     <Geoprocessing projectId={id} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit} query={gp.query}

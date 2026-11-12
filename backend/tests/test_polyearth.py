@@ -388,7 +388,7 @@ def wait(who, job, most=60):
     t = time.time()
     while time.time() - t < most:
         j = who.get(f"/poly-earth/jobs/{job['id']}").json()
-        if j["status"] in ("done", "failed"):
+        if j["status"] in ("done", "failed", "stopped"):
             return j
         time.sleep(0.1)
     raise AssertionError("the run did not finish")
@@ -576,3 +576,42 @@ def test_median_still_combines_every_scene(cat):
     med = pe.composite_tool({**BASE, "start": "2026-01-01", "end": "2026-01-31", "bands": "rgbn", "method": "median"}, ctx({}))
     assert best.outs[0].summary["scenes"] == 1 and "clearest-scene mosaic" in best.outs[0].name
     assert med.outs[0].summary["scenes"] == 3 and np.allclose(med.outs[0].data[0], 2000)
+
+
+# ---------- stopping a run ----------
+def test_a_stopped_run_stops_reading_and_keeps_nothing(analyst, cat, monkeypatch):
+    for d in range(1, 21):
+        s2_scene(cat, f"s{d}", f"2026-01-{d:02d}", {"Red": 0.1, "NIR": 0.4}, tile=f"T{d}")
+    read = []
+    real = pe.read_scene
+
+    def slow(*a, **k):
+        time.sleep(0.25)
+        read.append(a[2]["id"])
+        return real(*a, **k)
+    monkeypatch.setattr(pe, "read_scene", slow)
+    monkeypatch.setattr(settings, "earth_workers", 2)
+    pid = analyst.post("/projects", json={"name": "Stop me"}).json()["id"]
+    j = analyst.post(f"/projects/{pid}/poly-earth/index", json={"params": {"bbox": MINNA, "start": "2026-01-01", "end": "2026-01-31",
+                                                                          "pick": "median", "scenes": 1}}).json()
+    t = time.time()
+    while analyst.get(f"/poly-earth/jobs/{j['id']}").json()["status"] == "queued" and time.time() - t < 10:
+        time.sleep(0.05)
+    time.sleep(0.4)
+    s = analyst.post(f"/poly-earth/jobs/{j['id']}/stop").json()
+    assert s["status"] in ("stopping", "stopped")
+    end = wait(analyst, j)
+    assert end["status"] == "stopped" and end["layers"] == []
+    assert len(read) < 20                                                        # it did not read on to the end
+    assert analyst.get(f"/projects/{pid}").json()["layers"] == []
+    run = analyst.get(f"/projects/{pid}/runs").json()[0]
+    assert run["status"] == "failed" and run["message"] == "Stopped by Ngozi Analyst."
+
+
+def test_only_the_runs_owner_can_stop_it(analyst, person, cat):
+    s2_scene(cat, "a", "2026-01-05", {"Red": 0.1, "NIR": 0.4})
+    pid = analyst.post("/projects", json={"name": "Mine to stop"}).json()["id"]
+    j = analyst.post(f"/projects/{pid}/poly-earth/index", json={"params": {"bbox": MINNA, "start": "2026-01-01", "end": "2026-01-31"}}).json()
+    other = person(role="member", name="Not Mine", features=["maps", "raster"])
+    assert other.post(f"/poly-earth/jobs/{j['id']}/stop").status_code == 404
+    wait(analyst, j)
