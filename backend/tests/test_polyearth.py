@@ -2,6 +2,7 @@
 small GeoTIFFs on disk laid on the very grid PolyGIS asks for, so every expected value can be worked out by hand: clouds masked,
 scenes combined, indices, time series, change, burn severity, flood mapping, classification and its accuracy, and the API's
 background runs."""
+import datetime as dt
 import time
 
 import numpy as np
@@ -199,7 +200,9 @@ def test_monthly_ndvi_series_for_points_and_polygons(cat):
     layer = r.outs[0]
     assert layer.kind == "vector" and layer.rows[0][1]["2026-02"] == pytest.approx(0.5, abs=1e-4)
     whole = pe.time_series_tool({"bbox": MINNA, "measure": "index", "index": "ndvi", "start": "2026-01-01", "end": "2026-03-31", "step": "scene"}, ctx({}))
-    assert whole.chart["x"] == ["2026-01-10", "2026-02-10", "2026-03-10"] and whole.outs == []
+    assert whole.chart["x"] == ["2026-01-10", "2026-02-10", "2026-03-10"]
+    assert [o.name for o in whole.outs] == ["NDVI (Sentinel-2) 2026-01-10", "NDVI (Sentinel-2) 2026-02-10", "NDVI (Sentinel-2) 2026-03-10"]
+    assert [o.summary["mean"] for o in whole.outs] == pytest.approx([0.2, 0.5, 0.7142857], abs=1e-4)          # a raster for each interval
     feats = [{"id": 2, "geom": poly, "props": {}}]
     layers = {"zones": {"name": "Farms", "geometry_type": "Polygon", "fields": []}}
     yr = pe.time_series_tool({"bbox": MINNA, "measure": "index", "index": "ndvi", "start": "2026-01-01", "end": "2026-03-31", "step": "year"}, ctx({}, layers, {"zones": feats}))
@@ -470,3 +473,69 @@ def test_a_period_takes_scenes_from_every_tile_in_turn_up_to_a_limit():
     got = pe.pick(items, 6)
     assert len(got) == pe.MAX_PERIOD_SCENES and {i["id"][0] for i in got} == set("ABCDEFGHIJ")
     assert [i["id"] for i in got[:10]] == [f"{t}0" for t in "ABCDEFGHIJ"]          # each tile's clearest first
+
+
+
+# ---------- a raster for each interval, and clipping to polygons ----------
+def test_time_series_keeps_a_raster_for_each_interval_or_one_band_each(cat):
+    for m, red in ((1, 0.2), (2, 0.1), (3, 0.05)):
+        s2_scene(cat, f"m{m}", f"2026-0{m}-10", {"Red": red, "NIR": 0.3})
+    p = {"bbox": MINNA, "measure": "index", "index": "ndvi", "start": "2026-01-01", "end": "2026-03-31", "step": "month"}
+    each = pe.time_series_tool({**p, "rasters": "each"}, ctx({}))
+    assert [o.name for o in each.outs] == [f"NDVI (Sentinel-2) 2026-0{m}" for m in (1, 2, 3)]
+    assert all(o.style["min"] == -0.2 and o.style["max"] == 0.9 for o in each.outs)                         # one scale to compare by eye
+    stack = pe.time_series_tool({**p, "rasters": "stack"}, ctx({})).outs
+    assert len(stack) == 1 and stack[0].names == ["2026-01", "2026-02", "2026-03"] and stack[0].data.shape[0] == 3
+    assert np.nanmean(stack[0].data[1].filled(np.nan)) == pytest.approx(0.5, abs=1e-4)
+    assert pe.time_series_tool({**p, "rasters": "none"}, ctx({})).outs == []
+    yearly = pe.time_series_tool({**p, "step": "year", "start": "2025-06-01"}, ctx({}))
+    assert [o.name for o in yearly.outs] == ["NDVI (Sentinel-2) 2026"] and "No raster for 2025" in " ".join(yearly.notes)
+    assert yearly.chart["x"] == ["2025", "2026"] and yearly.chart["series"][0]["values"][0] is None
+
+
+def test_a_run_clipped_to_a_polygon_has_nothing_outside_it(cat):
+    g = G()
+    s2_scene(cat, "a", "2026-01-05", {"Red": 0.1, "NIR": 0.4})
+    left, top = g["transform"].c, g["transform"].f
+    poly = rt.to_wgs84([shapely.box(left + 200, top - 600, left + 600, top - 200)], g["crs"])[0]
+    pe.set_clip(poly)
+    try:
+        r = pe.index_tool({**BASE, "index": "ndvi", "start": "2026-01-01", "end": "2026-01-31"}, ctx({}))
+        comp = pe.composite_tool({**BASE, "start": "2026-01-01", "end": "2026-01-31", "bands": "rgbn"}, ctx({}))
+        ts = pe.time_series_tool({"bbox": MINNA, "measure": "index", "index": "ndvi", "start": "2026-01-01", "end": "2026-01-31", "step": "month",
+                                  "rasters": "none"}, ctx({}))
+    finally:
+        pe.set_clip(None)
+    d = r.outs[0].data
+    kept = (~d.mask).sum()
+    assert 1500 <= kept <= 1800 and d.mask[0, 0] and np.allclose(d.compressed(), 0.6)                     # 40 x 40 cells (+ edges touched)
+    assert r.outs[0].summary["mean"] == pytest.approx(0.6)
+    assert comp.outs[0].data.mask[:, 0, 0].all() and comp.outs[0].summary["clear %"] == 100.0
+    assert ts.chart["series"][0]["name"] == "The polygons"
+
+
+def test_scenes_that_miss_the_polygons_are_not_read(cat):
+    s2_scene(cat, "near", "2026-01-05", {"Red": 0.1, "NIR": 0.4})
+    far = s2_scene(cat, "far", "2026-01-06", {"Red": 0.1, "NIR": 0.4})
+    far["geometry"] = shapely.geometry.mapping(shapely.box(10, 10, 11, 11))
+    got = pe.find_scenes("sentinel2", PC, MINNA, dt.date(2026, 1, 1), dt.date(2026, 1, 31), 60, 5, shapely.box(*MINNA))
+    assert [i["id"] for i in got] == ["near"]
+
+
+def test_api_clips_to_a_polygon_layer(analyst, cat):
+    s2_scene(cat, "a", "2026-01-05", {"Red": 0.1, "NIR": 0.4})
+    pid = analyst.post("/projects", json={"name": "Clip"}).json()["id"]
+    farms = analyst.post(f"/projects/{pid}/layers", json={"name": "Farms", "geometry_type": "Polygon", "fields": []}).json()
+    g = G()
+    left, top = g["transform"].c, g["transform"].f
+    poly = rt.to_wgs84([shapely.box(left + 200, top - 600, left + 600, top - 200)], g["crs"])[0]
+    analyst.post(f"/layers/{farms['id']}/features", json={"geometry": shapely.geometry.mapping(poly), "properties": {}})
+    r = analyst.post(f"/projects/{pid}/poly-earth/index", json={"params": {"bbox": [0, 0, 1, 1], "clip": farms["id"], "start": "2026-01-01", "end": "2026-01-31"}})
+    j = wait(analyst, r.json())
+    assert j["status"] == "done", j
+    lay = j["layers"][0]
+    w, s, e, n = lay["bbox"]
+    assert w > poly.bounds[0] - 0.001 and e < poly.bounds[2] + 0.001                   # the grid is the polygon's, not the box sent
+    lines = analyst.post(f"/projects/{pid}/layers", json={"name": "Roads", "geometry_type": "LineString", "fields": []}).json()
+    bad = analyst.post(f"/projects/{pid}/poly-earth/index", json={"params": {"clip": lines["id"]}})
+    assert bad.status_code == 422 and "must be polygons" in bad.json()["detail"]
