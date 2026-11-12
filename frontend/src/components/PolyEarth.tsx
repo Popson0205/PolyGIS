@@ -1,5 +1,5 @@
 import { ArrowLeft, BarChart3, CheckCircle2, ChevronDown, CloudSun, Download, Earth, Flame, Layers3, Leaf, LineChart, Loader2, Map as MapIcon, Mountain, Play,
-  Search, Sparkles, Sprout, Table2, Thermometer, TrendingUp, Waves, X, XCircle } from "lucide-react";
+  Search, Sparkles, Sprout, Square, Table2, Thermometer, TrendingUp, Waves, X, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import type { EarthChart, EarthJob, EarthReport, Layer, Tool, ToolParam } from "../lib/types";
@@ -14,6 +14,7 @@ const ICON: Record<string, ReactNode> = {
   water_change: <Waves />, flood: <Waves />, classify: <MapIcon />, cluster: <MapIcon />, zonal_index: <Table2 />, land_cover: <Earth />,
 };
 const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+export const live = (j: EarthJob) => j.status === "queued" || j.status === "running" || j.status === "stopping";
 const seconds = (ms: number | null) => (ms == null ? "" : ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`);
 
 /** Runs keep going while the pane is closed: the workspace polls them and adds their layers to the map when they finish. */
@@ -23,29 +24,33 @@ export function useEarthJobs(onFinished: (job: EarthJob) => void) {
   latest.current = jobs;
   const done = useRef(onFinished);
   done.current = onFinished;
-  const running = jobs.some((j) => j.status === "queued" || j.status === "running");
+  const running = jobs.some((j) => live(j));
   useEffect(() => {
     if (!running) return;
     const t = window.setInterval(() => {
-      for (const j of latest.current.filter((x) => x.status === "queued" || x.status === "running")) {
+      for (const j of latest.current.filter(live)) {
         void api.earthJob(j.id).then((n) => {
           const was = latest.current.find((x) => x.id === n.id);
           setJobs((c) => c.map((x) => (x.id === n.id ? n : x)));
-          if (was && was.status !== n.status && (n.status === "done" || n.status === "failed")) done.current(n);
+          if (was && was.status !== n.status && !live(n)) done.current(n);
         }, () => undefined);
       }
     }, 1500);
     return () => window.clearInterval(t);
   }, [running]);
   const add = useCallback((j: EarthJob) => setJobs((cur) => [j, ...cur.filter((x) => x.id !== j.id)].slice(0, 20)), []);
-  return { jobs, add };
+  /** Stop a run: the server drops the files it has not begun and keeps nothing the run made. */
+  const stop = useCallback(async (id: string) => {
+    try { const n = await api.stopEarth(id); setJobs((c) => c.map((x) => (x.id === n.id ? n : x))); } catch { /* it may have just finished */ }
+  }, []);
+  return { jobs, add, stop };
 }
 
 /** Poly Earth: Earth Engine's usual analyses as forms. Pick a tool, the area and the dates; the server reads the open satellite
  * data, does the work and adds the result to the map, with a chart or an accuracy report where there is one. */
-export default function PolyEarth({ projectId, layers, selection, activeId, canEdit, allowed, start, jobs, viewBox, onStarted, onClose, onShowLayer }: {
+export default function PolyEarth({ projectId, layers, selection, activeId, canEdit, allowed, start, jobs, viewBox, onStarted, onStop, onClose, onShowLayer }: {
   projectId: string; layers: Layer[]; selection: Record<string, number[]>; activeId: string | null; canEdit: boolean; allowed: boolean;
-  start?: string | null; jobs: EarthJob[]; viewBox: () => Box; onStarted: (j: EarthJob) => void; onClose: () => void; onShowLayer: (l: Layer) => void;
+  start?: string | null; jobs: EarthJob[]; viewBox: () => Box; onStarted: (j: EarthJob) => void; onStop: (id: string) => void; onClose: () => void; onShowLayer: (l: Layer) => void;
 }) {
   const [tools, setTools] = useState<Tool[]>([]);
   const [error, setError] = useState<unknown>(null);
@@ -60,7 +65,7 @@ export default function PolyEarth({ projectId, layers, selection, activeId, canE
     const hit = tools.filter((t) => words.every((w) => `${t.name} ${t.about} ${t.group}`.toLowerCase().includes(w)));
     return Array.from(new Set(hit.map((t) => t.group))).map((g) => [g, hit.filter((t) => t.group === g)] as const);
   }, [tools, q]);
-  const active = jobs.filter((j) => j.status === "queued" || j.status === "running").length;
+  const active = jobs.filter(live).length;
 
   return (
     <aside className="ws-panel pe" aria-label="Poly Earth">
@@ -73,7 +78,7 @@ export default function PolyEarth({ projectId, layers, selection, activeId, canE
         <div className="ws-empty-state"><Earth size={22} aria-hidden="true" /><span>Poly Earth is in <b>PolyGIS Advanced</b>. Ask GeoEstate NIG Limited to move your organization to Advanced.</span></div>
       ) : tool ? (
         <EarthForm key={tool.id} tool={tool} projectId={projectId} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit} viewBox={viewBox}
-          job={jobs.find((j) => j.tool === tool.id) ?? null} onStarted={onStarted} onShowLayer={onShowLayer} />
+          job={jobs.find((j) => j.tool === tool.id) ?? null} onStarted={onStarted} onStop={onStop} onShowLayer={onShowLayer} />
       ) : (
         <>
           <div className="pe-hero">
@@ -109,24 +114,26 @@ export default function PolyEarth({ projectId, layers, selection, activeId, canE
               })}
               {tools.length > 0 && !groups.length && <p className="ws-empty">No tool matches “{q}”.</p>}
             </div>
-          </> : <div className="ws-scroll ws-panel-body"><Runs jobs={jobs} onOpen={(j) => setTool(tools.find((t) => t.id === j.tool) ?? null)} /></div>}
+          </> : <div className="ws-scroll ws-panel-body"><Runs jobs={jobs} onStop={onStop} onOpen={(j) => setTool(tools.find((t) => t.id === j.tool) ?? null)} /></div>}
         </>
       )}
     </aside>
   );
 }
 
-function Runs({ jobs, onOpen }: { jobs: EarthJob[]; onOpen: (j: EarthJob) => void }) {
+function Runs({ jobs, onOpen, onStop }: { jobs: EarthJob[]; onOpen: (j: EarthJob) => void; onStop: (id: string) => void }) {
   if (!jobs.length) return <p className="ws-muted">Runs started in this session appear here while they work and after. Every finished run is also in Geoprocessing's history.</p>;
   return (
     <ul className="ws-runs">
       {jobs.map((j) => (
         <li key={j.id} className={j.status === "failed" ? "is-failed" : ""}>
-          {j.status === "failed" ? <XCircle size={16} aria-hidden="true" /> : j.status === "done" ? <CheckCircle2 size={16} aria-hidden="true" /> : <Loader2 size={16} className="pe-spin" aria-hidden="true" />}
+          {j.status === "failed" || j.status === "stopped" ? <XCircle size={16} aria-hidden="true" /> : j.status === "done" ? <CheckCircle2 size={16} aria-hidden="true" /> : <Loader2 size={16} className="pe-spin" aria-hidden="true" />}
           <span><button type="button" className="ws-link" onClick={() => onOpen(j)}><strong>{j.tool_name}</strong></button><br />
             {j.status === "done" ? <span className="ws-runs-what">{j.layers.length ? `Made ${j.layers.map((l) => l.name).join(", ")}` : "Chart ready"} in {seconds(j.ms)}.</span>
               : j.status === "failed" ? <span className="ws-bad">Did not finish: {j.error}</span>
-                : <span className="ws-muted">{j.message} ({Math.round(j.progress * 100)} %)</span>}</span>
+                : j.status === "stopped" ? <span className="ws-muted">Stopped; nothing was kept.</span>
+                  : <span className="ws-muted">{j.message} ({Math.round(j.progress * 100)} %){j.status !== "stopping" &&
+                    <> · <button type="button" className="ws-link pe-stop-link" onClick={() => onStop(j.id)}>Stop</button></>}</span>}</span>
         </li>
       ))}
     </ul>
@@ -136,9 +143,9 @@ function Runs({ jobs, onOpen }: { jobs: EarthJob[]; onOpen: (j: EarthJob) => voi
 const shownIf = (p: ToolParam, v: Record<string, unknown>) =>
   !p.when || Object.entries(p.when).every(([k, x]) => (Array.isArray(x) ? x.includes(v[k]) : v[k] === x));
 
-function EarthForm({ tool, projectId, layers, selection, activeId, canEdit, viewBox, job, onStarted, onShowLayer }: {
+function EarthForm({ tool, projectId, layers, selection, activeId, canEdit, viewBox, job, onStarted, onStop, onShowLayer }: {
   tool: Tool; projectId: string; layers: Layer[]; selection: Record<string, number[]>; activeId: string | null; canEdit: boolean; viewBox: () => Box;
-  job: EarthJob | null; onStarted: (j: EarthJob) => void; onShowLayer: (l: Layer) => void;
+  job: EarthJob | null; onStarted: (j: EarthJob) => void; onStop: (id: string) => void; onShowLayer: (l: Layer) => void;
 }) {
   const fits = (p: ToolParam) => layers.filter((l) => (p.geometry ? p.geometry.includes(l.geometry_type) : l.geometry_type !== "Raster"));
   const [v, setV] = useState<Record<string, unknown>>(() => {
@@ -161,7 +168,7 @@ function EarthForm({ tool, projectId, layers, selection, activeId, canEdit, view
   const [error, setError] = useState<unknown>(null);
   const [, tick] = useState(0);
   const layerOf = (key?: string) => layers.find((l) => l.id === v[key ?? "input"]);
-  const running = job && (job.status === "queued" || job.status === "running");
+  const running = job && live(job);
   const areaBox = (): Box | null => (v.bbox === "layer" ? (layers.find((l) => l.id === areaLayer)?.bbox ?? null)
     : v.bbox === "clip" ? (layers.find((l) => l.id === clipLayer)?.bbox ?? null) : viewBox());
 
@@ -252,8 +259,13 @@ function EarthForm({ tool, projectId, layers, selection, activeId, canEdit, view
       <div className="ws-run">
         <ErrorText error={error} />
         {running && <div className="pe-progress" role="status"><div className="pe-bar"><i style={{ width: `${Math.max(3, Math.round(job.progress * 100))}%` }} /></div>
-          <span>{job.message}… {Math.round(job.progress * 100)} %</span></div>}
-        <Button type="submit" variant="primary" busy={busy} disabled={!canEdit || !!running}>{running ? "Working…" : <><Play size={15} aria-hidden="true" />Run</>}</Button>
+          <span>{job.message}{job.status === "stopping" ? "" : "…"} {job.status !== "stopping" && `${Math.round(job.progress * 100)} %`}</span></div>}
+        {running ? (
+          <div className="pe-running">
+            <Button variant="primary" busy disabled>{job.status === "stopping" ? "Stopping…" : "Working…"}</Button>
+            <Button variant="danger" disabled={job.status === "stopping"} onClick={() => onStop(job.id)}><Square size={13} fill="currentColor" aria-hidden="true" />Stop</Button>
+          </div>
+        ) : <Button type="submit" variant="primary" busy={busy} disabled={!canEdit}><Play size={15} aria-hidden="true" />Run</Button>}
         {!canEdit ? <p className="ws-muted">Only editors can run analyses.</p> : <p className="ws-muted">Larger areas and longer periods take longer (often a minute or two). You can close this pane meanwhile.</p>}
       </div>
     </form>
@@ -262,6 +274,7 @@ function EarthForm({ tool, projectId, layers, selection, activeId, canEdit, view
 
 function Outcome({ job, onShowLayer }: { job: EarthJob; onShowLayer: (l: Layer) => void }) {
   if (job.status === "failed") return <p className="error" role="alert">Did not finish: {job.error}</p>;
+  if (job.status === "stopped") return <p className="ws-muted" role="status">Stopped after {seconds(job.ms)}. Nothing it made was kept.</p>;
   if (job.status !== "done") return null;
   return (
     <div className="pe-result">

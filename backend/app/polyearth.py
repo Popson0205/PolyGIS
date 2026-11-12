@@ -108,12 +108,21 @@ def clip_array(a: np.ndarray, g: dict) -> np.ndarray:
     return a
 
 
+class Stopped(Exception):
+    """The person stopped the run."""
+
+
 @dataclass
 class Ctx:
     params: dict
     inputs: rt.Inputs
     say: Callable = lambda message, done=None: None      # progress, in words, and how far along (0 to 1)
     clip: object = None                                  # polygons (WGS 84) the area is clipped to
+    stop: threading.Event = field(default_factory=threading.Event)   # set when the person stops the run
+
+    def check(self) -> None:
+        if self.stop.is_set():
+            raise Stopped()
 
 
 @dataclass
@@ -298,12 +307,18 @@ def in_parallel(jobs: list[Callable], ctx: Ctx, what: str, start: float = 0.05, 
     out: list = [None] * len(jobs)
     if not jobs:
         return out
+    ctx.check()
     ctx.say(f"Reading {what}: 0 of {len(jobs)}", start)
-    with ThreadPoolExecutor(max_workers=max(1, settings.earth_workers)) as ex:
+    ex = ThreadPoolExecutor(max_workers=max(1, settings.earth_workers))
+    try:
         futs = {ex.submit(j): i for i, j in enumerate(jobs)}
         for k, f in enumerate(as_completed(futs), 1):
+            if ctx.stop.is_set():                # stopped: files not yet begun are dropped; those being read finish on their own
+                raise Stopped()
             out[futs[f]] = f.result()
             ctx.say(f"Reading {what}: {k} of {len(jobs)}", start + (end - start) * k / len(jobs))
+    finally:
+        ex.shutdown(wait=not ctx.stop.is_set(), cancel_futures=True)
     return out
 
 

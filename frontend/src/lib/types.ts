@@ -63,7 +63,7 @@ export interface Tool { id: string; name: string; group: string; about: string; 
 export interface EarthChart { title: string; unit: string; x: string[]; series: { name: string; values: (number | null)[] }[] }
 export interface EarthReport { classes: string[]; matrix: number[][]; overall: number | null; kappa: number; producers: (number | null)[]; users: (number | null)[]; note?: string }
 export interface EarthJob {
-  id: string; tool: string; tool_name: string; status: "queued" | "running" | "done" | "failed"; message: string; progress: number;
+  id: string; tool: string; tool_name: string; status: "queued" | "running" | "stopping" | "done" | "failed" | "stopped"; message: string; progress: number;
   layers: Layer[]; chart: EarthChart | null; report: EarthReport | null; notes: string[]; error: string | null; ms: number | null;
 }
 export interface Run {
