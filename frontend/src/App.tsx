@@ -5,6 +5,7 @@ import { ErrorText } from "./components/ui";
 import { ApiError, api, signInUrl } from "./lib/api";
 import type { Me } from "./lib/types";
 import { useLoad } from "./lib/useLoad";
+import { splash } from "./splash";
 import ProjectsPage from "./pages/ProjectsPage";
 import SignedOutPage from "./pages/SignedOutPage";
 import WorkspacePage from "./pages/WorkspacePage";
@@ -17,13 +18,20 @@ export default function App() {
   const out = loc.pathname === "/signed-out";
 
   const load = useCallback(async () => {
-    try { setMe(await api.me()); }
-    catch (e) {
-      if (e instanceof ApiError && e.status === 401 && e.code !== "no_product") { window.location.assign(signInUrl()); return; }
+    splash.step("Checking your GeoEstate ID", 40);
+    try {
+      const m = await api.me();
+      const plan = m.product?.plan_name?.replace(/^PolyGIS\s*/i, "");
+      if (plan) splash.edition(plan);
+      splash.step(`Opening ${m.org_name ?? "your organization"}'s projects`, 80);
+      setMe(m);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401 && e.code !== "no_product") { splash.step("Taking you to sign in", 90); window.location.assign(signInUrl()); return; }
       setStop(e instanceof Error ? e.message : "PolyGIS could not open.");
     }
   }, []);
   useEffect(() => { if (!out) void load(); }, [load, out]);
+  useEffect(() => { if (me || stop || out) splash.done(); }, [me, stop, out]);
   useEffect(() => {
     const gone = (e: Event) => {
       const why = (e as CustomEvent).detail;
