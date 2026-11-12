@@ -146,12 +146,15 @@ function EarthForm({ tool, projectId, layers, selection, activeId, canEdit, view
     for (const p of tool.params) {
       if (p.type === "layer") out[p.name] = p.optional ? "" : (fits(p).find((l) => l.id === activeId) ?? fits(p)[0])?.id ?? "";
       else if (p.type === "date") out[p.name] = typeof p.default === "object" && p.default && "ago" in p.default ? ago((p.default as { ago: number }).ago) : "";
-      else if (p.type === "area") out[p.name] = "view";
+      else if (p.type === "area") out[p.name] = layers.some((l) => l.geometry_type === "Polygon" && l.feature_count > 0 && l.id === activeId) ? "clip" : "view";
       else if (p.default !== undefined) out[p.name] = p.default;
     }
     return out;
   });
   const [areaLayer, setAreaLayer] = useState(() => layers.find((l) => l.id === activeId && l.bbox)?.id ?? layers.find((l) => l.bbox)?.id ?? "");
+  const polys = layers.filter((l) => l.geometry_type === "Polygon" && l.feature_count > 0);
+  const [clipLayer, setClipLayer] = useState(() => (polys.find((l) => l.id === activeId) ?? polys[0])?.id ?? "");
+  const [clipSel, setClipSel] = useState(false);
   const [onlySel, setOnlySel] = useState<Record<string, boolean>>({});
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -159,14 +162,21 @@ function EarthForm({ tool, projectId, layers, selection, activeId, canEdit, view
   const [, tick] = useState(0);
   const layerOf = (key?: string) => layers.find((l) => l.id === v[key ?? "input"]);
   const running = job && (job.status === "queued" || job.status === "running");
-  const areaBox = (): Box | null => (v.bbox === "layer" ? (layers.find((l) => l.id === areaLayer)?.bbox ?? null) : viewBox());
+  const areaBox = (): Box | null => (v.bbox === "layer" ? (layers.find((l) => l.id === areaLayer)?.bbox ?? null)
+    : v.bbox === "clip" ? (layers.find((l) => l.id === clipLayer)?.bbox ?? null) : viewBox());
 
   async function go() {
     setBusy(true); setError(null);
     const params: Record<string, unknown> = {};
     for (const p of tool.params) {
       if (!shownIf(p, v)) continue;
-      if (p.type === "area") { const b = areaBox(); if (!b) { setError(new Error("Choose a layer for the area.")); setBusy(false); return; } params[p.name] = b; continue; }
+      if (p.type === "area") {
+        const b = areaBox();
+        if (!b) { setError(new Error(v.bbox === "clip" ? "Choose the polygons to clip to." : "Choose a layer for the area.")); setBusy(false); return; }
+        params[p.name] = b;
+        if (v.bbox === "clip") { params.clip = clipLayer; if (clipSel && selection[clipLayer]?.length) params.clip_ids = selection[clipLayer]; }
+        continue;
+      }
       if (p.type === "layer" && !v[p.name]) continue;
       params[p.name] = v[p.name];
       if (p.type === "layer" && onlySel[p.name] && selection[String(v[p.name])]?.length) params[`${p.name}_ids`] = selection[String(v[p.name])];
@@ -183,11 +193,17 @@ function EarthForm({ tool, projectId, layers, selection, activeId, canEdit, view
             const b = areaBox();
             return (
               <fieldset key={p.name} className="ws-f ws-fieldset"><legend>{p.label}</legend>
-                <label className="ws-check"><input type="radio" name={id} checked={v.bbox !== "layer"} onChange={() => setV({ ...v, bbox: "view" })} /> What the map shows</label>
-                <label className="ws-check"><input type="radio" name={id} checked={v.bbox === "layer"} disabled={!layers.some((l) => l.bbox)} onChange={() => setV({ ...v, bbox: "layer" })} /> A layer's extent</label>
+                <label className="ws-check"><input type="radio" name={id} checked={v.bbox === "clip"} disabled={!polys.length} onChange={() => setV({ ...v, bbox: "clip" })} /> Inside polygons (clipped to their shape)</label>
+                {v.bbox === "clip" && <>
+                  <select aria-label="Polygons to clip to" value={clipLayer} onChange={(e) => setClipLayer(e.target.value)}>
+                    {polys.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.feature_count.toLocaleString("en-GB")} polygons)</option>)}</select>
+                  {(selection[clipLayer]?.length ?? 0) > 0 && <label className="ws-check"><input type="checkbox" checked={clipSel} onChange={(e) => setClipSel(e.target.checked)} /> Only its {selection[clipLayer].length.toLocaleString("en-GB")} selected</label>}
+                </>}
+                <label className="ws-check"><input type="radio" name={id} checked={v.bbox !== "layer" && v.bbox !== "clip"} onChange={() => setV({ ...v, bbox: "view" })} /> What the map shows</label>
+                <label className="ws-check"><input type="radio" name={id} checked={v.bbox === "layer"} disabled={!layers.some((l) => l.bbox)} onChange={() => setV({ ...v, bbox: "layer" })} /> A layer's extent (its rectangle)</label>
                 {v.bbox === "layer" && <select aria-label="Layer for the area" value={areaLayer} onChange={(e) => setAreaLayer(e.target.value)}>
                   {layers.filter((l) => l.bbox).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
-                {b && <span className="ws-help">{describeBox(b)}{v.bbox !== "layer" && <> · <button type="button" className="ws-link" onClick={() => tick((n) => n + 1)}>update</button></>}</span>}
+                {b && <span className="ws-help">{describeBox(b)}{v.bbox !== "layer" && v.bbox !== "clip" && <> · <button type="button" className="ws-link" onClick={() => tick((n) => n + 1)}>update</button></>}</span>}
               </fieldset>
             );
           }

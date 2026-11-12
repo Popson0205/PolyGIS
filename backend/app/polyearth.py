@@ -26,6 +26,7 @@ import calendar
 import datetime as dt
 import logging
 import math
+import threading
 import warnings
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -70,11 +71,44 @@ def catalog() -> list[dict]:
     return [{"id": k, **v} for k, v in ETOOLS.items()]
 
 
+_clip = threading.local()
+
+
+def set_clip(geom) -> None:
+    """The polygons (WGS 84) a run is clipped to, for the thread running it; None for a rectangle."""
+    _clip.geom = geom
+
+
+def get_clip():
+    return getattr(_clip, "geom", None)
+
+
+def outside(g: dict, shape: tuple | None = None):
+    """The grid's cells outside the clip polygons (True), or None when the run is not clipped."""
+    geom = get_clip()
+    if geom is None:
+        return None
+    gg = rt.to_crs([geom], g["crs"])[0]
+    shape = shape or (g["height"], g["width"])
+    inside = rfeatures.geometry_mask([gg], shape, g["transform"], invert=True, all_touched=True)
+    return ~inside
+
+
+def clip_array(a: np.ndarray, g: dict) -> np.ndarray:
+    out = outside(g, a.shape[-2:])
+    if out is None:
+        return a
+    a = a.astype(np.float32, copy=True)
+    a[..., out] = np.nan
+    return a
+
+
 @dataclass
 class Ctx:
     params: dict
     inputs: rt.Inputs
     say: Callable = lambda message, done=None: None      # progress, in words, and how far along (0 to 1)
+    clip: object = None                                  # polygons (WGS 84) the area is clipped to
 
 
 @dataclass
@@ -92,7 +126,7 @@ SENSOR = _p("sensor", "Satellite", "choice", default="sentinel2",
             choices=[["sentinel2", "Sentinel-2 (10 m, every 5 days)"], ["landsat", "Landsat 8 and 9 (30 m, every 8 days)"]])
 SOURCE = _p("source", "Catalogue", "choice", default=PC, when={"sensor": "sentinel2"},
             choices=[[PC, "Microsoft Planetary Computer"], [ES, "Earth Search (AWS)"]])
-AREA = _p("bbox", "Area", "area")
+AREA = _p("bbox", "Area", "area")                 # the app sends the map view's or a layer's box, or a polygon layer to clip to
 CLOUD = _p("max_cloud", "Leave out scenes cloudier than", "number", unit="%", min=0, default=50)
 SCENES = _p("scenes", "Scenes to combine (at most, for each satellite tile)", "number", min=1, default=6)
 MAX_PERIOD_SCENES = 36          # scenes combined for one period, all tiles together
@@ -194,8 +228,11 @@ def whole(p, name: str, lo: int, hi: int, label: str, default: int) -> int:
 # Grids and reading
 # =====================================================================================================================
 GDAL_ENV = dict(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif,.tiff,.cog,.TIF", GDAL_HTTP_MAX_RETRY=3,
-                GDAL_HTTP_RETRY_DELAY=1, GDAL_HTTP_TIMEOUT=60, GDAL_CACHEMAX=256, GDAL_HTTP_MULTIRANGE="YES",
-                GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES", VSI_CACHE="TRUE")
+                GDAL_HTTP_RETRY_DELAY=1, GDAL_HTTP_TIMEOUT=60, GDAL_CACHEMAX=512, GDAL_HTTP_MULTIRANGE="YES",
+                GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES", VSI_CACHE="TRUE", VSI_CACHE_SIZE=64_000_000,
+                GDAL_HTTP_VERSION="2", GDAL_HTTP_MULTIPLEX="YES",                       # many reads share one connection per host
+                GDAL_INGESTED_BYTES_AT_OPEN=65536,                                       # a COG's header in one request, not several
+                CPL_VSIL_CURL_CHUNK_SIZE=262144, CPL_VSIL_CURL_CACHE_SIZE=128_000_000)
 
 
 def plan(bbox, res: float, bytes_per_cell: float, what: str = "scenes") -> dict:
@@ -290,10 +327,13 @@ def pick(items: list[dict], per_tile: int, most: int = MAX_PERIOD_SCENES) -> lis
     return out
 
 
-def find_scenes(sensor: str, src: str, bbox, start, end, max_cloud: int, per_tile: int) -> list[dict]:
+def find_scenes(sensor: str, src: str, bbox, start, end, max_cloud: int, per_tile: int, clip=None) -> list[dict]:
     ds = DATASETS[SENSORS[sensor]["dataset"]]
     body = imagery._query(src, ds, bbox, start, end, max_cloud, 100)
-    return pick(imagery._stac_post(src, body), per_tile)
+    items = imagery._stac_post(src, body)
+    if clip is not None:                    # only scenes whose footprint touches the polygons, not just their bounding box
+        items = [it for it in items if not it.get("geometry") or shapely.geometry.shape(it["geometry"]).intersects(clip)]
+    return pick(items, per_tile)
 
 
 def read_scene(sensor: str, src: str, item: dict, bands: list[str], g: dict, tokens: dict) -> dict | None:
@@ -370,18 +410,19 @@ def composite(scenes: list[dict], bands: list[str], how: str = "median", pct: fl
 
 
 def optical(ctx: Ctx, sensor: str, src: str, periods: list[tuple[dt.date, dt.date, str]], bbox, max_cloud: int, per_tile: int,
-            bands: list[str], each: Callable, g: dict | None = None, extra_layers: int = 1) -> dict:
+            bands: list[str], each: Callable, g: dict | None = None, extra_layers: int = 1, need_each: bool = True) -> dict:
     """For each period: find its scenes, read them (clouds masked), and hand them to `each(period_index, scenes, grid)`, one
     period at a time so memory holds one period's scenes. Returns the grid."""
     sp = SENSORS[sensor]
     ctx.say(f"Finding {sp['name']} scenes", 0.02)
-    found = in_parallel([lambda a=a, b=b: find_scenes(sensor, src, bbox, a, b, max_cloud, per_tile) for a, b, _ in periods], ctx, "the catalogue", 0.02, 0.06)
+    clip = get_clip()
+    found = in_parallel([lambda a=a, b=b: find_scenes(sensor, src, bbox, a, b, max_cloud, per_tile, clip) for a, b, _ in periods], ctx, "the catalogue", 0.02, 0.06)
     total = sum(len(f) for f in found)
     if total == 0:
         raise bad(f"No {sp['name']} scenes found for the area and dates" + (f" ({periods[0][2]})" if len(periods) == 1 and periods[0][2] else "")
                   + ". Choose a longer period or allow more cloud.")
     for (a, b, label), f in zip(periods, found):
-        if not f and len(periods) <= 2:
+        if not f and need_each and len(periods) <= 2:
             raise bad(f"No {sp['name']} scenes found for {label or 'the dates'} ({a.isoformat()} to {b.isoformat()}). Choose a longer period or allow more cloud.")
     if total > MAX_SCENES_READ:
         raise bad(f"That needs {total} scenes; the most for one run is {MAX_SCENES_READ}. Choose fewer scenes per period, a shorter period or a smaller area.")
@@ -571,12 +612,18 @@ def ramp_style(name: str, lo: float, hi: float, invert: bool = False) -> dict:
 
 
 def float_out(name: str, data: np.ndarray, g: dict, style: dict, summary: dict | None = None) -> rt.Out:
+    data = clip_array(data, g)
+    if summary and "mean" in summary:
+        summary = {**summary, "mean": mean_of(data)}
     d = np.ma.masked_invalid(data.astype(np.float32))
     return rt.Out(name=name, data=d, crs=g["crs"], transform=g["transform"], dtype="float32", style=style, summary=summary or {})
 
 
 def class_out(name: str, cls: np.ndarray, g: dict, classes: list[tuple[int, str, str]], summary: dict | None = None) -> rt.Out:
     """A class raster (0 = none) with its legend [(value, label, colour)], and the area of each class in hectares."""
+    out = outside(g, cls.shape)
+    if out is not None:
+        cls = np.where(out, 0, cls)
     d = np.ma.masked_array(cls.astype(np.uint8), mask=cls == 0)
     ha = cell_ha(g)
     summary = dict(summary or {})
@@ -621,6 +668,8 @@ def zones_of(ctx: Ctx, key: str = "zones", label_field: str | None = None, bbox=
             raise bad(f"The layer has {len(feats)} features; a chart takes up to {MAX_ZONES}. Select some of them first.", key)
         return [Zone(f["id"], str(f["props"].get(label_field)) if label_field and f["props"].get(label_field) not in (None, "")
                      else f"Feature {f['id']}", f["geom"]) for f in feats]
+    if get_clip() is not None:
+        return [Zone(None, "The polygons", get_clip())]
     w, s, e, n = bbox
     return [Zone(None, "The area", shapely.box(w, s, e, n))]
 
@@ -735,10 +784,13 @@ def composite_tool(p, ctx: Ctx) -> Result:
     ctx.say("Saving the composite", 0.95)
     stack = np.stack([got[x] for x in bands])
     clear = np.isfinite(stack).all(0)
+    out = outside(g)
+    if out is not None:
+        clear &= ~out
     data = np.ma.masked_array(np.clip(np.rint(np.nan_to_num(stack) * 10000), 1, 65535).astype(np.uint16), mask=np.repeat(~clear[None], len(bands), 0))
     name = f"{SENSORS[sensor]['name']} {how} composite {span_words(a, b)}"
     summary = {"scenes": got["_n"], "dates": span_words(a, b), "method": how, "cell size m": g["cell"], "values": "surface reflectance x 10000",
-               "clear %": round(100 * float(clear.mean()), 1)}
+               "clear %": round(100 * float(clear.sum()) / max(1, (clear.size if out is None else int((~out).sum()))), 1)}
     return Result([rt.Out(name=name, data=data, crs=g["crs"], transform=g["transform"], dtype="uint16", names=bands, summary=summary)])
 
 
@@ -929,7 +981,10 @@ def steps(a: dt.date, b: dt.date, step: str) -> list[tuple[dt.date, dt.date, str
        {**SOURCE, "when": {"measure": "index", "sensor": "sentinel2"}}, {**INDEX, "when": {"measure": "index"}},
        _p("start", "From", "date", default={"ago": 730}), _p("end", "To", "date", default={"ago": 0}), STEP,
        {**CLOUD, "when": {"measure": ["index", "temperature"]}}, _p("scenes", "Scenes in each month or year (at most)", "number", min=1, default=3),
-       ZONES, LABEL)
+       ZONES, LABEL,
+       _p("rasters", "Rasters", "choice", default="each", choices=[["each", "A raster layer for each interval"],
+                                                                    ["stack", "One raster with a band for each interval"],
+                                                                    ["none", "None (chart and table only)"]]))
 def time_series_tool(p, ctx: Ctx) -> Result:
     measure = p.get("measure") or "index"
     a, b = span(p, most=MAX_SERIES_DAYS)
@@ -938,10 +993,19 @@ def time_series_tool(p, ctx: Ctx) -> Result:
         raise bad("Choose a step.", "step")
     zs = zones_of(ctx, "zones", p.get("label"), area_of(p) if not ctx.inputs.layers.get("zones") else None)
     bbox = zones_bbox(zs)
+    rasters_as = p.get("rasters") or "each"
+    if rasters_as not in ("each", "stack", "none"):
+        raise bad("Choose how to keep the rasters.", "rasters")
+    if rasters_as != "none" and ctx.inputs.layers.get("zones", {}).get("geometry_type") == "Point":
+        w, s_, e, n = area_of(p)                     # points: the rasters cover the area too, not only the points
+        bw, bs, be, bn = bbox
+        bbox = (min(w, bw), min(s_, bs), max(e, be), max(n, bn))
     per = whole(p, "scenes", 1, 30, "Scenes", 3)
     x: list[str] = []
     values: list[list] = [[] for _ in zs]
     notes: list[str] = []
+    maps: list[tuple[str, np.ndarray, dict]] = []                # (interval, its raster, its grid) for the rasters
+    keep = rasters_as != "none"
 
     if measure == "rainfall":
         if step == "scene":
@@ -956,13 +1020,18 @@ def time_series_tool(p, ctx: Ctx) -> Result:
                 x.append(f"{ym[0]}-{ym[1]:02d}")
                 for k, v in enumerate(zone_stats(data[ym], masks)):
                     values[k].append(v)
+                if keep:
+                    maps.append((x[-1], data[ym], grid))
         else:
             for y in sorted({ym[0] for ym in data}):
-                got = [data[ym] for ym in data if ym[0] == y]
+                got = np.stack([data[ym] for ym in data if ym[0] == y])
                 x.append(str(y))
-                tot = np.nansum(np.stack(got), 0)
+                tot = np.nansum(got, 0)
+                tot[np.all(np.isnan(got), 0)] = np.nan
                 for k, v in enumerate(zone_stats(tot, masks)):
                     values[k].append(v)
+                if keep:
+                    maps.append((x[-1], tot.astype(np.float32), grid))
             notes.append("A year's value is the total of its published months within the dates chosen.")
         if missing:
             notes.append(f"Not published yet, so left out: {', '.join(month_words(m) for m in missing)}.")
@@ -979,7 +1048,7 @@ def time_series_tool(p, ctx: Ctx) -> Result:
             raise bad("No Sentinel-1 radar scenes found for those dates. Choose a longer period.")
         if total > MAX_SCENES_READ:
             raise bad(f"That needs {total} radar scenes; the most for one run is {MAX_SCENES_READ}. Choose a shorter period or a step of a month.")
-        g = plan(bbox, 10, total * 4 + 16)
+        g = plan(bbox, 10, total * 4 + 16 + (len(periods) * 4 if keep else 0))
         masks = zone_masks(zs, g)
         tokens: dict = {}
         warm(PC, "sentinel-1-rtc", tokens)
@@ -995,6 +1064,8 @@ def time_series_tool(p, ctx: Ctx) -> Result:
                 st = reduce(np.stack(by_day[d]), "mean")
                 for k, v in enumerate(zone_stats(st, masks)):
                     values[k].append(None if v is None else float(10 * np.log10(v)))
+                if keep:
+                    maps.append((d, db(st), g))
         else:
             for k, (s, e, label) in enumerate(periods):
                 ims = [v for (j, _), v in zip(flat, got) if j == k and v is not None]
@@ -1002,6 +1073,8 @@ def time_series_tool(p, ctx: Ctx) -> Result:
                 st = reduce(np.stack(ims), "median") if ims else np.full((g["height"], g["width"]), np.nan)
                 for z, v in enumerate(zone_stats(st, masks)):
                     values[z].append(None if v is None or v <= 0 else float(10 * np.log10(v)))
+                if keep and ims:
+                    maps.append((label, db(st), g))
         unit, title = "dB", f"Radar backscatter {pol.upper()} (Sentinel-1)"
 
     else:
@@ -1028,11 +1101,16 @@ def time_series_tool(p, ctx: Ctx) -> Result:
                 raise bad("No scenes found for those dates. Choose a longer period or allow more cloud.")
             by_day: dict[str, list] = {}
 
+            day_maps: dict[str, list] = {}
+
             def each(k, scenes, g):
                 masks_box["m"] = zone_masks(zs, g)
                 for sc in scenes:
-                    by_day.setdefault(sc["_date"], []).append(zone_stats(value_of(sc), masks_box["m"]))
-            g = plan(bbox, SENSORS[sensor]["res"], len(items) * len(bands) * 4 * 2)
+                    v = value_of(sc)
+                    by_day.setdefault(sc["_date"], []).append(zone_stats(v, masks_box["m"]))
+                    if keep:
+                        day_maps.setdefault(sc["_date"], []).append(v.astype(np.float32))
+            g = plan(bbox, SENSORS[sensor]["res"], len(items) * len(bands) * 4 * 2 + (len(items) * 4 if keep else 0))
             tokens: dict = {}
             warm(src, DATASETS[SENSORS[sensor]["dataset"]]["stac"][src], tokens)
             got = in_parallel([lambda it=it: read_scene(sensor, src, it, bands, g, tokens) for it in items], ctx, f"{SENSORS[sensor]['name']} scenes")
@@ -1043,6 +1121,8 @@ def time_series_tool(p, ctx: Ctx) -> Result:
                 for z in range(len(zs)):
                     vs = [r[z] for r in rows if r[z] is not None]
                     values[z].append(float(np.mean(vs)) if vs else None)
+                if keep and day_maps.get(d):
+                    maps.append((d, reduce(np.stack(day_maps[d]), "mean").astype(np.float32), g))   # tiles of one day joined
         else:
             periods = steps(a, b, step)
             series_vals: list = [None] * len(periods)
@@ -1056,11 +1136,16 @@ def time_series_tool(p, ctx: Ctx) -> Result:
                     else:
                         v = index_of(idx, composite(scenes, bands))
                     series_vals[k] = zone_stats(v, masks_box["m"])
-            optical(ctx, sensor, src, periods, bbox, cloud, per, bands, each)
+                    if keep:
+                        period_maps[k] = (v.astype(np.float32), g)
+            period_maps: dict[int, tuple] = {}
+            optical(ctx, sensor, src, periods, bbox, cloud, per, bands, each, extra_layers=len(periods) if keep else 1, need_each=False)
             for k, (_, _, label) in enumerate(periods):
                 x.append(label)
                 for z in range(len(zs)):
                     values[z].append(series_vals[k][z] if series_vals[k] else None)
+                if k in period_maps:
+                    maps.append((label, *period_maps[k]))
         if idx is None:
             unit, title = "deg C", "Land surface temperature (Landsat)"
         else:
@@ -1071,7 +1156,38 @@ def time_series_tool(p, ctx: Ctx) -> Result:
     chart = {"title": title, "unit": unit, "x": x, "series": [{"name": z.label, "values": [None if v is None else round(v, 4) for v in row]}
                                                             for z, row in zip(zs, values)]}
     outs = [o for o in [series_layer(ctx, zs, x, values, f"{title} {span_words(a, b)}", unit)] if o]
+    if keep and maps:
+        outs += interval_rasters(maps, title, unit, rasters_as, measure, p.get("index") or "ndvi")
+        missing = [lbl for lbl in x if lbl not in {m[0] for m in maps}]
+        if missing:
+            notes.append(f"No raster for {', '.join(missing)}: no clear scene then.")
     return Result(outs, chart=chart, notes=notes)
+
+
+MAX_INTERVAL_LAYERS = 36
+
+
+def interval_rasters(maps: list[tuple[str, np.ndarray, dict]], title: str, unit: str, how: str, measure: str, idx: str) -> list[rt.Out]:
+    """The time series as rasters: one layer per interval, or one layer with a band per interval, all drawn on the same scale
+    so the intervals can be compared by eye."""
+    if measure == "index":
+        spec = INDICES[idx]
+        lo, hi, ramp = spec["range"][0], spec["range"][1], spec["ramp"]
+    else:
+        allv = np.concatenate([clip_array(a, g)[np.isfinite(clip_array(a, g))].ravel() for _, a, g in maps]) if maps else np.zeros(1)
+        lo, hi = (float(np.percentile(allv, 2)), float(np.percentile(allv, 98))) if allv.size else (0.0, 1.0)
+        ramp = {"rainfall": "Blues", "temperature": "Blue to red"}.get(measure, "Gray")
+    style = ramp_style(ramp, lo, hi if hi > lo else lo + 1)
+    if how == "each":
+        if len(maps) > MAX_INTERVAL_LAYERS:
+            raise bad(f"That makes {len(maps)} rasters; the most as separate layers is {MAX_INTERVAL_LAYERS}. Choose \"One raster with a band "
+                      "for each interval\", a step of a year, or a shorter period.", "rasters")
+        return [float_out(f"{title} {label}", a, g, style, {"interval": label, "unit": unit, "mean": 0}) for label, a, g in maps]
+    g = maps[0][2]
+    stack = np.stack([clip_array(a, g) for _, a, _ in maps]).astype(np.float32)
+    return [rt.Out(name=f"{title} by interval", data=np.ma.masked_invalid(stack), crs=g["crs"], transform=g["transform"], dtype="float32",
+                   names=[label for label, _, _ in maps], style=style,
+                   summary={"intervals": len(maps), "first": maps[0][0], "last": maps[-1][0], "unit": unit, "bands": "one per interval"})]
 
 
 def same_window_in(year: int, a: dt.date, b: dt.date) -> tuple[dt.date, dt.date]:

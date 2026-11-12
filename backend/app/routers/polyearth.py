@@ -10,6 +10,7 @@ from uuid import UUID
 
 import anyio
 import psycopg
+import shapely
 from fastapi import APIRouter, Depends
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
@@ -92,6 +93,24 @@ async def start(project_id: UUID, tool: str, body: RunIn, user=Depends(need("edi
             of = layers.get(p.get("of", "input"))
             if of and v not in {f["name"] for f in of["fields"]}:
                 raise Problem(422, f"{of['name']} has no field called {v}.", code="validation", fields={"params": [p["name"]]})
+    clip = None
+    if params.get("clip") and any(p["type"] == "area" for p in spec["params"]):
+        lay = await layer_of(conn, params["clip"], user)
+        if str(lay["project_id"]) != str(project_id):
+            raise Problem(422, f"{lay['name']} is in another project.", code="validation", fields={"params": ["bbox"]})
+        if lay["geometry_type"] != "Polygon":
+            raise Problem(422, f"The area to clip to must be polygons; {lay['name']} is not.", code="validation", fields={"params": ["bbox"]})
+        ids = params.get("clip_ids")
+        fs = await _features(conn, lay, [int(x) for x in ids] if ids else None)
+        if not fs:
+            raise Problem(422, f"{lay['name']} has no polygons.", code="validation", fields={"params": ["bbox"]})
+        if len(fs) > 5000:
+            raise Problem(422, "Clip to 5,000 polygons or fewer: select some of them first.", code="validation", fields={"params": ["bbox"]})
+        clip = shapely.make_valid(shapely.union_all([f["geom"] for f in fs]))
+        w, s_, e, n = clip.bounds
+        pad = 0.0003                                       # a few cells round the polygons, so their edges are whole
+        params["bbox"] = [max(-180, w - pad), max(-85, s_ - pad), min(180, e + pad), min(85, n + pad)]
+        params["clip_name"] = lay["name"] + (f" ({len(fs)} selected)" if ids else "")
     now = time.time()
     for k in [k for k, j in JOBS.items() if now - j["_at"] > KEEP_S]:
         JOBS.pop(k, None)
@@ -102,7 +121,7 @@ async def start(project_id: UUID, tool: str, body: RunIn, user=Depends(need("edi
                  "layers": [], "chart": None, "report": None, "notes": [], "error": None, "ms": None,
                  "_user": user["id"], "_at": now}
     _slots = _slots or asyncio.Semaphore(max(1, settings.earth_jobs))
-    task = asyncio.create_task(_run(jid, project_id, tool, spec, params, body.output_name, polyearth.Ctx(params, raster_tools.Inputs(layers, feats)), user))
+    task = asyncio.create_task(_run(jid, project_id, tool, spec, params, body.output_name, polyearth.Ctx(params, raster_tools.Inputs(layers, feats), clip=clip), user))
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
     return _public(JOBS[jid])
@@ -118,7 +137,11 @@ async def _run(jid: str, project_id: UUID, tool: str, spec: dict, params: dict, 
     ctx.say = say
 
     def work():
-        res = polyearth.EBUILD[tool](params, ctx)
+        polyearth.set_clip(ctx.clip)
+        try:
+            res = polyearth.EBUILD[tool](params, ctx)
+        finally:
+            polyearth.set_clip(None)
         say("Saving the results", 0.97)
         metas = [rasters.save(o.data, o.crs, o.transform, dtype=o.dtype, names=o.names, categorical=o.categorical) if o.kind == "raster" else None
                  for o in res.outs]
