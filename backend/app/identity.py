@@ -8,7 +8,10 @@ Roles come from the person's role in their Geohub organization:
   editor = member: makes projects, imports data, edits features
   viewer = collector or viewer, and GeoEstate staff: opens and exports only
 An expired licence is read-only and a suspended one closed, as in Geohub."""
+import hashlib
 import secrets
+import threading
+import time
 
 from fastapi import Depends, Request, Response
 
@@ -50,6 +53,27 @@ def new_state() -> tuple[str, str]:
     return secrets.token_urlsafe(48), secrets.token_urlsafe(24)
 
 
+_renewed: dict[str, tuple[float, dict]] = {}
+_renew_lock = threading.Lock()
+
+
+def renew(g: GeoEstateID, rt: str) -> dict:
+    """Refresh once for many requests. When the access token runs out, the page sends several requests at once (map tiles,
+    a save), all with the same refresh token; Geohub swaps that token on first use, so the others would fail and sign the
+    person out. The first refresh's new tokens are handed to the rest for two minutes instead."""
+    k = hashlib.sha256(rt.encode()).hexdigest()
+    with _renew_lock:
+        now = time.monotonic()
+        for old in [x for x, (t, _) in _renewed.items() if now - t > 120]:
+            _renewed.pop(old, None)
+        hit = _renewed.get(k)
+        if hit:
+            return hit[1]
+        tokens = g.refresh(rt)
+        _renewed[k] = (now, tokens)
+        return tokens
+
+
 def person(claims: dict) -> dict:
     p = claims.get("product") or {}
     org = claims.get("org") or {}
@@ -75,7 +99,7 @@ async def current_user(request: Request, response: Response) -> dict:
             claims = None
     if claims is None and rt:
         try:
-            tokens = g.refresh(rt)
+            tokens = renew(g, rt)
         except GeoEstateIDError as e:
             forget(response)
             raise Problem(401, str(e) if e.code == "no_product" else "Your sign-in has ended. Sign in again.",

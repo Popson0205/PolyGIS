@@ -18,7 +18,7 @@ const KIND: Record<string, string> = { Point: "points", LineString: "lines", Pol
 const size = (l: Layer) => (l.raster ? `Raster, ${l.raster.width.toLocaleString("en-GB")} × ${l.raster.height.toLocaleString("en-GB")} cells`
   : `${l.feature_count.toLocaleString("en-GB")} ${KIND[l.geometry_type]}`);
 const fmt = (v: number) => (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString("en-GB") : Number(v.toPrecision(4)).toString());
-const broken = (l: Layer) => l.geometry_type === "Raster" && !l.raster;
+const broken = (l: Layer) => l.geometry_type === "Raster" && (!l.raster || !!l.raster.missing);
 
 /** A legend symbol drawn the way the map draws the layer: a marker for points, a stroke for lines, a patch for polygons. */
 export function Symbol({ layer, fill, big }: { layer: Layer; fill?: string; big?: boolean }) {
@@ -295,7 +295,7 @@ function BySource({ layers, render }: { layers: Layer[]; render: (l: Layer) => R
 export function Legend({ layer: l }: { layer: Layer }) {
   if (l.geometry_type === "Raster") {
     const rs: RasterStyle = rasterStyle(l);
-    if (!l.raster) return <p className="ct-legend ct-missing">The raster's data cannot be found.</p>;
+    if (!l.raster || l.raster.missing) return <p className="ct-legend ct-missing">The raster's file is missing from storage: add it again.</p>;
     if (rs.mode === "classes") return (
       <ul className="ct-legend"><li className="ct-field">Value</li>
         {rs.categories.filter((c) => !c.hidden).slice(0, 30).map((c) => <li key={c.value}><i className="ct-patch" style={{ background: c.color }} />{c.label || c.value}</li>)}</ul>

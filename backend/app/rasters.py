@@ -69,13 +69,30 @@ def local(key: str) -> Path:
     if not p.exists():
         b = _bucket()
         if not b:
-            raise RasterError("The raster's file is missing from storage.")
+            raise RasterError("The raster's file is missing from storage (it was kept on the server's disk, which a redeploy replaces). "
+                              "Add the raster again; the administrator should set up a storage bucket or volume so it stays.")
         with _lock:
             if not p.exists():
                 tmp = p.with_suffix(".part")
                 b.download_file(settings.s3_bucket, settings.s3_prefix + key, str(tmp))
                 tmp.replace(p)
     return p
+
+
+def stored(key: str | None) -> bool:
+    """Whether the raster's file can be had: on this machine, or (when a bucket is set) presumed in the bucket."""
+    if not key or "/" in key or ".." in key:
+        return False
+    return bool(settings.s3_endpoint) or (_dir() / key).exists()
+
+
+def warn_if_not_kept() -> None:
+    """Without a bucket, rasters live only in RASTER_DIR: on a host whose disk is replaced at each deploy (Railway, Render,
+    Fly without a volume) they are lost then. Say so in the log at start."""
+    if not settings.s3_endpoint:
+        log.warning("Rasters are kept only in %s (no S3_ENDPOINT). Unless that folder is on a persistent volume, every raster "
+                    "is lost when the service is redeployed. Set S3_* (e.g. the Cloudflare R2 bucket) or mount a volume there.",
+                    Path(settings.raster_dir).resolve())
 
 
 def _keep(path: Path) -> str:

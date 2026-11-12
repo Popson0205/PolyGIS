@@ -262,3 +262,18 @@ def test_a_pasted_secret_is_trimmed(monkeypatch):
     from app.config import Settings
     s = Settings(database_url="postgresql://x/y", id_secret='  "xYMOeTlczXWK3DaZ0mWuKN3z8bz_AQdWU1H0aLwfTX4U7Gl0"\n', id_client=" gis ")
     assert s.id_secret == "xYMOeTlczXWK3DaZ0mWuKN3z8bz_AQdWU1H0aLwfTX4U7Gl0" and s.id_client == "gis"
+
+
+def test_many_requests_with_an_expired_access_token_all_refresh_with_the_one_refresh_token(person):
+    """The page sends several requests at once when the access token runs out; Geohub swaps the refresh token on first use,
+    so all of them must share that one refresh instead of the later ones signing the person out."""
+    from app import identity
+    who = person(role="member", name="Many Tiles")
+    who.cookies[identity.AT] = "expired.token.value"
+    rt = who.cookies[identity.RT]
+    results = []
+    for _ in range(4):                                                    # each request still carries the old refresh token
+        who.cookies[identity.AT] = "expired.token.value"
+        who.cookies[identity.RT] = rt
+        results.append(who.get("/me").status_code)
+    assert results == [200, 200, 200, 200]

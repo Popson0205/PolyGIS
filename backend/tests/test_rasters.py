@@ -322,3 +322,34 @@ def test_contours_on_a_plane(pro, R):
     for f in fcol["features"]:
         xs = [to_utm.transform(*c)[0] for c in f["geometry"]["coordinates"]]
         assert np.allclose(np.array(xs) - X0, (f["properties"]["value"] - 100) / 0.1, atol=0.01)
+
+
+def test_a_raster_whose_file_is_gone_is_marked_missing(person, tmp_path, monkeypatch):
+    from app import rasters
+    from app.config import settings
+    monkeypatch.setattr(settings, "raster_dir", str(tmp_path / "kept"))
+    monkeypatch.setattr(settings, "s3_endpoint", "")
+    who = person(role="member", name="Gone Raster", features=["maps", "editing", "raster"])
+    pid = who.post("/projects", json={"name": "Lost rasters"}).json()["id"]
+    import numpy as np
+    from rasterio.crs import CRS
+    from rasterio.transform import from_origin
+    meta = rasters.save(np.ones((10, 10), "float32"), CRS.from_epsg(32632), from_origin(230000, 1010000, 10, 10))
+    from app.routers.rasters import _insert
+    import asyncio, psycopg
+    from psycopg.rows import dict_row
+
+    async def add():
+        async with await psycopg.AsyncConnection.connect(settings.database_url, row_factory=dict_row, options=f"-c search_path={settings.db_schema},public") as c:
+            u = {"id": who.claims["sub"], "org_id": who.claims["org"]["id"]}
+            lid = await _insert(c, pid, u, "DEM", meta, rasters.default_style(meta), {})
+            await c.commit()
+            return lid
+    lid = str(asyncio.run(add()))
+    lay = next(l for l in who.get(f"/projects/{pid}").json()["layers"] if l["id"] == lid)
+    assert not lay["raster"].get("missing")
+    (tmp_path / "kept" / meta["key"]).unlink()                                     # e.g. a redeploy replaced the disk
+    lay = next(l for l in who.get(f"/projects/{pid}").json()["layers"] if l["id"] == lid)
+    assert lay["raster"]["missing"] is True
+    r = who.get(f"/layers/{lid}/raster/5/16/15.png")
+    assert r.status_code == 404 and "redeploy" in r.json()["detail"]
