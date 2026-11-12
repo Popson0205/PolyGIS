@@ -125,7 +125,10 @@
     '<defs><linearGradient id="ges-sweep" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--ges-a)" stop-opacity=".0"/>' +
     '<stop offset="1" stop-color="var(--ges-a)" stop-opacity=".22"/></linearGradient></defs></svg>';
 
-  var name = esc(product).replace(/^(Poly|Geo|Land|Farm)(.+)$/, "$1<b>$2</b>");
+  // the name's second part in the product colour: the last word ("GeoEstate CRM", "Land Registry"), or after the suite's
+  // prefix in a single word ("PolyGIS", "Geohub", "FarmScan", "LandCheck")
+  var name = /\s/.test(product.trim()) ? esc(product).replace(/^(.*\s)(\S+)$/, "$1<b>$2</b>")
+    : esc(product).replace(/^(Poly|Geo|Land|Farm)(.+)$/, "$1<b>$2</b>");
   var root = document.createElement("div");
   root.className = "ges" + (warm ? " is-warm" : "") + (still ? " is-still" : "");
   root.style.setProperty("--ges-a", accent);
