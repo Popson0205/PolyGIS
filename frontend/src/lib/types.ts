@@ -19,7 +19,7 @@ export interface RasterStyle {
 export interface RasterBand { band: number; name: string; min?: number; max?: number; mean?: number; std?: number; p2?: number; p98?: number; values?: number[] }
 export interface RasterMeta {
   key: string; width: number; height: number; count: number; dtype: string; nodata: number | null; crs: string; epsg: number | null; crs_name: string;
-  geographic: boolean; res: [number, number]; res_m: [number, number]; bbox: [number, number, number, number]; bands: RasterBand[]; size_bytes: number;
+  geographic: boolean; missing?: boolean; res: [number, number]; res_m: [number, number]; bbox: [number, number, number, number]; bands: RasterBand[]; size_bytes: number;
 }
 export interface ClassBreak { min: number; max: number; color: string }
 export interface Style {

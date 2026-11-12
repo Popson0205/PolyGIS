@@ -44,6 +44,9 @@ def _shape(r: dict) -> dict:
     r["feature_count"] = r.get("feature_count") or 0
     if r.get("geometry_type") == "Raster" and r.get("raster"):
         r["bbox"] = r["raster"]["bbox"]
+        from .. import rasters
+        if not rasters.stored(r["raster"].get("key")):
+            r["raster"] = {**r["raster"], "missing": True}
     r["version"] = int(r["updated_at"].timestamp() * 1000)
     return r
 

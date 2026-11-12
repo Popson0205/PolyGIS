@@ -166,6 +166,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     }
     for (const l of [...ls].sort((a, b) => a.position - b.position)) {
       for (const x of allIds(l)) if (m.getLayer(x)) m.removeLayer(x);
+      if (l.geometry_type === "Raster" && l.raster?.missing) continue;     // its file is gone: asking for tiles would only fail
       if (m.getSource(src(l)) && versions.current.get(l.id) !== l.version) m.removeSource(src(l));
       if (!m.getSource(src(l))) {
         if (l.geometry_type === "Raster") m.addSource(src(l), { type: "raster", tiles: [rasterTileUrl(l)], tileSize: 256, minzoom: 0, maxzoom: 22, bounds: l.bbox ?? undefined });

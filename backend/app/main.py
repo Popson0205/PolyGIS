@@ -17,6 +17,8 @@ logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s 
 async def lifespan(app):
     import anyio
     await anyio.to_thread.run_sync(migrate)
+    from .rasters import warn_if_not_kept
+    warn_if_not_kept()
     await pool.open()
     yield
     await pool.close()
