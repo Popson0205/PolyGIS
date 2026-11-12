@@ -55,11 +55,17 @@ export interface Selection { ids: number[]; count: number; bbox: [number, number
 export interface Activity { actor_name: string; action: string; target_type: string | null; target_id: string | null; details: Record<string, unknown>; at: string }
 
 export interface ToolParam {
-  name: string; label: string; type: "layer" | "layers" | "number" | "bool" | "choice" | "field" | "fields" | "text";
+  name: string; label: string; type: "layer" | "layers" | "number" | "bool" | "choice" | "field" | "fields" | "text" | "area" | "date";
   geometry?: GeometryType[]; unit?: string; min?: number; default?: unknown; choices?: [string, string][]; of?: string;
   numeric?: boolean; optional?: boolean; when?: Record<string, unknown>;
 }
-export interface Tool { id: string; name: string; group: string; about: string; params: ToolParam[]; kind?: "raster" }
+export interface Tool { id: string; name: string; group: string; about: string; params: ToolParam[]; kind?: "raster" | "earth" }
+export interface EarthChart { title: string; unit: string; x: string[]; series: { name: string; values: (number | null)[] }[] }
+export interface EarthReport { classes: string[]; matrix: number[][]; overall: number | null; kappa: number; producers: (number | null)[]; users: (number | null)[]; note?: string }
+export interface EarthJob {
+  id: string; tool: string; tool_name: string; status: "queued" | "running" | "done" | "failed"; message: string; progress: number;
+  layers: Layer[]; chart: EarthChart | null; report: EarthReport | null; notes: string[]; error: string | null; ms: number | null;
+}
 export interface Run {
   id: number; tool: string; params: Record<string, unknown>; output_layer_id: string | null; output_name: string | null;
   status: "done" | "failed"; message: string | null; feature_count: number | null; ms: number | null; actor_name: string; at: string;

@@ -94,6 +94,33 @@ radar are 32-bit floats, with -32768 for no data. Fewer bands mean finer cells f
 one request may use, `IMAGERY_GEE_MAX_MB` (40) the same for Earth Engine, whose direct download is limited to about 48 MB.
 Cells are enlarged (up to 8 times the data's own) to fit, then the area is refused. `IMAGERY_TIMEOUT_S` (240) limits a request.
 
+## Poly Earth: satellite analysis without code
+
+The analyses people write Google Earth Engine scripts for, as tools with a form (ribbon tab **Poly Earth**; PolyGIS Advanced).
+They run on PolyGIS's own server with open data, so no Google account or Earth Engine licence is needed: Sentinel-2 and
+Landsat 8/9 (Planetary Computer, Earth Search), Sentinel-1 radar, Copernicus DEM, ESA WorldCover and JRC Global Surface
+Water (Planetary Computer), and CHIRPS monthly rainfall (Climate Hazards Center, UCSB).
+
+| Group | Tools |
+| --- | --- |
+| Images and indices | Cloud-free composite (median, greenest pixel, most recent, mean, min, max, percentile); spectral index (NDVI, EVI, SAVI, MSAVI, GNDVI, NDRE, NDWI, MNDWI, NDMI, NBR, NDBI, BSI); your own band formula; land surface temperature (Landsat, deg C); rainfall total (CHIRPS); terrain (elevation, slope, aspect, hillshade); surface water history 1984-2020 |
+| Time series and change | Time series chart for points, polygons or the area (index, rainfall, temperature, radar VV/VH; by scene, month or year; CSV, and fields on the places); trend over the years (slope per year at every pixel); anomaly against earlier years (index or rainfall, mm and % of normal); change between two dates with areas; burn severity (dNBR, USGS classes); water change; flood map from Sentinel-1 |
+| Classification | Supervised land cover (random forest, CART, SVM, naive Bayes, minimum distance) from training points or polygons, with held-back places for the error matrix, overall accuracy, kappa, producer's and user's accuracy, and class areas; unsupervised k-means |
+| Statistics | Index statistics for each polygon; land cover breakdown (hectares and share of each WorldCover class) |
+
+How it matches Earth Engine: clouds are masked pixel by pixel before scenes are combined (Sentinel-2 SCL classes 0, 1, 3, 8,
+9, 10, 11; Landsat QA_PIXEL bits 0-4); optical values are surface reflectance with Sentinel-2's baseline 04.00 offset removed
+and Landsat's Collection 2 scale applied; indices come from the composite; flood mapping follows UN-SPIDER's Recommended
+Practice (VH, 50 m smoothing, after/before ratio of dB above 1.25, permanent water of 10+ months removed, slopes of 5 degrees
+or more and patches under 8 pixels removed). Classification accuracy is checked on whole training places held back
+(not pixels from the places it learnt from), so it is not flattered; where a class has only one place it says so.
+
+A run reads many scenes, so it runs in the background with its progress shown, and its layers are added when it finishes
+(the pane can be closed meanwhile); runs are kept in the geoprocessing history. `EARTH_MAX_MB` (384) is the memory one run's
+scenes may use (larger areas get larger cells), `EARTH_TIMEOUT_S` (900) the longest a run may take, `EARTH_WORKERS` (6) the
+files read at once and `EARTH_JOBS` (2) the runs at once on the server. Runs in progress are held in the server's memory: a
+restart or redeploy stops them.
+
 ## Setting it up
 
 1. In Geohub's variables: add PolyGIS to `ID_CLIENTS`

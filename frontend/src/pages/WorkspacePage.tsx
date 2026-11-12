@@ -1,7 +1,7 @@
 import maplibregl, { type Map as MapLibre, type MapGeoJSONFeature } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
-  ArrowLeftRight, ChevronDown, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
+  ArrowLeftRight, BarChart3, ChevronDown, CloudSun, Earth, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
   PanelRightClose, PanelRightOpen, Ruler, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Wrench, X, ZoomIn,
 } from "lucide-react";
@@ -12,6 +12,7 @@ import Contents from "../components/Contents";
 import { ImageryDialog } from "../components/Imagery";
 import { AddData, CrsPicker, Dialog, Export, NewLayer, SelectByAttributes, SelectByLocation } from "../components/Dialogs";
 import Geoprocessing from "../components/Geoprocessing";
+import PolyEarth, { useEarthJobs } from "../components/PolyEarth";
 import LayerPanel from "../components/LayerPanel";
 import { Apps, UserMenu, licenceNotice, useApps } from "../components/Bar";
 import { Button, ErrorText, IconButton, Resizer, useStored, useToast } from "../components/ui";
@@ -22,7 +23,7 @@ import { Editor } from "../lib/editor";
 import { BASEMAPS, GLYPHS, allIds, basemapStyle, ids as layerIds, mapLayers, src } from "../lib/mapstyle";
 import type { CrsDef, Layer, Me, Project, Selection, VectorType } from "../lib/types";
 
-type Tab = "map" | "insert" | "select" | "edit" | "analysis";
+type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "earth";
 type Tool = "explore" | "select" | "select-area" | "measure-line" | "measure-area" | "create" | "reshape" | "pick-reshape";
 type DialogName = "add" | "imagery" | "new" | "attr" | "loc" | "export" | "crs" | null;
 const DRAW = { Point: "point", LineString: "linestring", Polygon: "polygon" } as const;
@@ -52,6 +53,16 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [measure, setMeasure] = useState<string>("");
   const [basemap, setBasemap] = useState("streets");
   const [gp, setGp] = useState<{ open: boolean; start: string | null; query: string }>({ open: false, start: null, query: "" });
+  const [earth, setEarth] = useState<{ open: boolean; start: string | null }>({ open: false, start: null });
+  const earthJobs = useEarthJobs((j) => {
+    if (j.status === "failed") { toast(`${j.tool_name} did not finish: ${j.error}`, "bad"); return; }
+    if (j.layers.length) {
+      setLayers((cur) => [...cur.filter((l) => !j.layers.some((x) => x.id === l.id)), ...j.layers]);
+      setActiveId(j.layers[0].id);
+      setLeftOpen(true);
+    }
+    toast(j.layers.length ? `${j.tool_name}: ${j.layers.map((l) => l.name).join(", ")} added to the map.` : `${j.tool_name} is ready.`, "success");
+  });
   const [ribbonFolded, setRibbonFolded] = useStored("ribbon-folded", false);
   // on a wide screen the panes stay docked (and remembered); on a tablet or phone one at a time slides over the map
   const narrow = useNarrow(1100);
@@ -401,7 +412,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const editable = layers.filter((l) => canEdit && l.geometry_type !== "Raster");
   const totalSel = Object.values(selection).reduce((n, x) => n + x.length, 0);
   const notice = licenceNotice(me.product);
-  const openTool = (t: string | null, q = "") => { setGp({ open: true, start: t, query: q }); setRightOpen(true); };
+  const openTool = (t: string | null, q = "") => { setEarth({ open: false, start: null }); setGp({ open: true, start: t, query: q }); setRightOpen(true); };
+  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setEarth({ open: true, start: t }); setRightOpen(true); };
   const kindWord = editLayer?.geometry_type === "Point" ? "points" : editLayer?.geometry_type === "LineString" ? "lines" : "polygons";
   const hint: Partial<Record<Tool, ReactNode>> = {
     select: <>Click features of <strong>{active?.name}</strong> to select them. Shift-click adds or removes.</>,
@@ -412,7 +424,11 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     "pick-reshape": <>Click the feature of <strong>{editLayer?.name}</strong> to reshape.</>,
     reshape: <>Drag a vertex to move it, a midpoint to add one; right-click a vertex to remove it.</>,
   };
-  const right = gp.open ? (
+  const right = earth.open ? (
+    <PolyEarth projectId={id} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit} allowed={me.features.includes("raster")}
+      start={earth.start} jobs={earthJobs.jobs} viewBox={mapBox} onStarted={earthJobs.add} onClose={() => setEarth({ open: false, start: null })}
+      onShowLayer={(l) => { setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); }} />
+  ) : gp.open ? (
     <Geoprocessing projectId={id} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit} query={gp.query}
       allowed={me.features.includes("geoprocessing")} rasterAllowed={me.features.includes("raster")} start={gp.start} onClose={() => setGp({ open: false, start: null, query: "" })}
       onDone={(l) => { setLayers((cur) => [...cur, l]); setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); toast(`${l.name} added to the map.`, "success"); }} />
@@ -442,7 +458,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       <div className="ws-empty-state"><SlidersHorizontal size={22} aria-hidden="true" />Choose a layer in Contents to style it, label it and see its fields.</div>
     </aside>
   );
-  const tabs: [Tab, string][] = [["map", "Map"], ["insert", "Insert"], ["select", "Select"], ["edit", "Edit"], ["analysis", "Analysis"]];
+  const tabs: [Tab, string][] = [["map", "Map"], ["insert", "Insert"], ["select", "Select"], ["edit", "Edit"], ["analysis", "Analysis"], ["earth", "Poly Earth"]];
 
   return (
     <div className="ws" style={{ "--left": `${leftW}px`, "--right": `${rightW}px`, "--table": `${tableH}px` } as React.CSSProperties}>
@@ -559,6 +575,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => openTool("dissolve")} icon={<Merge />} label="Dissolve" />
               <Tb onClick={() => openTool("spatial_join")} icon={<Link2 />} label="Spatial join" />
             </Group>
+            <Group name="Satellite">
+              <Tb onClick={() => { setTab("earth"); openEarth(null); }} icon={<Earth />} label="Poly Earth" />
+            </Group>
             {me.features.includes("raster") && <Group name="Raster">
               <Tb onClick={() => openTool("hillshade")} icon={<Mountain />} label="Hillshade" />
               <Tb onClick={() => openTool("slope")} icon={<TrendingUp />} label="Slope" />
@@ -566,6 +585,34 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => openTool("watershed")} icon={<Droplets />} label="Watershed" />
               <Tb onClick={() => openTool("zonal_statistics")} icon={<Grid3x3 />} label="Zonal statistics" />
             </Group>}
+          </>}
+          {tab === "earth" && <>
+            <Group name="Poly Earth">
+              <Tb on={earth.open && !earth.start && rightOpen} onClick={() => (earth.open && !earth.start ? setEarth({ open: false, start: null }) : openEarth(null))} icon={<Earth />} label="All tools" />
+            </Group>
+            <Group name="Images">
+              <Tb onClick={() => openEarth("composite")} icon={<Layers3 />} label="Composite" />
+              <Tb onClick={() => openEarth("index")} icon={<Leaf />} label="NDVI and indices" />
+              <Tb onClick={() => openEarth("surface_temperature")} icon={<Thermometer />} label="Temperature" />
+              <Tb onClick={() => openEarth("rainfall")} icon={<CloudSun />} label="Rainfall" />
+              <Tb onClick={() => openEarth("terrain")} icon={<Mountain />} label="Terrain" />
+            </Group>
+            <Group name="Over time">
+              <Tb onClick={() => openEarth("time_series")} icon={<LineChart />} label="Time series" />
+              <Tb onClick={() => openEarth("trend")} icon={<TrendingUp />} label="Trend" />
+              <Tb onClick={() => openEarth("anomaly")} icon={<BarChart3 />} label="Anomaly" />
+            </Group>
+            <Group name="Change">
+              <Tb onClick={() => openEarth("change")} icon={<Sprout />} label="Before / after" />
+              <Tb onClick={() => openEarth("flood")} icon={<Waves />} label="Flood" />
+              <Tb onClick={() => openEarth("burn_severity")} icon={<Flame />} label="Burn severity" />
+              <Tb onClick={() => openEarth("water_change")} icon={<Droplets />} label="Water" />
+            </Group>
+            <Group name="Classify">
+              <Tb onClick={() => openEarth("classify")} icon={<MapIcon />} label="Classify" />
+              <Tb onClick={() => openEarth("land_cover")} icon={<Earth />} label="WorldCover" />
+              <Tb onClick={() => openEarth("zonal_index")} icon={<Table2 />} label="By polygon" />
+            </Group>
           </>}
         </div>
       </div>
