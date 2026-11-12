@@ -7,10 +7,10 @@ import { Button, ErrorText, useAction } from "./ui";
 type Tab = "symbology" | "labels" | "fields" | "source";
 
 /** The right-hand pane for the active layer: symbology, labels, fields, and where the data came from. */
-export default function LayerPanel({ layer, canEdit, selected, onChange, onExport }: {
-  layer: Layer; canEdit: boolean; selected: number[]; onChange: (l: Layer) => void; onExport: () => void;
+export default function LayerPanel({ layer, canEdit, selected, onChange, onExport, initialTab = "symbology" }: {
+  layer: Layer; canEdit: boolean; selected: number[]; onChange: (l: Layer) => void; onExport: () => void; initialTab?: Tab;
 }) {
-  const [tab, setTab] = useState<Tab>("symbology");
+  const [tab, setTab] = useState<Tab>(initialTab);
   return (
     <aside className="ws-panel" aria-label={`${layer.name}: properties`}>
       <div className="ws-pane-head"><strong title={layer.name}>{layer.name}</strong></div>

@@ -8,7 +8,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import AttributeTable from "../components/AttributeTable";
-import Contents from "../components/Contents";
+import Contents, { type PanelTab, type SelectionOp } from "../components/Contents";
 import { ImageryDialog } from "../components/Imagery";
 import { AddData, CrsPicker, Dialog, Export, NewLayer, SelectByAttributes, SelectByLocation } from "../components/Dialogs";
 import Geoprocessing from "../components/Geoprocessing";
@@ -54,6 +54,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [basemap, setBasemap] = useState("streets");
   const [gp, setGp] = useState<{ open: boolean; start: string | null; query: string }>({ open: false, start: null, query: "" });
   const [earth, setEarth] = useState<{ open: boolean; start: string | null }>({ open: false, start: null });
+  const [panelTab, setPanelTab] = useState<{ tab: PanelTab; n: number }>({ tab: "symbology", n: 0 });
   const earthJobs = useEarthJobs((j) => {
     if (j.status === "failed") { toast(`${j.tool_name} did not finish: ${j.error}`, "bad"); return; }
     if (j.layers.length) {
@@ -379,6 +380,63 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   });
+  /** Contents' layer menu: open the layer's properties at a tab. */
+  function openPanel(l: Layer, tab: PanelTab) {
+    setActiveId(l.id); setGp({ open: false, start: null, query: "" }); setEarth({ open: false, start: null }); setIdentify(null);
+    setPanelTab((p) => ({ tab, n: p.n + 1 })); setRightOpen(true);
+  }
+  async function selectionOp(l: Layer, op: SelectionOp) {
+    setActiveId(l.id);
+    try {
+      if (op === "clear") setSelection((cur) => { const n = { ...cur }; delete n[l.id]; return n; });
+      else if (op === "zoom") await zoomToSelection(l);
+      else if (op === "attributes") setDialog("attr");
+      else if (op === "location") setDialog("loc");
+      else {
+        const all = await api.select(l.id, { filters: [] });
+        const now = new Set(sel(l.id));
+        const ids = op === "all" ? all.ids : all.ids.filter((x) => !now.has(x));
+        setSelection((cur) => ({ ...cur, [l.id]: ids }));
+        toast(`${ids.length.toLocaleString("en-GB")} selected.`, "success");
+      }
+    } catch (e) { toast(e instanceof ApiError ? e.message : "That did not work.", "error"); }
+  }
+  async function labelsOn(l: Layer, on: boolean) {
+    if (on && !l.labels) {
+      const f = l.fields.find((x) => /name|label|id/i.test(x.name)) ?? l.fields[0];
+      if (!f) { openPanel(l, "labels"); return; }
+      try { replaceLayer(await api.updateLayer(l.id, { labels: { field: f.name, size: 12, color: "#1f2937", halo: "#ffffff" } })); toast(`Labelled by ${f.name}: change it in Labeling properties.`, "success"); }
+      catch (e) { toast(e instanceof ApiError ? e.message : "Could not label it.", "error"); }
+      return;
+    }
+    if (!on && l.labels) {
+      try { replaceLayer(await api.updateLayer(l.id, { clear_labels: true })); } catch (e) { toast(e instanceof ApiError ? e.message : "Could not remove the labels.", "error"); }
+    }
+  }
+  async function renameLayer(l: Layer, name: string) {
+    try { replaceLayer(await api.updateLayer(l.id, { name })); } catch (e) { toast(e instanceof ApiError ? e.message : "Could not rename it.", "error"); }
+  }
+  /** Paste properties: the copied layer's symbology (and labels, when the field is there) onto another layer of the same kind. */
+  async function pasteProperties(target: Layer, from: Layer) {
+    try {
+      if (target.geometry_type === "Raster") replaceLayer(await api.rasterStyle(target.id, from.style as unknown as Parameters<typeof api.rasterStyle>[1]));
+      else {
+        const fieldOk = (f?: string | null) => !f || target.fields.some((x) => x.name === f);
+        if (!fieldOk(from.style.field)) { toast(`${target.name} has no field ${from.style.field}, which ${from.name}'s symbology uses.`, "error"); return; }
+        replaceLayer(await api.updateLayer(target.id, { style: from.style, ...(from.labels && fieldOk(from.labels.field) ? { labels: from.labels } : {}) }));
+      }
+      toast(`${from.name}'s symbology pasted onto ${target.name}.`, "success");
+    } catch (e) { toast(e instanceof ApiError ? e.message : "Could not paste the properties.", "error"); }
+  }
+  /** Zoom so one cell of the raster is one pixel on screen. */
+  function sourceResolution(l: Layer) {
+    const m = map.current;
+    if (!m || !l.raster || !l.bbox) return;
+    const lat = (l.bbox[1] + l.bbox[3]) / 2;
+    const metresPerPixelAtZ0 = 156543.03392 * Math.cos((lat * Math.PI) / 180);
+    const z = Math.log2(metresPerPixelAtZ0 / Math.max(0.01, l.raster.res_m[0]));
+    m.flyTo({ center: m.getCenter().toArray() as [number, number], zoom: Math.min(22, Math.max(0, z)) });
+  }
   async function remove(l: Layer) {
     const what = l.raster ? "the raster" : `its ${l.feature_count.toLocaleString("en-GB")} features`;
     if (!window.confirm(`Remove ${l.name} and ${what} from the project? This can't be undone.`)) return;
@@ -449,9 +507,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   ) : newFeature && editLayer ? (
     <NewFeatureForm layer={editLayer} fid={newFeature.id} onDone={() => { setNewFeature(null); void refreshLayer(editLayer.id); }} />
   ) : active?.geometry_type === "Raster" ? (
-    <RasterPanel layer={active} canEdit={canEdit} canExport={me.features.includes("export")} onChange={(l) => { replaceLayer(l); }} />
+    <RasterPanel key={`${active.id}-${panelTab.n}`} initialTab={panelTab.tab} layer={active} canEdit={canEdit} canExport={me.features.includes("export")} onChange={(l) => { replaceLayer(l); }} />
   ) : active ? (
-    <LayerPanel layer={active} canEdit={canEdit} selected={sel(active.id)} onChange={(l) => { replaceLayer(l); }} onExport={() => setDialog("export")} />
+    <LayerPanel key={`${active.id}-${panelTab.n}`} initialTab={panelTab.tab} layer={active} canEdit={canEdit} selected={sel(active.id)} onChange={(l) => { replaceLayer(l); }} onExport={() => setDialog("export")} />
   ) : (
     <aside className="ws-panel" aria-label="Properties">
       <div className="ws-pane-head"><strong>Properties</strong></div>
@@ -619,9 +677,11 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
 
       <div className={`ws-body${leftOpen ? "" : " no-left"}${rightOpen ? "" : " no-right"}`}>
         {leftOpen ? (
-          <Contents layers={layers} activeId={activeId} editingId={editId} canEdit={canEdit} selection={selection} onActivate={setActiveId} onToggle={(l) => void toggle(l)}
+          <Contents projectName={project.name} layers={layers} activeId={activeId} editingId={editId} canEdit={canEdit} canExport={me.features.includes("export")}
+            selection={selection} onActivate={setActiveId} onToggle={(l) => void toggle(l)}
             onReorder={(ids) => void reorder(ids)} onZoom={(l) => l.bbox && zoomTo(l.bbox)} onTable={(l) => setTableId(l.id)} onRemove={(l) => void remove(l)}
-            onProperties={(l) => { setActiveId(l.id); setGp({ open: false, start: null, query: "" }); setIdentify(null); setRightOpen(true); }}
+            onPanel={openPanel} onSelection={(l, op) => void selectionOp(l, op)} onLabels={(l, on) => void labelsOn(l, on)} onRename={(l, n) => void renameLayer(l, n)}
+            onPaste={(t, f) => void pasteProperties(t, f)} onSourceResolution={sourceResolution}
             onExport={(l) => { setActiveId(l.id); if (l.geometry_type !== "Raster") setDialog("export"); else window.location.assign(rasterDownloadUrl(l.id)); }}
             onEdit={(l) => startEditing(l.id)} onAdd={() => setDialog("add")} onCollapse={() => setLeftOpen(false)} />
         ) : (
