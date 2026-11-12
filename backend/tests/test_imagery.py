@@ -186,6 +186,44 @@ def test_scenes_join_least_cloudy_first(tmp_path):
     assert (data[:, :, 10:] == (np.array(list(RGBN.values())) + 7)[:, None, None]).all()        # the other fills the rest
 
 
+@pytest.mark.parametrize("props,offset", [
+    ({"s2:processing_baseline": "05.11", "datetime": "2026-02-10T10:00:00Z"}, True),
+    ({"s2:processing_baseline": "04.00", "datetime": "2022-01-25T10:00:00Z"}, True),
+    ({"s2:processing_baseline": "03.01", "datetime": "2021-12-30T10:00:00Z"}, False),
+    ({"datetime": "2022-01-25T00:00:00Z"}, True),                                               # no baseline given: the date decides
+    ({"datetime": "2022-01-24T23:59:59Z"}, False),
+    ({}, False)])
+def test_the_sentinel2_offset_is_known_by_baseline_or_date(props, offset):
+    assert imagery._baseline_offset({"properties": props}) is offset
+
+
+def test_planetary_computer_sentinel2_loses_the_1000_offset_and_earth_search_is_left_alone(tmp_path, monkeypatch):
+    monkeypatch.setattr(imagery, "_signed", lambda p, c, t, h: h)
+    g = grid()
+    new = item(tmp_path, g, "new", "sentinel2", PC, {"Red": 1600, "NIR": 1000 + 3400}, cloud=2, cols=slice(0, 10))
+    new["properties"]["s2:processing_baseline"] = "05.11"
+    old = item(tmp_path, g, "old", "sentinel2", PC, {"Red": 600, "NIR": 3400}, cloud=4)
+    old["properties"].update({"datetime": "2021-06-10T10:00:00Z", "s2:processing_baseline": "03.00"})
+    data, _ = imagery.stac_mosaic(PC, "sentinel2", [new, old], g, pick("sentinel2", PC, "Red", "NIR"))
+    assert (data[:, :, :10] == np.array([600, 3400])[:, None, None]).all()                       # the newer scene, offset taken off
+    assert (data[:, :, 10:] == np.array([600, 3400])[:, None, None]).all()                       # joins the older one without a seam
+    dark = item(tmp_path, g, "dark", "sentinel2", PC, {"Red": 900}, cloud=1)                     # below the offset: reflectance <= 0
+    data, _ = imagery.stac_mosaic(PC, "sentinel2", [dark], g, pick("sentinel2", PC, "Red"))
+    assert (data == 1).all()                                                                      # kept as data, not as no data
+    es = s2(tmp_path, g, "es", 3)                                                                 # Earth Search has taken it off already
+    data, _ = imagery.stac_mosaic(ES, "sentinel2", [es], g, pick("sentinel2", ES, "Red"))
+    assert (data == RGBN["Red"]).all()
+
+
+def test_landsat_becomes_reflectance_times_10000(tmp_path, monkeypatch):
+    monkeypatch.setattr(imagery, "_signed", lambda p, c, t, h: h)
+    g = grid()
+    sc = item(tmp_path, g, "lc09", "landsat", PC, {"Red": 10000, "NIR": 20000, "Green": 7000}, cloud=1)
+    data, _ = imagery.stac_mosaic(PC, "landsat", [sc], g, pick("landsat", PC, "Red", "Green", "NIR"))
+    # DN x 0.0000275 - 0.2: 10 000 -> 0.075, 20 000 -> 0.35, 7 000 -> -0.0075 (kept as 1, the least reflectance)
+    assert data.dtype == np.uint16 and (data == np.array([750, 1, 3500])[:, None, None]).all()
+
+
 def test_only_the_bands_asked_for_are_read(tmp_path):
     g = grid()
     sc = s2(tmp_path, g, "one", 3, drop=("Red", "Green", "Blue"))                               # a scene whose other bands are not even there
@@ -422,6 +460,15 @@ def test_each_earth_engine_dataset_comes_from_its_own_collection(monkeypatch, da
     assert called.call_args_list[0][0][0] == collection
     assert used == [] and region is not None
     assert any(c[0].endswith(cast) for c in ee.mock_calls), cast
+
+
+def test_earth_engine_chosen_scenes_are_found_by_their_own_id(monkeypatch):
+    monkeypatch.setattr(settings, "gee_project", "p")
+    ee = MagicMock()
+    bands = imagery.check("gee", "landsat", MINNA, D1, D2)[1]
+    ids = ["LANDSAT/LC09/C02/T1_L2/LC09_189054_20260203", "LANDSAT/LC08/C02/T1_L2/LC08_189054_20260211"]
+    imagery._gee_image(ee, "landsat", bands, MINNA, D1, D2, 30, ids)
+    assert ee.Filter.inList.call_args[0] == ("scene", ids)                                        # merge() renames system:index, not "scene"
 
 
 def test_earth_engine_without_scenes_says_so(gee, monkeypatch):

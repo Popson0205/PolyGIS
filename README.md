@@ -81,13 +81,16 @@ layer in the UTM zone of the area.
   are joined (least cloudy first for optical imagery, newest first for radar) where one does not cover the area.
 - **Google Earth Engine** is offered once the server has a project (`GEE_PROJECT`), with a service account
   (`GEE_SERVICE_ACCOUNT` and `GEE_PRIVATE_KEY`, the key file's JSON or a path to it) or the credentials the server's
-  environment already holds. Optical scenes are cloud-masked and combined as a median composite.
+  environment already holds. Optical scenes are cloud-masked and combined as a median composite. Earth Engine is free for
+  non-commercial and research use; commercial use needs a paid Earth Engine licence on that Google Cloud project.
 
 *Find scenes* (optical imagery, and radar from the catalogues) lists what is there, with date and cloud cover, so scenes can
 be chosen by hand; otherwise PolyGIS picks them. A layer is drawn in true colour when it has red, green and blue, in false
-colour (NIR, red, green) when it has those, and otherwise as a colour ramp on its first band. Values stay as the providers
-store them (optical bands are unsigned 16-bit integers, Sentinel-2 reflectance times 10 000; elevation and radar are 32-bit
-floats), with 0 or -32768 for no data. Fewer bands mean finer cells for a large area: `IMAGERY_MAX_MB` (128) is the memory
+colour (NIR, red, green) when it has those, and otherwise as a colour ramp on its first band. Optical bands come out
+the same from every source, as surface reflectance times 10 000 (unsigned 16-bit, 0 for no data), so band ratios such as
+NDVI are right: Sentinel-2 scenes from 25 January 2022 on (processing baseline 04.00) lose the +1000 offset ESA adds where the
+source has not already taken it off, and Landsat Collection 2 values (DN × 0.0000275 − 0.2) are rescaled. Elevation and
+radar are 32-bit floats, with -32768 for no data. Fewer bands mean finer cells for a large area: `IMAGERY_MAX_MB` (128) is the memory
 one request may use, `IMAGERY_GEE_MAX_MB` (40) the same for Earth Engine, whose direct download is limited to about 48 MB.
 Cells are enlarged (up to 8 times the data's own) to fit, then the area is refused. `IMAGERY_TIMEOUT_S` (240) limits a request.
 
