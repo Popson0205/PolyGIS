@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     imagery_max_mb: int = 128                  # the most memory one imagery request may use (cells x bands x bytes); larger areas get larger cells
     imagery_gee_max_mb: int = 40               # … for Earth Engine, whose direct download is limited to about 48 MB
     imagery_timeout_s: int = 240               # the longest an imagery request may take
+    # Poly Earth (Earth Engine-style analyses on open data), run in the background with progress shown
+    earth_max_mb: int = 384                    # the most memory one run's scenes may take; larger areas get larger cells
+    earth_timeout_s: int = 900                 # the longest a run may take
+    earth_workers: int = 6                     # files read at once
+    earth_jobs: int = 2                        # runs at once on the server (others wait their turn)
 
     log_level: str = "INFO"
 

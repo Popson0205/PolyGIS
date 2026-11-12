@@ -1,4 +1,4 @@
-import type { Activity, App, Crs, CrsDef, Field, FieldType, Filter, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
+import type { Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
@@ -92,6 +92,10 @@ export const api = {
   rasterStyle: (id: string, style: RasterStyle) => req<Layer>("PUT", `/layers/${id}/raster-style`, style),
   rasterValue: (id: string, lng: number, lat: number) => req<{ values: (number | null)[] | null; bands: string[] }>("GET", `/layers/${id}/raster/value?lng=${lng}&lat=${lat}`),
   histogram: (id: string, band: number) => req<{ counts: number[]; edges: number[] }>("GET", `/layers/${id}/raster/histogram?band=${band}`),
+  earthTools: () => req<Tool[]>("GET", "/poly-earth/tools"),
+  startEarth: (projectId: string, tool: string, params: Record<string, unknown>, output_name?: string) =>
+    req<EarthJob>("POST", `/projects/${projectId}/poly-earth/${tool}`, { params, output_name: output_name || null }),
+  earthJob: (id: string) => req<EarthJob>("GET", `/poly-earth/jobs/${id}`),
   runs: (projectId: string) => req<Run[]>("GET", `/projects/${projectId}/runs`),
   crs: (q = "") => req<Crs[]>("GET", `/crs${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   crsDef: (epsg: number) => req<CrsDef>("GET", `/crs/${epsg}`),

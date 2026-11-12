@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl libexpat1 
 WORKDIR /srv
 COPY backend/requirements.txt .
 RUN pip install -r requirements.txt \
- && python -c "import rasterio, pyogrio, shapely, pyproj, skimage, contourpy, scipy, networkx; print('GIS libraries load: GDAL', rasterio.__gdal_version__)"
+ && python -c "import rasterio, pyogrio, shapely, pyproj, skimage, contourpy, scipy, networkx, sklearn; print('GIS libraries load: GDAL', rasterio.__gdal_version__)"
 COPY backend/app ./app
 COPY backend/migrations ./migrations
 COPY --from=web /web/dist ./web
