@@ -440,3 +440,33 @@ def test_api_others_cannot_see_a_run_and_viewers_cannot_start_one(analyst, perso
     assert viewer.post(f"/projects/{pid}/poly-earth/index", json={"params": {}}).status_code == 403
     basic = person(role="member", name="Basic", features=["maps", "editing"])
     assert basic.post(f"/projects/{pid}/poly-earth/index", json={"params": {}}).status_code == 403
+
+
+# ---------- reading only what is needed ----------
+def test_a_coarse_grid_reads_the_files_overviews_and_masks_their_full_detail(cat, monkeypatch):
+    fine = imagery.plan(MINNA, 10, 10**9)
+    path = cat.dir / "big.tif"
+    a = np.full((fine["height"], fine["width"]), 2500, np.uint16)
+    with rasterio.open(path, "w", driver="GTiff", width=fine["width"], height=fine["height"], count=1, dtype="uint16", crs=fine["crs"],
+                       transform=fine["transform"], nodata=0, tiled=True, blockxsize=32, blockysize=32) as d:
+        d.write(a, 1)
+        d.build_overviews([2, 4, 8], rasterio.enums.Resampling.average)
+    coarse = imagery.plan(MINNA, 40, 10**9)
+    opened = []
+    real = rasterio.open
+    monkeypatch.setattr(pe.rasterio, "open", lambda p, *k, **kw: (opened.append(kw.get("overview_level")), real(p, *k, **kw))[1])
+    v, ok = pe.read_onto(str(path), coarse)
+    assert ok.all() and np.allclose(v, 2500) and opened[-1] == 1               # overview x4: 40 m cells, the grid's own
+    opened.clear()
+    pe.read_onto(str(path), coarse, nearest=True)
+    assert opened == [None]                                                      # a mask: full detail
+    opened.clear()
+    pe.read_onto(str(path), fine)
+    assert opened[-1] is None                                                    # a 10 m grid: no overview is fine enough
+
+
+def test_a_period_takes_scenes_from_every_tile_in_turn_up_to_a_limit():
+    items = [{"id": f"{t}{k}", "properties": {"s2:mgrs_tile": t, "eo:cloud_cover": k}} for t in "ABCDEFGHIJ" for k in range(10)]
+    got = pe.pick(items, 6)
+    assert len(got) == pe.MAX_PERIOD_SCENES and {i["id"][0] for i in got} == set("ABCDEFGHIJ")
+    assert [i["id"] for i in got[:10]] == [f"{t}0" for t in "ABCDEFGHIJ"]          # each tile's clearest first

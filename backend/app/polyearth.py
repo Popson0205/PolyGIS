@@ -94,7 +94,8 @@ SOURCE = _p("source", "Catalogue", "choice", default=PC, when={"sensor": "sentin
             choices=[[PC, "Microsoft Planetary Computer"], [ES, "Earth Search (AWS)"]])
 AREA = _p("bbox", "Area", "area")
 CLOUD = _p("max_cloud", "Leave out scenes cloudier than", "number", unit="%", min=0, default=50)
-SCENES = _p("scenes", "Scenes to combine (at most, for each satellite tile)", "number", min=1, default=10)
+SCENES = _p("scenes", "Scenes to combine (at most, for each satellite tile)", "number", min=1, default=6)
+MAX_PERIOD_SCENES = 36          # scenes combined for one period, all tiles together
 
 
 def dates(prefix: str, label: str, ago: int, length: int) -> list[dict]:
@@ -210,18 +211,41 @@ def grid_of(g: dict, data: np.ndarray) -> rt.Grid:
     return rt.Grid(np.ma.masked_invalid(data), g["crs"], g["transform"])
 
 
+def overview_for(src, cell_m: float) -> int | None:
+    """The coarsest overview of a file whose cells are still no larger than the grid's (None: the full-detail data). Reading
+    a 10 km area at 40 m from a 10 m file then fetches about 1/16 of the bytes, as Earth Engine reads its pyramids."""
+    ovs = src.overviews(1)
+    if not ovs or src.crs is None:
+        return None
+    res = abs(src.res[0]) * (111_320 if src.crs.is_geographic else (src.crs.linear_units_factor[1] if src.crs.linear_units_factor else 1))
+    fit = [i for i, f in enumerate(ovs) if res * f <= cell_m * 1.01]
+    return fit[-1] if fit else None
+
+
 def read_onto(href: str, g: dict, nearest: bool = False) -> tuple[np.ndarray, np.ndarray]:
-    """One band of a (remote) file warped onto the grid: its values and where they are valid."""
+    """One band of a (remote) file warped onto the grid: its values and where they are valid. Values are read from the file's
+    overviews when the grid is coarser; masks (nearest) always from the full-detail data, since averaged overviews of class or
+    bit-flag bands would be meaningless."""
     rs = Resampling.nearest if nearest else Resampling.bilinear
-    with rasterio.Env(**GDAL_ENV), rasterio.open(href) as src:
-        nd = src.nodata
-        with WarpedVRT(src, crs=g["crs"], transform=g["transform"], width=g["width"], height=g["height"], resampling=rs,
-                       src_nodata=nd, nodata=nd if nd is not None else 0, add_alpha=nd is None) as vrt:
-            a = vrt.read(1)
-            ok = vrt.dataset_mask() > 0
+    with rasterio.Env(**GDAL_ENV):
+        lvl = None
+        if not nearest:
+            with rasterio.open(href) as src:
+                lvl = overview_for(src, g["cell"])
+        with (rasterio.open(href, overview_level=lvl) if lvl is not None else rasterio.open(href)) as src:
+            nd = src.nodata
+            with WarpedVRT(src, crs=g["crs"], transform=g["transform"], width=g["width"], height=g["height"], resampling=rs,
+                           src_nodata=nd, nodata=nd if nd is not None else 0, add_alpha=nd is None) as vrt:
+                a = vrt.read(1)
+                ok = vrt.dataset_mask() > 0
     if np.issubdtype(a.dtype, np.floating):
         ok &= np.isfinite(a)
     return a, ok
+
+
+def warm(src: str, coll: str, tokens: dict) -> None:
+    """Get Planetary Computer's read token once, before the files are read in parallel."""
+    imagery._signed(src, coll, tokens, "")
 
 
 def in_parallel(jobs: list[Callable], ctx: Ctx, what: str, start: float = 0.05, end: float = 0.9) -> list:
@@ -229,6 +253,7 @@ def in_parallel(jobs: list[Callable], ctx: Ctx, what: str, start: float = 0.05, 
     out: list = [None] * len(jobs)
     if not jobs:
         return out
+    ctx.say(f"Reading {what}: 0 of {len(jobs)}", start)
     with ThreadPoolExecutor(max_workers=max(1, settings.earth_workers)) as ex:
         futs = {ex.submit(j): i for i, j in enumerate(jobs)}
         for k, f in enumerate(as_completed(futs), 1):
@@ -251,12 +276,18 @@ def _tile(it: dict) -> str:
     return ",".join(f"{v:.1f}" for v in (it.get("bbox") or [0, 0])[:2])
 
 
-def pick(items: list[dict], per_tile: int) -> list[dict]:
-    """The least cloudy scenes of each satellite tile over the area, so a large area is covered evenly."""
+def pick(items: list[dict], per_tile: int, most: int = MAX_PERIOD_SCENES) -> list[dict]:
+    """The least cloudy scenes of each satellite tile over the area, taken in turns so a large area is covered evenly, and at
+    most `most` in all."""
     groups: dict[str, list] = {}
     for it in sorted(items, key=lambda i: i.get("properties", {}).get("eo:cloud_cover", 100)):
         groups.setdefault(_tile(it), []).append(it)
-    return [it for g in groups.values() for it in g[:per_tile]]
+    out: list[dict] = []
+    for k in range(per_tile):
+        for g in groups.values():
+            if k < len(g) and len(out) < most:
+                out.append(g[k])
+    return out
 
 
 def find_scenes(sensor: str, src: str, bbox, start, end, max_cloud: int, per_tile: int) -> list[dict]:
@@ -358,6 +389,7 @@ def optical(ctx: Ctx, sensor: str, src: str, periods: list[tuple[dt.date, dt.dat
     if g is None:
         g = plan(bbox, sp["res"], (most * len(bands) * 4 * 2) + 4 * len(periods) * extra_layers)
     tokens: dict = {}
+    warm(src, DATASETS[sp["dataset"]]["stac"][src], tokens)
     done = 0
     for k, ((a, b, label), items) in enumerate(zip(periods, found)):
         if not items:
@@ -416,7 +448,7 @@ def index_composites(ctx: Ctx, p, periods, idx: str, bbox, how: str = "median") 
             outs[k] = index_of(idx, composite(scenes, spec["bands"], how)).astype(np.float32)
         else:
             outs[k] = np.full((g["height"], g["width"]), np.nan, np.float32)
-    g = optical(ctx, sensor, src, periods, bbox, whole(p, "max_cloud", 0, 100, "Cloud", 50), whole(p, "scenes", 1, 30, "Scenes", 10),
+    g = optical(ctx, sensor, src, periods, bbox, whole(p, "max_cloud", 0, 100, "Cloud", 50), whole(p, "scenes", 1, 30, "Scenes", 6),
                 spec["bands"], each, extra_layers=len(periods))
     return g, outs, counts
 
@@ -697,7 +729,7 @@ def composite_tool(p, ctx: Ctx) -> Result:
         if scenes:
             got.update(composite(scenes, need, how, pct))
             got["_n"] = len(scenes)
-    g = optical(ctx, sensor, src, [(a, b, "")], bbox, whole(p, "max_cloud", 0, 100, "Cloud", 50), whole(p, "scenes", 1, 30, "Scenes", 10), need, each)
+    g = optical(ctx, sensor, src, [(a, b, "")], bbox, whole(p, "max_cloud", 0, 100, "Cloud", 50), whole(p, "scenes", 1, 30, "Scenes", 6), need, each)
     if not got:
         raise bad("Every scene found was cloudy over the area. Choose a longer period.")
     ctx.say("Saving the composite", 0.95)
@@ -756,7 +788,7 @@ def band_formula_tool(p, ctx: Ctx) -> Result:
     def each(k, scenes, g):
         if scenes:
             got.update(composite(scenes, use))
-    g = optical(ctx, sensor, src, [(a, b, "")], bbox, whole(p, "max_cloud", 0, 100, "Cloud", 50), whole(p, "scenes", 1, 30, "Scenes", 10), use, each)
+    g = optical(ctx, sensor, src, [(a, b, "")], bbox, whole(p, "max_cloud", 0, 100, "Cloud", 50), whole(p, "scenes", 1, 30, "Scenes", 6), use, each)
     if not got:
         raise bad("Every scene found was cloudy over the area. Choose a longer period.")
     v = rt.evaluate(expr, {k: got[k].astype(np.float64) for k in use}).astype(np.float32)
@@ -781,7 +813,7 @@ def lst_tool(p, ctx: Ctx) -> Result:
         if scenes:
             got["ST"] = reduce(np.stack([s["ST"] for s in scenes]), how)
             got["_n"] = len(scenes)
-    g = optical(ctx, "landsat", PC, [(a, b, "")], bbox, whole(p, "max_cloud", 0, 100, "Cloud", 50), whole(p, "scenes", 1, 30, "Scenes", 10), ["ST"], each)
+    g = optical(ctx, "landsat", PC, [(a, b, "")], bbox, whole(p, "max_cloud", 0, 100, "Cloud", 50), whole(p, "scenes", 1, 30, "Scenes", 6), ["ST"], each)
     if not got:
         raise bad("Every Landsat scene found was cloudy over the area. Choose a longer period.")
     v = got["ST"]
@@ -950,6 +982,7 @@ def time_series_tool(p, ctx: Ctx) -> Result:
         g = plan(bbox, 10, total * 4 + 16)
         masks = zone_masks(zs, g)
         tokens: dict = {}
+        warm(PC, "sentinel-1-rtc", tokens)
         flat = [(k, it) for k, f in enumerate(found) for it in f]
         got = in_parallel([lambda it=it: read_radar(it, pol, g, tokens) for _, it in flat], ctx, "radar scenes")
         if step == "scene":
@@ -1001,6 +1034,7 @@ def time_series_tool(p, ctx: Ctx) -> Result:
                     by_day.setdefault(sc["_date"], []).append(zone_stats(value_of(sc), masks_box["m"]))
             g = plan(bbox, SENSORS[sensor]["res"], len(items) * len(bands) * 4 * 2)
             tokens: dict = {}
+            warm(src, DATASETS[SENSORS[sensor]["dataset"]]["stac"][src], tokens)
             got = in_parallel([lambda it=it: read_scene(sensor, src, it, bands, g, tokens) for it in items], ctx, f"{SENSORS[sensor]['name']} scenes")
             each(0, [s for s in got if s], g)
             for d in sorted(by_day):
@@ -1242,6 +1276,7 @@ def flood_tool(p, ctx: Ctx) -> Result:
         raise bad("No Sentinel-1 scenes from the same satellite pass were found both before and during the flood. Widen the dates.")
     g = plan(bbox, 10, (len(before) + len(after)) * 4 + 40, "radar scenes")
     tokens: dict = {}
+    warm(PC, "sentinel-1-rtc", tokens)
     got = in_parallel([lambda it=it: read_radar(it, pol, g, tokens) for it in before + after], ctx, "radar scenes", 0.06, 0.7)
     pre = [v for v in got[:len(before)] if v is not None]
     post = [v for v in got[len(before):] if v is not None]
@@ -1302,7 +1337,7 @@ def features_for(ctx: Ctx, p, bbox) -> tuple[dict, np.ndarray, list[str]]:
     def each(k, scenes, g):
         if scenes:
             got.update(composite(scenes, bands))
-    g = optical(ctx, sensor, src, [(a, b, "")], bbox, whole(p, "max_cloud", 0, 100, "Cloud", 50), whole(p, "scenes", 1, 30, "Scenes", 10), bands, each,
+    g = optical(ctx, sensor, src, [(a, b, "")], bbox, whole(p, "max_cloud", 0, 100, "Cloud", 50), whole(p, "scenes", 1, 30, "Scenes", 6), bands, each,
                 extra_layers=len(bands) + 8)
     if not got:
         raise bad("Every scene found was cloudy over the area. Choose a longer period.")
