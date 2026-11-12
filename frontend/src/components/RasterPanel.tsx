@@ -27,8 +27,8 @@ const fmt = (v: number | null | undefined) => (v == null ? "–" : Math.abs(v) >
 type Tab = "symbology" | "source";
 
 /** The right-hand pane for a raster layer: how it is coloured, and what it is. */
-export default function RasterPanel({ layer, canEdit, canExport, onChange }: { layer: Layer; canEdit: boolean; canExport: boolean; onChange: (l: Layer) => void }) {
-  const [tab, setTab] = useState<Tab>("symbology");
+export default function RasterPanel({ layer, canEdit, canExport, onChange, initialTab = "symbology" }: { layer: Layer; canEdit: boolean; canExport: boolean; onChange: (l: Layer) => void; initialTab?: string }) {
+  const [tab, setTab] = useState<Tab>(initialTab === "source" ? "source" : "symbology");
   return (
     <aside className="ws-panel" aria-label={`${layer.name}: properties`}>
       <div className="ws-pane-head"><strong title={layer.name}>{layer.name}</strong></div>

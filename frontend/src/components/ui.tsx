@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, Info } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, ChevronRight, Info } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 export function Button({ variant = "default", small, busy, children, className = "", ...rest }:
@@ -132,4 +132,71 @@ export function useStored<T>(key: string, initial: T): [T, (v: T | ((x: T) => T)
     });
   }, [key]);
   return [v, set];
+}
+
+export interface PopItem {
+  label: string; icon?: ReactNode; onSelect?: () => void; disabled?: boolean; danger?: boolean; hint?: string; checked?: boolean;
+  divider?: boolean; items?: PopItem[];
+}
+
+/** A menu at a point on the screen (a right-click, or under a button), with sub-menus that open to the side, the way a
+ * desktop GIS's context menus work: arrow keys move, → opens a sub-menu and ← closes it, Enter chooses, Escape closes. */
+export function PopMenu({ x, y, altX, items, label, onClose, depth = 0, onBack }: {
+  x: number; y: number; altX?: number; items: PopItem[]; label: string; onClose: () => void; depth?: number; onBack?: () => void;
+}) {
+  const el = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ left: x, top: y });
+  const [sub, setSub] = useState<{ k: number; x: number; y: number; alt: number } | null>(null);
+  const hover = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    const r = el.current?.getBoundingClientRect();
+    if (!r) return;
+    const left = altX !== undefined && x + r.width > window.innerWidth - 4 ? Math.max(4, altX - r.width) : Math.max(4, Math.min(x, window.innerWidth - r.width - 4));
+    setPos({ left, top: Math.max(4, Math.min(y, window.innerHeight - r.height - 4)) });
+    if (!depth) el.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  }, [x, y, altX, depth]);
+  useEffect(() => {
+    if (depth) return;
+    const away = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest?.(".popmenu")) onClose(); };
+    const esc = () => onClose();
+    window.addEventListener("mousedown", away);
+    window.addEventListener("resize", esc);
+    window.addEventListener("blur", esc);
+    return () => { window.removeEventListener("mousedown", away); window.removeEventListener("resize", esc); window.removeEventListener("blur", esc); };
+  }, [depth, onClose]);
+  const openSub = (k: number, b: HTMLElement) => { const r = b.getBoundingClientRect(); setSub({ k, x: r.right - 2, y: r.top - 5, alt: r.left + 2 }); };
+  const keys = (e: React.KeyboardEvent) => {
+    if ((e.target as HTMLElement).closest(".popmenu") !== el.current) return;
+    const bs = Array.from(el.current?.querySelectorAll<HTMLButtonElement>(":scope > button:not(:disabled)") ?? []);
+    const k = bs.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === "ArrowDown") { e.preventDefault(); bs[(k + 1) % bs.length]?.focus(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); bs[(k - 1 + bs.length) % bs.length]?.focus(); }
+    else if (e.key === "ArrowRight") { const b = bs[k]; const i = Number(b?.dataset.k); if (b && items[i]?.items) { e.preventDefault(); openSub(i, b); } }
+    else if (e.key === "ArrowLeft" && depth) { e.preventDefault(); onBack?.(); }
+    else if (e.key === "Escape") { e.preventDefault(); if (depth) onBack?.(); else onClose(); }
+    else if (e.key === "Tab") { e.preventDefault(); onClose(); }
+  };
+  useEffect(() => { if (depth) el.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus(); }, [depth]);
+  return (
+    <>
+      <div ref={el} className="popmenu" role="menu" aria-label={label} style={pos} onKeyDown={keys} onContextMenu={(e) => e.preventDefault()}>
+        {items.map((it, k) => it.divider ? <hr key={`d${k}`} /> : (
+          <button key={it.label} type="button" role={it.checked !== undefined ? "menuitemcheckbox" : "menuitem"} aria-checked={it.checked} data-k={k}
+            aria-haspopup={it.items ? "menu" : undefined} aria-expanded={it.items ? sub?.k === k : undefined}
+            className={`${it.danger ? "is-danger" : ""}${sub?.k === k ? " is-open" : ""}`} disabled={it.disabled}
+            onMouseEnter={(e) => { const b = e.currentTarget; window.clearTimeout(hover.current); hover.current = window.setTimeout(() => (it.items ? openSub(k, b) : setSub(null)), 120); }}
+            onClick={(e) => { if (it.items) { openSub(k, e.currentTarget); return; } onClose(); it.onSelect?.(); }}>
+            <span className="popmenu-icon" aria-hidden="true">{it.checked ? <Check size={15} /> : it.icon}</span>
+            <span className="popmenu-label">{it.label}</span>
+            {it.hint && <kbd>{it.hint}</kbd>}
+            {it.items && <ChevronRight size={14} className="popmenu-more" aria-hidden="true" />}
+          </button>
+        ))}
+      </div>
+      {sub && items[sub.k]?.items && (
+        <PopMenu x={sub.x} y={sub.y} altX={sub.alt} items={items[sub.k].items!} label={items[sub.k].label} depth={depth + 1} onClose={onClose}
+          onBack={() => { const k = sub.k; setSub(null); el.current?.querySelector<HTMLButtonElement>(`button[data-k="${k}"]`)?.focus(); }} />
+      )}
+    </>
+  );
 }
