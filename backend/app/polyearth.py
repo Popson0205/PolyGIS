@@ -61,9 +61,14 @@ bad = rt.bad
 
 def etool(tid: str, name: str, group: str, about: str, *params):
     def reg(fn):
+        def run(p, ctx):
+            ctx.params = p                  # the shared steps (e.g. how scenes are picked) read the run's own settings
+            return fn(p, ctx)
+        run.__name__ = run.__qualname__ = fn.__name__
+        run.__doc__ = fn.__doc__
         ETOOLS[tid] = {"name": name, "group": group, "about": about, "params": list(params), "kind": "earth"}
-        EBUILD[tid] = fn
-        return fn
+        EBUILD[tid] = run
+        return run
     return reg
 
 
@@ -128,7 +133,10 @@ SOURCE = _p("source", "Catalogue", "choice", default=PC, when={"sensor": "sentin
             choices=[[PC, "Microsoft Planetary Computer"], [ES, "Earth Search (AWS)"]])
 AREA = _p("bbox", "Area", "area")                 # the app sends the map view's or a layer's box, or a polygon layer to clip to
 CLOUD = _p("max_cloud", "Leave out scenes cloudier than", "number", unit="%", min=0, default=50)
-SCENES = _p("scenes", "Scenes to combine (at most, for each satellite tile)", "number", min=1, default=6)
+SCENES = _p("scenes", "Scenes to consider (at most, for each satellite tile)", "number", min=1, default=6)
+PICK = _p("pick", "Use", "choice", default="best",
+          choices=[["best", "The clearest scene over the area, gaps filled from the next clearest (fastest)"],
+                   ["median", "A median of all the scenes (smoothest, like Earth Engine's median)"]])
 MAX_PERIOD_SCENES = 36          # scenes combined for one period, all tiles together
 
 
@@ -336,7 +344,22 @@ def find_scenes(sensor: str, src: str, bbox, start, end, max_cloud: int, per_til
     return pick(items, per_tile)
 
 
-def read_scene(sensor: str, src: str, item: dict, bands: list[str], g: dict, tokens: dict) -> dict | None:
+def scene_clear(sensor: str, src: str, item: dict, g: dict, tokens: dict) -> np.ndarray | None:
+    """Where a scene is clear over the grid (its cloud mask band only: one small read), or None when it has nothing clear."""
+    sp = SENSORS[sensor]
+    coll = DATASETS[sp["dataset"]]["stac"][src]
+    try:
+        qa, qok = read_onto(imagery._signed(src, coll, tokens, item["assets"][sp["qa"][src]]["href"]), g, nearest=True)
+    except KeyError:
+        return None
+    except rasterio.errors.RasterioError as e:
+        log.warning("scene %s could not be read: %s", item.get("id"), e)
+        return None
+    clear = qok & (~np.isin(qa, SCL_BAD) if sensor == "sentinel2" else ((qa.astype(np.uint32) & QA_BAD) == 0))
+    return clear if clear.any() else None
+
+
+def read_scene(sensor: str, src: str, item: dict, bands: list[str], g: dict, tokens: dict, clear: np.ndarray | None = None) -> dict | None:
     """A scene's bands on the grid as reflectance (0 to 1; surface temperature "ST" in deg C), NaN where cloudy or empty.
     None when the scene has nothing clear over the area, lacks a band, or cannot be read."""
     sp = SENSORS[sensor]
@@ -348,8 +371,9 @@ def read_scene(sensor: str, src: str, item: dict, bands: list[str], g: dict, tok
     try:
         def href(k):
             return imagery._signed(src, coll, tokens, assets[k]["href"])
-        qa, qok = read_onto(href(sp["qa"][src]), g, nearest=True)
-        clear = qok & (~np.isin(qa, SCL_BAD) if sensor == "sentinel2" else ((qa.astype(np.uint32) & QA_BAD) == 0))
+        if clear is None:
+            qa, qok = read_onto(href(sp["qa"][src]), g, nearest=True)
+            clear = qok & (~np.isin(qa, SCL_BAD) if sensor == "sentinel2" else ((qa.astype(np.uint32) & QA_BAD) == 0))
         if not clear.any():
             return None
         out = {"_date": (item.get("properties", {}).get("datetime") or "")[:10], "_id": item.get("id")}
@@ -437,11 +461,38 @@ def optical(ctx: Ctx, sensor: str, src: str, periods: list[tuple[dt.date, dt.dat
             each(k, [], g)
             continue
         start, end = 0.06 + 0.84 * done / total, 0.06 + 0.84 * (done + len(items)) / total
-        got = in_parallel([lambda it=it: read_scene(sensor, src, it, bands, g, tokens) for it in items], ctx,
-                          f"{sp['name']} scenes" + (f" for {label}" if label else ""), start, end)
+        what = f"{sp['name']} scenes" + (f" for {label}" if label else "")
+        if (ctx.params.get("pick") or "best") == "best":
+            got = clearest(ctx, sensor, src, items, bands, g, tokens, what, start, end)
+        else:
+            got = in_parallel([lambda it=it: read_scene(sensor, src, it, bands, g, tokens) for it in items], ctx, what, start, end)
         done += len(items)
         each(k, [s for s in got if s], g)
     return g
+
+
+def clearest(ctx: Ctx, sensor: str, src: str, items: list[dict], bands: list[str], g: dict, tokens: dict, what: str,
+             start: float, end: float) -> list[dict]:
+    """The clearest scene over the area itself (not the catalogue's cloud figure for its whole 100 km tile), read in full; then,
+    only where it is cloudy or empty, the scene that fills most of what is left, and so on until the area is covered or no scene
+    has more to give. Only the cloud masks of the candidates are read to choose (one small band each), so most periods need the
+    bands of one or two scenes instead of all of them."""
+    out = outside(g)
+    inside = np.ones((g["height"], g["width"]), bool) if out is None else ~out
+    mid = start + (end - start) * 0.35
+    masks = in_parallel([lambda it=it: scene_clear(sensor, src, it, g, tokens) for it in items], ctx, f"cloud masks of the {what}", start, mid)
+    cands = [(it, m & inside) for it, m in zip(items, masks) if m is not None]
+    need, chosen = inside.copy(), []
+    least = max(1, int(inside.sum() * 0.001))              # a scene adding less than 0.1 % of the area is not worth reading
+    while cands and need.any():
+        gains = [int((m & need).sum()) for _, m in cands]
+        k = int(np.argmax(gains))
+        if gains[k] < (1 if not chosen else least):
+            break
+        it, m = cands.pop(k)
+        chosen.append((it, m & need))
+        need &= ~m
+    return in_parallel([lambda it=it, t=t: read_scene(sensor, src, it, bands, g, tokens, clear=t) for it, t in chosen], ctx, what, mid, end)
 
 
 def index_of(idx: str, b: dict) -> np.ndarray:
@@ -750,8 +801,8 @@ def series_layer(ctx: Ctx, zs: list[Zone], x: list[str], values: list[list], nam
 # =====================================================================================================================
 # Images and indices
 # =====================================================================================================================
-METHOD = _p("method", "Combine the scenes by", "choice", default="median",
-            choices=[["median", "Median (the usual cloud-free composite)"], ["greenest", "Greenest pixel (highest NDVI)"],
+METHOD = _p("method", "Combine the scenes by", "choice", default="best",
+            choices=[["best", "The clearest scene, gaps filled from the next clearest (fastest)"], ["median", "Median (the usual cloud-free composite)"], ["greenest", "Greenest pixel (highest NDVI)"],
                      ["latest", "Most recent clear pixel"], ["mean", "Mean"], ["min", "Minimum"], ["max", "Maximum"],
                      ["percentile", "Percentile"]])
 PCT = _p("percentile", "Percentile", "number", min=0, default=25, when={"method": "percentile"})
@@ -766,10 +817,13 @@ def composite_tool(p, ctx: Ctx) -> Result:
     sensor, src = sensor_of(p)
     a, b = span(p)
     bbox = area_of(p)
-    how = p.get("method") or "median"
+    how = p.get("method") or "best"
     if how not in {c[0] for c in METHOD["choices"]}:
         raise bad("Choose how to combine the scenes.", "method")
     pct = rt.num(p, "percentile", 0, 100, "Percentile", 25)
+    ctx.params["pick"] = "best" if how == "best" else "all"
+    if how == "best":
+        how = "median"                                # the scenes chosen do not overlap, so their median is the mosaic
     bands = band_names(sensor) if p.get("bands", "all") == "all" else ["Red", "Green", "Blue", "NIR"]
     need = list(dict.fromkeys(bands + (["NIR", "Red"] if how == "greenest" else [])))
     got: dict = {}
@@ -788,7 +842,7 @@ def composite_tool(p, ctx: Ctx) -> Result:
     if out is not None:
         clear &= ~out
     data = np.ma.masked_array(np.clip(np.rint(np.nan_to_num(stack) * 10000), 1, 65535).astype(np.uint16), mask=np.repeat(~clear[None], len(bands), 0))
-    name = f"{SENSORS[sensor]['name']} {how} composite {span_words(a, b)}"
+    name = f"{SENSORS[sensor]['name']} {'clearest-scene mosaic' if ctx.params['pick'] == 'best' else how + ' composite'} {span_words(a, b)}"
     summary = {"scenes": got["_n"], "dates": span_words(a, b), "method": how, "cell size m": g["cell"], "values": "surface reflectance x 10000",
                "clear %": round(100 * float(clear.sum()) / max(1, (clear.size if out is None else int((~out).sum()))), 1)}
     return Result([rt.Out(name=name, data=data, crs=g["crs"], transform=g["transform"], dtype="uint16", names=bands, summary=summary)])
@@ -797,7 +851,7 @@ def composite_tool(p, ctx: Ctx) -> Result:
 @etool("index", "Spectral index", "Images and indices",
        "A vegetation, water, moisture, burn, built-up or soil index of the area from a cloud-free composite (NDVI, EVI, SAVI, "
        "MSAVI, GNDVI, NDRE, NDWI, MNDWI, NDMI, NBR, NDBI, BSI).",
-       AREA, SENSOR, SOURCE, INDEX, *PERIOD, CLOUD, SCENES)
+       AREA, SENSOR, SOURCE, INDEX, *PERIOD, CLOUD, PICK, SCENES)
 def index_tool(p, ctx: Ctx) -> Result:
     a, b = span(p)
     idx = p.get("index") or "ndvi"
@@ -815,7 +869,7 @@ def index_tool(p, ctx: Ctx) -> Result:
        "Your own formula of the composite's bands, as reflectance from 0 to 1: e.g. (NIR - Red) / (NIR + Red), "
        "con(SWIR1 > NIR, 1, 0), or (Green - SWIR1) / (Green + SWIR1). Band names: Red, Green, Blue, NIR, SWIR1, SWIR2, and for "
        "Sentinel-2 also RedEdge1, RedEdge2, RedEdge3, NIR2.",
-       AREA, SENSOR, SOURCE, _p("expression", "Formula", "text", default="(NIR - Red) / (NIR + Red)"), *PERIOD, CLOUD, SCENES)
+       AREA, SENSOR, SOURCE, _p("expression", "Formula", "text", default="(NIR - Red) / (NIR + Red)"), *PERIOD, CLOUD, PICK, SCENES)
 def band_formula_tool(p, ctx: Ctx) -> Result:
     import ast
     sensor, src = sensor_of(p)
@@ -854,11 +908,14 @@ def band_formula_tool(p, ctx: Ctx) -> Result:
        "How hot the ground is (degrees Celsius) from Landsat 8 and 9's thermal band, clouds masked, scenes combined. "
        "Shows urban heat islands, dry land and water bodies.",
        AREA, *PERIOD, CLOUD, SCENES,
-       _p("method", "Combine the scenes by", "choice", default="median", choices=[["median", "Median"], ["mean", "Mean"], ["max", "Maximum (hottest)"], ["min", "Minimum"]]))
+       _p("method", "Combine the scenes by", "choice", default="best", choices=[["best", "The clearest scene, gaps filled from the next clearest (fastest)"],
+                                                                                ["median", "Median"], ["mean", "Mean"], ["max", "Maximum (hottest)"], ["min", "Minimum"]]))
 def lst_tool(p, ctx: Ctx) -> Result:
     a, b = span(p)
     bbox = area_of(p)
-    how = p.get("method") or "median"
+    how = p.get("method") or "best"
+    ctx.params["pick"] = "best" if how == "best" else "all"
+    how = "median" if how == "best" else how
     got: dict = {}
 
     def each(k, scenes, g):
@@ -980,7 +1037,8 @@ def steps(a: dt.date, b: dt.date, step: str) -> list[tuple[dt.date, dt.date, str
        AREA, MEASURE, _p("sensor", "Satellite", "choice", default="sentinel2", when={"measure": "index"}, choices=SENSOR["choices"]),
        {**SOURCE, "when": {"measure": "index", "sensor": "sentinel2"}}, {**INDEX, "when": {"measure": "index"}},
        _p("start", "From", "date", default={"ago": 730}), _p("end", "To", "date", default={"ago": 0}), STEP,
-       {**CLOUD, "when": {"measure": ["index", "temperature"]}}, _p("scenes", "Scenes in each month or year (at most)", "number", min=1, default=3),
+       {**CLOUD, "when": {"measure": ["index", "temperature"]}}, {**PICK, "when": {"measure": ["index", "temperature"]}},
+       _p("scenes", "Scenes in each month or year (at most)", "number", min=1, default=3),
        ZONES, LABEL,
        _p("rasters", "Rasters", "choice", default="each", choices=[["each", "A raster layer for each interval"],
                                                                     ["stack", "One raster with a band for each interval"],
@@ -1203,7 +1261,7 @@ def same_window_in(year: int, a: dt.date, b: dt.date) -> tuple[dt.date, dt.date]
        AREA, SENSOR, SOURCE, INDEX, _p("first_year", "From year", "number", min=1985, default=dt.date.today().year - 6),
        _p("last_year", "To year", "number", min=1985, default=dt.date.today().year - 1),
        _p("from_month", "Season: from month (1-12)", "number", min=1, default=1), _p("to_month", "Season: to month (1-12)", "number", min=1, default=12),
-       CLOUD, _p("scenes", "Scenes for each year (at most, for each tile)", "number", min=1, default=6))
+       CLOUD, PICK, _p("scenes", "Scenes for each year (at most, for each tile)", "number", min=1, default=6))
 def trend_tool(p, ctx: Ctx) -> Result:
     y0, y1 = whole(p, "first_year", 1985, 2100, "From year", 2019), whole(p, "last_year", 1985, 2100, "To year", 2025)
     if y1 - y0 < 2:
@@ -1246,7 +1304,7 @@ def trend_tool(p, ctx: Ctx) -> Result:
        AREA, _p("measure", "Measure", "choice", default="index", choices=[["index", "A spectral index"], ["rainfall", "Rainfall (CHIRPS)"]]),
        {**SENSOR, "when": {"measure": "index"}}, {**SOURCE, "when": {"measure": "index", "sensor": "sentinel2"}}, {**INDEX, "when": {"measure": "index"}},
        *dates("", "Period", 0, 90), _p("years", "Earlier years to compare with", "number", min=1, default=5),
-       {**CLOUD, "when": {"measure": "index"}}, {**_p("scenes", "Scenes for each year (at most, for each tile)", "number", min=1, default=6), "when": {"measure": "index"}})
+       {**CLOUD, "when": {"measure": "index"}}, {**PICK, "when": {"measure": "index"}}, {**_p("scenes", "Scenes for each year (at most, for each tile)", "number", min=1, default=6), "when": {"measure": "index"}})
 def anomaly_tool(p, ctx: Ctx) -> Result:
     a, b = span(p, label="Period")
     bbox = area_of(p)
@@ -1304,7 +1362,7 @@ CHANGE_PRESETS = {"ndvi": ("Vegetation", "Vegetation loss", "Vegetation gain"), 
        "Where an index rose or fell between a before and an after period (e.g. NDVI for deforestation or new farms, NDBI for "
        "urban growth), with the area of each kind of change.",
        AREA, SENSOR, SOURCE, INDEX, *BEFORE, *AFTER, _p("threshold", "Count as change when the index moves by more than", "number", min=0, default=0.15),
-       CLOUD, SCENES)
+       CLOUD, PICK, SCENES)
 def change_tool(p, ctx: Ctx) -> Result:
     a0, b0 = span(p, "before_", "Before")
     a1, b1 = span(p, "after_", "After")
@@ -1332,7 +1390,7 @@ BURN_EDGES = [-0.251, -0.101, 0.1, 0.27, 0.44, 0.66]        # USGS dNBR classes 
 
 @etool("burn_severity", "Burn severity", "Time series and change",
        "How badly a fire burnt: dNBR (NBR before minus NBR after) in the USGS severity classes, with the burnt area.",
-       AREA, SENSOR, SOURCE, *dates("before_", "Before the fire", 60, 60), *dates("after_", "After the fire", 0, 45), CLOUD, SCENES)
+       AREA, SENSOR, SOURCE, *dates("before_", "Before the fire", 60, 60), *dates("after_", "After the fire", 0, 45), CLOUD, PICK, SCENES)
 def burn_tool(p, ctx: Ctx) -> Result:
     a0, b0 = span(p, "before_", "Before")
     a1, b1 = span(p, "after_", "After")
@@ -1349,7 +1407,7 @@ def burn_tool(p, ctx: Ctx) -> Result:
 @etool("water_change", "Water change", "Time series and change",
        "Open water before and after (MNDWI above a threshold): water that stayed, appeared or went. Dams, rivers, lakes, "
        "seasonal flooding, mining pits.",
-       AREA, SENSOR, SOURCE, *BEFORE, *AFTER, _p("threshold", "Water where MNDWI is above", "number", default=0), CLOUD, SCENES)
+       AREA, SENSOR, SOURCE, *BEFORE, *AFTER, _p("threshold", "Water where MNDWI is above", "number", default=0), CLOUD, PICK, SCENES)
 def water_change_tool(p, ctx: Ctx) -> Result:
     a0, b0 = span(p, "before_", "Before")
     a1, b1 = span(p, "after_", "After")
@@ -1480,7 +1538,7 @@ METHODS = [["rf", "Random forest"], ["cart", "Decision tree (CART)"], ["svm", "S
        "Every pixel given a class (e.g. water, forest, farmland, built-up) learnt from your training points or polygons, with a "
        "random forest, decision tree, SVM, naive Bayes or minimum distance; some training places are held back to report the "
        "accuracy (overall, kappa, and by class), and the area of each class.",
-       AREA, SENSOR, SOURCE, *PERIOD, CLOUD, SCENES,
+       AREA, SENSOR, SOURCE, *PERIOD, CLOUD, PICK, SCENES,
        _p("training", "Training places (points or polygons)", "layer", geometry=["Point", "Polygon"]),
        _p("field", "Class field", "field", of="training"),
        _p("method", "Classifier", "choice", default="rf", choices=METHODS),
@@ -1616,7 +1674,7 @@ def accuracy(yt: np.ndarray, yp: np.ndarray, names: list[str]) -> dict:
 @etool("cluster", "Unsupervised classification", "Classification",
        "The area's pixels grouped into classes of similar reflectance (k-means on the composite's bands and indices), no training "
        "needed: name the classes afterwards in the layer's properties.",
-       AREA, SENSOR, SOURCE, *PERIOD, CLOUD, SCENES, _p("classes", "Classes", "number", min=2, default=8),
+       AREA, SENSOR, SOURCE, *PERIOD, CLOUD, PICK, SCENES, _p("classes", "Classes", "number", min=2, default=8),
        _p("indices", "Add NDVI, NDWI, NDBI and MNDWI", "bool", default=True))
 def cluster_tool(p, ctx: Ctx) -> Result:
     from scipy.cluster.vq import kmeans2, vq
@@ -1651,7 +1709,7 @@ def cluster_tool(p, ctx: Ctx) -> Result:
 @etool("zonal_index", "Index statistics by polygon", "Statistics",
        "For each polygon (farms, plots, wards…): the mean, minimum, maximum, spread and median of an index from a cloud-free "
        "composite, and how much of it was clear, as fields on a copy of the polygons.",
-       _p("zones", "Polygons", "layer", geometry=["Polygon"]), SENSOR, SOURCE, INDEX, *PERIOD, CLOUD, SCENES)
+       _p("zones", "Polygons", "layer", geometry=["Polygon"]), SENSOR, SOURCE, INDEX, *PERIOD, CLOUD, PICK, SCENES)
 def zonal_index_tool(p, ctx: Ctx) -> Result:
     feats = ctx.inputs.vector("zones")
     if not feats:
