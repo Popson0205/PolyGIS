@@ -479,3 +479,4 @@ body.is-resizing { cursor: col-resize; user-select: none; } body.is-resizing .ma
 .popmenu-more { color: var(--c-muted); margin-left: 8px; }
 .pe-running { display: flex; gap: 8px; } .pe-running .ge-btn-primary { flex: 1; } .pe-running .ge-btn-danger { width: auto !important; flex: none; gap: 6px; }
 .pe-stop-link { color: var(--c-bad) !important; }
+.pe-elapsed { color: var(--c-faint); font-variant-numeric: tabular-nums; }

@@ -1639,6 +1639,7 @@ def classify_tool(p, ctx: Ctx) -> Result:
     vi = np.flatnonzero(valid.ravel())
     for s in range(0, vi.size, 400_000):
         out[vi[s:s + 400_000]] = clf.predict(flat[vi[s:s + 400_000]])
+        ctx.say(f"Classifying every pixel: {min(100, round(100 * (s + 400_000) / max(1, vi.size)))} %", 0.96)
     cls = out.reshape(shape)
     report = None
     summary: dict = {"classifier": dict(METHODS)[method], "training pixels": int(len(ytr)), "features": ", ".join(fnames)}

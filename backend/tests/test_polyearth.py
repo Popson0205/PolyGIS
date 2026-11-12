@@ -615,3 +615,32 @@ def test_only_the_runs_owner_can_stop_it(analyst, person, cat):
     other = person(role="member", name="Not Mine", features=["maps", "raster"])
     assert other.post(f"/poly-earth/jobs/{j['id']}/stop").status_code == 404
     wait(analyst, j)
+
+
+# ---------- no fixed time limit while a run makes progress ----------
+def test_a_long_run_that_keeps_making_progress_is_not_cut_off(analyst, cat, monkeypatch):
+    for d in range(1, 7):
+        s2_scene(cat, f"p{d}", f"2026-01-{d:02d}", {"Red": 0.1, "NIR": 0.4}, tile=f"P{d}")
+    real = pe.read_scene
+    monkeypatch.setattr(pe, "read_scene", lambda *a, **k: (time.sleep(0.6), real(*a, **k))[1])
+    monkeypatch.setattr(settings, "earth_workers", 1)
+    monkeypatch.setattr(settings, "earth_stall_s", 2)                       # far shorter than the whole run (6 reads x 0.6 s)
+    monkeypatch.setattr(settings, "earth_timeout_s", 0)
+    pid = analyst.post("/projects", json={"name": "Long but moving"}).json()["id"]
+    j = analyst.post(f"/projects/{pid}/poly-earth/index", json={"params": {"bbox": MINNA, "start": "2026-01-01", "end": "2026-01-31",
+                                                                          "pick": "median", "scenes": 1}}).json()
+    end = wait(analyst, j)
+    assert end["status"] == "done", end
+    assert end["ms"] > 3000 and end["started"]
+
+
+def test_a_run_that_makes_no_progress_is_stopped(analyst, cat, monkeypatch):
+    s2_scene(cat, "stuck", "2026-01-05", {"Red": 0.1, "NIR": 0.4})
+    real = pe.read_scene
+    monkeypatch.setattr(pe, "read_scene", lambda *a, **k: (time.sleep(5), real(*a, **k))[1])   # one file that hangs
+    monkeypatch.setattr(settings, "earth_stall_s", 1)
+    pid = analyst.post("/projects", json={"name": "Stuck"}).json()["id"]
+    j = analyst.post(f"/projects/{pid}/poly-earth/index", json={"params": {"bbox": MINNA, "start": "2026-01-01", "end": "2026-01-31"}}).json()
+    end = wait(analyst, j)
+    assert end["status"] == "failed" and "no progress for" in end["error"]
+    assert analyst.get(f"/projects/{pid}").json()["layers"] == []

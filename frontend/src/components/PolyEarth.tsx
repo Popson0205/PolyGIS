@@ -14,6 +14,7 @@ const ICON: Record<string, ReactNode> = {
   water_change: <Waves />, flood: <Waves />, classify: <MapIcon />, cluster: <MapIcon />, zonal_index: <Table2 />, land_cover: <Earth />,
 };
 const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+const elapsed = (started: number) => { const s = Math.max(0, Math.round(Date.now() / 1000 - started)); return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`; };
 export const live = (j: EarthJob) => j.status === "queued" || j.status === "running" || j.status === "stopping";
 const seconds = (ms: number | null) => (ms == null ? "" : ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`);
 
@@ -259,14 +260,15 @@ function EarthForm({ tool, projectId, layers, selection, activeId, canEdit, view
       <div className="ws-run">
         <ErrorText error={error} />
         {running && <div className="pe-progress" role="status"><div className="pe-bar"><i style={{ width: `${Math.max(3, Math.round(job.progress * 100))}%` }} /></div>
-          <span>{job.message}{job.status === "stopping" ? "" : "…"} {job.status !== "stopping" && `${Math.round(job.progress * 100)} %`}</span></div>}
+          <span>{job.message}{job.status === "stopping" ? "" : "…"} {job.status !== "stopping" && `${Math.round(job.progress * 100)} %`}
+            {job.started && job.status !== "stopping" && <span className="pe-elapsed"> · {elapsed(job.started)}</span>}</span></div>}
         {running ? (
           <div className="pe-running">
             <Button variant="primary" busy disabled>{job.status === "stopping" ? "Stopping…" : "Working…"}</Button>
             <Button variant="danger" disabled={job.status === "stopping"} onClick={() => onStop(job.id)}><Square size={13} fill="currentColor" aria-hidden="true" />Stop</Button>
           </div>
         ) : <Button type="submit" variant="primary" busy={busy} disabled={!canEdit}><Play size={15} aria-hidden="true" />Run</Button>}
-        {!canEdit ? <p className="ws-muted">Only editors can run analyses.</p> : <p className="ws-muted">Larger areas and longer periods take longer (often a minute or two). You can close this pane meanwhile.</p>}
+        {!canEdit ? <p className="ws-muted">Only editors can run analyses.</p> : <p className="ws-muted">Larger areas and longer periods take longer. A run keeps going as long as it makes progress; you can close this pane meanwhile, or stop it.</p>}
       </div>
     </form>
   );

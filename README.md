@@ -117,7 +117,7 @@ or more and patches under 8 pixels removed). Classification accuracy is checked 
 
 A run reads many scenes, so it runs in the background with its progress shown, and its layers are added when it finishes
 (the pane can be closed meanwhile); runs are kept in the geoprocessing history. `EARTH_MAX_MB` (384) is the memory one run's
-scenes may use (larger areas get larger cells), `EARTH_TIMEOUT_S` (900) the longest a run may take, `EARTH_WORKERS` (6) the
+scenes may use (larger areas get larger cells), a run is stopped only when it makes no progress for `EARTH_STALL_S` (600), or after `EARTH_TIMEOUT_S` (10 800, 0 for never) in all; `EARTH_WORKERS` (12) the
 files read at once and `EARTH_JOBS` (2) the runs at once on the server. Runs in progress are held in the server's memory: a
 restart or redeploy stops them.
 
