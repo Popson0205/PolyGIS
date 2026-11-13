@@ -15,7 +15,7 @@ export function printableStyle(style: StyleSpecification): StyleSpecification {
   return { ...flat, layers: keep, sources } as StyleSpecification;
 }
 
-export interface PrintRequest { style: StyleSpecification; center: [number, number]; scale: number; cssW: number; cssH: number; ratio: number }
+export interface PrintRequest { style: StyleSpecification; center: [number, number]; scale: number; cssW: number; cssH: number; ratio: number; wait?: number }
 
 /** Draws the map and gives it back as a canvas (and a JPEG for the PDF). Waits until every tile has arrived, up to a
  *  minute; a map that is still loading after that is used as it is, and `complete` says so. */
@@ -31,7 +31,7 @@ export async function renderMap(r: PrintRequest, signal?: AbortSignal): Promise<
   } as maplibregl.MapOptions & { maxCanvasSize: [number, number] });
   try {
     const complete = await new Promise<boolean>((resolve, reject) => {
-      const t = setTimeout(() => resolve(false), 60000);
+      const t = setTimeout(() => resolve(false), r.wait ?? 60000);     // how long to wait for every tile
       map.once("idle", () => { clearTimeout(t); resolve(true); });
       map.on("error", () => undefined);            // a missing tile is drawn as nothing, not a failure
       signal?.addEventListener("abort", () => { clearTimeout(t); reject(new DOMException("Stopped", "AbortError")); });

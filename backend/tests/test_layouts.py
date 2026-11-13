@@ -26,10 +26,16 @@ def test_layouts_saved_listed_changed_and_deleted(person, adv):
     r = adv.patch(f"/layouts/{lay['id']}", json={"name": "A3 sheet, final", "settings": {**SETTINGS, "scale": 5000}})
     assert r.status_code == 200 and r.json()["settings"]["scale"] == 5000 and r.json()["name"] == "A3 sheet, final"
 
-    assert adv.post(f"/projects/{p['id']}/layouts", json={"name": "Huge", "settings": {"notes": "x" * 30000}}).status_code == 422
+    assert adv.post(f"/projects/{p['id']}/layouts", json={"name": "Huge", "settings": {"notes": "x" * 300000}}).status_code == 422
     assert adv.delete(f"/layouts/{lay['id']}").status_code == 204
     assert adv.get(f"/projects/{p['id']}/layouts").json() == []
     assert adv.delete(f"/layouts/{lay['id']}").status_code == 404
+    # a page of elements, as the layout view keeps it, is kept as it is
+    page = {"v": 2, "page": "A3", "orientation": "landscape", "dpi": 300, "elements": [
+        {"id": f"e{i}", "kind": "text", "name": f"Text {i}", "x": 10, "y": 10 + i, "w": 80, "h": 9, "visible": True, "locked": False,
+         "text": "{project} · {date}", "size": 12, "bold": False, "color": "#111827", "align": "left", "fill": None, "border": None} for i in range(60)]}
+    made = adv.post(f"/projects/{p['id']}/layouts", json={"name": "Elements", "settings": page})
+    assert made.status_code == 201 and made.json()["settings"] == page
 
 
 def test_layouts_need_the_plan_and_the_organization(person, adv):

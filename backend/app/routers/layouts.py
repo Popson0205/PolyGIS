@@ -1,6 +1,8 @@
 """Print layouts: a project's saved map sheets. The page itself is drawn and exported (PDF or PNG) in the browser, so
-only its settings are kept: page size and orientation, the map's centre and scale, title, legend, scale bar, north
-arrow, grid and notes. Everyone who can open the project can see them; editors on the Advanced plan save them."""
+only its description is kept: the page's size and orientation, and its elements (map frames with their centre, scale
+and grid; legends, north arrows, scale bars, text and rectangles) with where each sits on the page. Layouts saved
+before elements keep their template settings, and open as elements. Everyone who can open the project can see them;
+editors on the Advanced plan save them."""
 import json
 from uuid import UUID
 
@@ -15,7 +17,7 @@ from ..identity import need
 from .projects import project_of
 
 router = APIRouter(tags=["layouts"])
-MAX_SETTINGS = 20_000      # bytes of JSON: a layout is a few hundred; notes make it longer
+MAX_SETTINGS = 200_000     # bytes of JSON: a page of elements is a few kilobytes; long text makes it more
 
 
 class LayoutIn(BaseModel):
@@ -30,7 +32,7 @@ class LayoutPatch(BaseModel):
 
 def _settings_ok(s: dict) -> dict:
     if len(json.dumps(s)) > MAX_SETTINGS:
-        raise Problem(422, "That layout is too large to keep: shorten the notes.", code="validation", fields={"settings": ["too_large"]})
+        raise Problem(422, "That layout is too large to keep: shorten its text, or remove some elements.", code="validation", fields={"settings": ["too_large"]})
     return s
 
 

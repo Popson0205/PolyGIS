@@ -43,15 +43,25 @@ collectors and viewers are **viewers** (open and export). An expired licence is 
 
 ## Print layouts
 
-Share › Print layout (or Insert › New layout) opens the sheet as it will print, beside its settings (Advanced plan,
-`layouts` feature). A4 to A0, Letter, Legal and Tabloid, portrait or landscape; the map at a set scale (1:N, true at the
-map's centre), moved by dragging it on the sheet and rescaled by scrolling; title, subtitle and notes; a legend in a
-side column, a band below the map, inside the map or none (the visible layers, as Contents shows them); a scale bar, a
-north arrow, and a grid of the project's coordinate system with its eastings and northings (or degrees and minutes)
-round the frame; a footer with the system, the date, who printed it and the basemap's credits. Export makes a PDF with
-sharp vector text and lines and the map as a picture at 150, 200 or 300 dpi (less on very large sheets, where a browser
-cannot draw that much: the sheet says so), or a PNG. Layouts are saved with the project. The page is drawn in the
-browser (`src/lib/layout.ts`), so the preview and the PDF are the same drawing.
+Share › Print layout (or Insert › New layout) opens the layout view, laid out as ArcGIS Pro's (Advanced plan, `layouts`
+feature): the page between rulers, its elements listed in drawing order in Contents (show, lock, select), and the
+chosen element's settings in the Element pane. A4 to A0, Letter, Legal and Tabloid, portrait or landscape.
+
+- **Insert** a map frame (as many as wanted, for insets), a legend, a north arrow, a scale bar, text, dynamic text
+  (`{project}`, `{date}`, `{author}`, `{org}`, `{scale}`, `{crs}`, `{credits}`) or a rectangle: choose it on the ribbon,
+  then draw its box on the page or click for its usual size.
+- **Arrange** by dragging elements and their handles (Shift keeps the shape; edges snap to the page and to other
+  elements, Alt stops snapping), typing their position and size in millimetres, or with the arrow keys; bring forward,
+  send back, duplicate, delete; Ctrl+Z undoes.
+- **Navigate** a map frame (double-click it): drag to move the map, scroll to change its scale (true at the frame's
+  centre). Each frame has its scale, a border, and a grid of the project's coordinate system with its eastings and
+  northings (or degrees and minutes). Scale bars and legends follow a map frame.
+- **Templates** lay a whole page out (legend at the side or inside the map, a grid, map only) as elements to rearrange.
+
+Export makes a PDF with sharp vector text and lines and each map as a picture at 150, 200 or 300 dpi (less on very large
+frames, where a browser cannot draw that much: the view says so), or a PNG. Layouts are saved with the project as their
+elements (`settings.v = 2`); ones saved before open as the elements of their template. The page is drawn in the browser
+(`src/lib/layoutDoc.ts` and `src/lib/layout.ts`), so the preview and the PDF are the same drawing.
 
 ## Share links
 

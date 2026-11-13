@@ -586,3 +586,72 @@ h2.ct-heading, .ct-heading { margin: 0; color: var(--c-ink); padding: 10px 12px 
 .ws-group-name { color: var(--c-muted); }
 .maplibregl-ctrl-attrib a { text-decoration: underline; }
 .ws-pane-head h2.ws-pane-title { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 13px var(--ge-font); color: var(--c-ink); letter-spacing: 0; }
+
+/* layout view: the page and its elements, as ArcGIS Pro lays it out */
+.lv .lv-ribbon { flex: none; height: 96px; background: var(--c-pane); border-bottom: 1px solid var(--c-line); }
+.lv-tb-menu .menu-wrap > .ib { width: auto; height: auto; padding: 0; border: 0; background: none; }
+.lv-tb-menu .ws-tb { pointer-events: none; }
+.lv-tb-menu .ws-tb svg:last-child { width: 12px; height: 12px; }
+.lv-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 230px minmax(0, 1fr) 300px; }
+.lv-contents, .lv-props { background: var(--c-pane); min-height: 0; overflow: auto; }
+.lv-contents { border-right: 1px solid var(--c-line); }
+.lv-props { border-left: 1px solid var(--c-line); }
+.lv-props-body { padding: 12px 14px 24px; display: flex; flex-direction: column; gap: 12px; }
+.lv-sub { margin: 10px 12px 4px; font-size: 12px; font-weight: 600; color: var(--c-muted); }
+.lv-list { list-style: none; margin: 0; padding: 0 6px 12px; }
+.lv-list li { display: flex; align-items: center; gap: 2px; height: 30px; padding: 0 4px; border-radius: var(--r-m); cursor: pointer; font-size: 13px; outline: none; }
+.lv-list li:hover { background: var(--c-hover); }
+.lv-list li:focus-visible { box-shadow: inset 0 0 0 2px var(--c-violet); }
+.lv-list li.is-on { background: var(--c-violet-50); color: var(--c-violet-ink); }
+.lv-list li.is-hidden .lv-name { color: var(--c-faint); }
+.lv-list .ib { width: 24px; height: 24px; flex: none; }
+.lv-ico { color: var(--c-navy); flex: none; margin: 0 4px 0 2px; }
+.lv-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lv-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #e3e6ea; }
+.lv-view { position: absolute; right: 0; bottom: 0; overflow: auto; }
+.lv-scroll { position: relative; }
+.lv-page-wrap { position: absolute; }
+.lv-page-wrap .lo-page { display: block; cursor: default; }
+.lv-over { position: absolute; left: 0; top: 0; touch-action: none; cursor: default; }
+.lv-over.is-insert { cursor: crosshair; }
+.lv-over.is-nav { cursor: grab; }
+.lv-sel { position: absolute; outline: 1.5px solid #00a3e0; outline-offset: 0; pointer-events: none; }
+.lv-sel.is-locked { outline-style: dashed; outline-color: #8b93a2; }
+.lv-h { position: absolute; width: 9px; height: 9px; margin: -5px 0 0 -5px; background: #fff; border: 1.5px solid #00a3e0; pointer-events: auto; }
+.lv-h-nw { left: 0; top: 0; cursor: nwse-resize; } .lv-h-n { left: 50%; top: 0; cursor: ns-resize; } .lv-h-ne { left: 100%; top: 0; cursor: nesw-resize; }
+.lv-h-e { left: 100%; top: 50%; cursor: ew-resize; } .lv-h-se { left: 100%; top: 100%; cursor: nwse-resize; } .lv-h-s { left: 50%; top: 100%; cursor: ns-resize; }
+.lv-h-sw { left: 0; top: 100%; cursor: nesw-resize; } .lv-h-w { left: 0; top: 50%; cursor: ew-resize; }
+.lv-active { position: absolute; outline: 3px solid #f59e0b; pointer-events: none; }
+.lv-active span { position: absolute; left: 0; top: -26px; white-space: nowrap; font-size: 11.5px; background: #f59e0b; color: #1f2937; padding: 3px 8px; border-radius: 4px 4px 0 0; font-weight: 600; }
+.lv-drawbox { position: absolute; border: 1.5px dashed #00a3e0; background: rgba(0, 163, 224, .08); pointer-events: none; }
+.lv-guide { position: absolute; pointer-events: none; background: #e0007a; }
+.lv-guide.is-v { top: 0; bottom: 0; width: 1px; } .lv-guide.is-h { left: 0; right: 0; height: 1px; }
+.lv-ruler { position: absolute; background: #f7f8fa; z-index: 2; overflow: hidden; }
+.lv-ruler.is-top { border-bottom: 1px solid var(--c-line); } .lv-ruler.is-left { border-right: 1px solid var(--c-line); }
+.lv-ruler line { stroke: #6b7280; stroke-width: 1; shape-rendering: crispEdges; }
+.lv-ruler text { font: 9px var(--ge-font); fill: #4b5563; }
+.lv-ruler .lv-ruler-at { stroke: #e0007a; }
+.lv-ruler-corner { position: absolute; left: 0; top: 0; z-index: 3; background: #f7f8fa; border-right: 1px solid var(--c-line); border-bottom: 1px solid var(--c-line); }
+.lv-status { flex: none; display: flex; align-items: center; gap: 16px; height: 34px; padding: 0 12px; background: var(--c-pane); border-top: 1px solid var(--c-line); font-size: 12.5px; }
+.lv-status select { height: 26px; margin-left: 6px; border: 1px solid var(--c-line); border-radius: var(--r-m); font: 12.5px var(--ge-font); background: #fff; }
+.lv-scale, .lv-zoom { display: flex; align-items: center; color: var(--c-muted); }
+.lv-pos { min-width: 130px; font-variant-numeric: tabular-nums; color: var(--c-muted); }
+.lv-tip { margin: 0; padding: 8px 10px; border-radius: var(--r-m); background: #e6f6fc; color: #035a7c; font-size: 12.5px; }
+.lv-grid4 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lv-num span { display: flex; align-items: center; gap: 4px; }
+.lv-num input { width: 100%; min-width: 0; }
+.lv-num small { color: var(--c-faint); }
+.lv-stroke { display: flex; flex-direction: column; gap: 6px; }
+.lv-tokens { display: flex; flex-wrap: wrap; gap: 4px; }
+.lv-tokens button { border: 1px solid var(--c-line); background: #fff; border-radius: 999px; padding: 2px 8px; font: 11.5px var(--ge-mono, ui-monospace, monospace); color: var(--c-ink); cursor: pointer; }
+.lv-tokens button:hover { border-color: var(--c-violet); color: var(--c-violet-ink); }
+.lv-help { font-size: 12.5px; color: var(--c-muted); line-height: 1.5; } .lv-help p { margin: 0 0 8px; }
+@media (max-width: 900px) {
+  .lv-body { grid-template-columns: 1fr; grid-template-rows: minmax(300px, 1fr) auto auto; overflow: auto; }
+  .lv-contents { border-right: 0; border-top: 1px solid var(--c-line); order: 2; max-height: 220px; }
+  .lv-props { border-left: 0; border-top: 1px solid var(--c-line); order: 3; }
+  .lv-status .ws-muted:last-child { display: none; }
+}
+.lv .ws-tb-select select { min-width: 112px; }
+.lv-tb-menu .ws-tb .ws-tb-icon svg { width: 22px; height: 22px; }
+.lv .ws-tb-stack { justify-content: center; padding-top: 6px; gap: 4px; }

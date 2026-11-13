@@ -1,4 +1,5 @@
 import type { LayoutSettings } from "./layout";
+import type { LayoutDoc } from "./layoutDoc";
 import type { Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
 
 export class ApiError extends Error {
@@ -47,8 +48,8 @@ export const api = {
   project: (id: string) => req<Project>("GET", `/projects/${id}`),
   createProject: (b: { name: string; description?: string; display_epsg?: number }) => req<Project>("POST", "/projects", b),
   layouts: (projectId: string) => req<SavedLayout[]>("GET", `/projects/${projectId}/layouts`),
-  createLayout: (projectId: string, name: string, settings: LayoutSettings) => req<SavedLayout>("POST", `/projects/${projectId}/layouts`, { name, settings }),
-  updateLayout: (id: string, b: { name?: string; settings?: LayoutSettings }) => req<SavedLayout>("PATCH", `/layouts/${id}`, b),
+  createLayout: (projectId: string, name: string, settings: LayoutDoc) => req<SavedLayout>("POST", `/projects/${projectId}/layouts`, { name, settings }),
+  updateLayout: (id: string, b: { name?: string; settings?: LayoutDoc }) => req<SavedLayout>("PATCH", `/layouts/${id}`, b),
   deleteLayout: (id: string) => req<void>("DELETE", `/layouts/${id}`),
   linkedSources: (projectId: string) => req<LinkedSource[]>("GET", `/projects/${projectId}/linked/sources`),
   addLinked: (projectId: string, b: { app: string; form_id?: string; status?: "approved" | "all" }) => req<Layer>("POST", `/projects/${projectId}/layers/linked`, b),
@@ -124,7 +125,7 @@ export const api = {
   crsDef: (epsg: number) => req<CrsDef>("GET", `/crs/${epsg}`),
 };
 
-export interface SavedLayout { id: string; project_id: string; name: string; settings: LayoutSettings; created_by_name: string; updated_by_name: string; updated_at: string }
+export interface SavedLayout { id: string; project_id: string; name: string; settings: LayoutDoc | Partial<LayoutSettings>; created_by_name: string; updated_by_name: string; updated_at: string }
 
 export interface ShareIn { title: string; description?: string; layer_ids: string[]; view?: View; audience: "anyone" | "organization"; downloads: boolean; expires_in_days?: number | null }
 export interface Share {
