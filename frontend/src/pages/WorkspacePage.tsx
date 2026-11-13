@@ -15,6 +15,7 @@ import Geoprocessing from "../components/Geoprocessing";
 import PolyEarth, { useEarthJobs } from "../components/PolyEarth";
 import LayerPanel from "../components/LayerPanel";
 import LayoutView from "../components/LayoutView";
+import ShareDialog from "../components/ShareDialog";
 import { Apps, UserMenu, licenceNotice, useApps } from "../components/Bar";
 import { Button, ErrorText, IconButton, Resizer, useStored, useToast } from "../components/ui";
 import RasterPanel from "../components/RasterPanel";
@@ -26,7 +27,7 @@ import type { CrsDef, Layer, Me, Project, Selection, VectorType } from "../lib/t
 
 type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "earth" | "share";
 type Tool = "explore" | "select" | "select-area" | "measure-line" | "measure-area" | "create" | "reshape" | "pick-reshape";
-type DialogName = "add" | "imagery" | "new" | "attr" | "loc" | "export" | "crs" | "plan" | null;
+type DialogName = "add" | "imagery" | "new" | "attr" | "loc" | "export" | "crs" | "plan" | "share" | null;
 const DRAW = { Point: "point", LineString: "linestring", Polygon: "polygon" } as const;
 
 /** A project open in the workspace, laid out like a desktop GIS: ribbon, contents, map, properties, table, status. */
@@ -590,6 +591,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             </Group>
           </>}
           {tab === "share" && <>
+            <Group name="Link">
+              <Tb onClick={() => setDialog("share")} icon={<Link2 />} label="Share link" />
+            </Group>
             <Group name="Print">
               <Tb onClick={openLayout} icon={<Printer />} label="Print layout" />
             </Group>
@@ -755,6 +759,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
           Ask GeoEstate NIG Limited to move your organization to Advanced.</p>
           <div className="ws-row"><Button variant="primary" onClick={() => setDialog(null)}>OK</Button></div></div>
       </Dialog>}
+      {dialog === "share" && <ShareDialog project={project} layers={layers} canEdit={canEdit} onClose={() => setDialog(null)}
+        view={() => { const m = map.current; const c = m?.getCenter(); return c && m ? { center: [c.lng, c.lat], zoom: m.getZoom(), bearing: m.getBearing(), basemap } : project.view; }} />}
       {dialog === "crs" && <CrsDialog project={project} canEdit={canEdit} onClose={() => setDialog(null)} onDone={async (p) => { setProject(p); setCrs(await loadCrs(p.display_epsg)); setDialog(null); }} />}
     </div>
   );

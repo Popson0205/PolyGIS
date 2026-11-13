@@ -295,15 +295,19 @@ async def tile(layer_id: UUID, z: int, x: int, y: int, v: str | None = None, use
     if not (0 <= z <= 24 and 0 <= x < 2 ** z and 0 <= y < 2 ** z):
         raise Problem(404, "No such tile.", code="not_found")
     await layer_of(conn, layer_id, user)
+    return Response(await mvt(conn, layer_id, z, x, y), media_type="application/vnd.mapbox-vector-tile",
+                    headers={"Cache-Control": "private, max-age=86400" if v else "no-cache"})
+
+
+async def mvt(conn, layer_id, z: int, x: int, y: int) -> bytes:
+    """One vector tile of a layer's features (the caller has checked who may see it)."""
     cur = await conn.execute(
         "WITH b AS (SELECT ST_TileEnvelope(%s, %s, %s) AS env) "
         "SELECT ST_AsMVT(t, 'features', 4096, 'geom', 'id') AS tile FROM ("
         "  SELECT f.id, ST_AsMVTGeom(ST_Transform(f.geom, 3857), b.env, 4096, 64, true) AS geom, f.props "
         "  FROM features f, b WHERE f.layer_id = %s AND f.geom && ST_Transform(b.env, 4326)) t WHERE t.geom IS NOT NULL",
         (z, x, y, layer_id))
-    data = (await cur.fetchone())["tile"] or b""
-    return Response(bytes(data), media_type="application/vnd.mapbox-vector-tile",
-                    headers={"Cache-Control": "private, max-age=86400" if v else "no-cache"})
+    return bytes((await cur.fetchone())["tile"] or b"")
 
 
 class Filter(BaseModel):
@@ -458,6 +462,14 @@ async def export(layer_id: UUID, format: Literal["geojson", "gpkg", "shp", "csv"
                  ids: str | None = Query(None, description="Comma-separated feature ids: only these"),
                  user=Depends(need()), conn=Depends(get_conn)):
     layer = await layer_of(conn, layer_id, user)
+    data, filename, media, n = await export_file(conn, layer, format, epsg, ids)
+    await audit(conn, user, "layer.export", "layer", layer_id, format=format, features=n)
+    return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+async def export_file(conn, layer: dict, format: str, epsg: int = 4326, ids: str | None = None) -> tuple[bytes, str, str, int]:
+    """The layer (or some of its features) written as a file: bytes, file name, media type and how many features."""
+    layer_id = layer["id"]
     if epsg != 4326:
         from .projects import _epsg_ok
         _epsg_ok(epsg)
@@ -474,5 +486,4 @@ async def export(layer_id: UUID, format: Literal["geojson", "gpkg", "shp", "csv"
         raise Problem(422, "There is nothing to export: the layer (or the selection) has no features.", code="empty")
     data, filename, media = await anyio.to_thread.run_sync(
         lambda: gisdata.write_file(format, layer["name"], layer["fields"], found, epsg))
-    await audit(conn, user, "layer.export", "layer", layer_id, format=format, features=len(found))
-    return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return data, filename, media, len(found)

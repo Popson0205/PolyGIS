@@ -7,6 +7,7 @@ import type { Me } from "./lib/types";
 import { useLoad } from "./lib/useLoad";
 import { splash } from "./splash";
 import ProjectsPage from "./pages/ProjectsPage";
+import SharePage from "./pages/SharePage";
 import SignedOutPage from "./pages/SignedOutPage";
 import WorkspacePage from "./pages/WorkspacePage";
 
@@ -16,6 +17,7 @@ export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [stop, setStop] = useState<string | null>(null);
   const out = loc.pathname === "/signed-out";
+  const shared = loc.pathname.startsWith("/share/");          // a map shared by a link: no sign-in needed
 
   const load = useCallback(async () => {
     splash.step("Checking your GeoEstate ID", 40);
@@ -30,7 +32,7 @@ export default function App() {
       setStop(e instanceof Error ? e.message : "PolyGIS could not open.");
     }
   }, []);
-  useEffect(() => { if (!out) void load(); }, [load, out]);
+  useEffect(() => { if (!out && !shared) void load(); }, [load, out, shared]);
   useEffect(() => { if (me || stop || out) splash.done(); }, [me, stop, out]);
   useEffect(() => {
     const gone = (e: Event) => {
@@ -41,6 +43,7 @@ export default function App() {
     return () => window.removeEventListener("gis:signed-out", gone);
   }, []);
 
+  if (shared) return <Routes><Route path="/share/:token" element={<SharePage />} /></Routes>;
   if (out) return <SignedOutPage />;
   if (stop) return <SignedOutPage reason={stop} />;
   if (!me) return <p className="loading">Opening PolyGIS…</p>;
