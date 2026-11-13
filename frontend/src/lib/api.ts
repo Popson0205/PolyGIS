@@ -100,6 +100,12 @@ export const api = {
   undo: (layerId: string) => req<{ undone: string; feature_id: number }>("POST", `/layers/${layerId}/undo`),
 
   tools: () => req<Tool[]>("GET", "/tools"),
+  models: () => req<GisModel[]>("GET", "/models"),
+  createModel: (m: ModelDraft) => req<GisModel>("POST", "/models", m),
+  updateModel: (id: string, m: Partial<ModelDraft>) => req<GisModel>("PATCH", `/models/${id}`, m),
+  deleteModel: (id: string) => req<void>("DELETE", `/models/${id}`),
+  runModel: (projectId: string, id: string, inputs: Record<string, string>, keep: "final" | "all") =>
+    req<ModelRun>("POST", `/projects/${projectId}/models/${id}/run`, { inputs, keep }),
   runTool: (projectId: string, tool: string, params: Record<string, unknown>, output_name?: string) =>
     req<{ run: Run; layer: Layer }>("POST", `/projects/${projectId}/tools/${tool}`, { params, output_name: output_name || null }),
   rasterTools: () => req<Tool[]>("GET", "/raster-tools"),
@@ -148,3 +154,9 @@ export const publicApi = {
 };
 export interface HubDataset { slug: string; title: string; visibility: string; latest_version: number; feature_count: number; url: string; published_at?: string }
 export interface LinkedSource { app: "land" | "farm" | "hub"; app_name: string; label: string; geometry_type: string; form_id?: string; features?: number; approved?: number; available: boolean; why: string | null }
+export interface ModelInput { name: string; label: string; kinds: ("Point" | "LineString" | "Polygon" | "Raster")[] }
+export interface ModelStep { id: string; tool: string; kind: "vector" | "raster"; params: Record<string, unknown>; output_name: string; keep?: boolean }
+export interface ModelDraft { name: string; description: string; inputs: ModelInput[]; steps: ModelStep[] }
+export interface GisModel extends ModelDraft { id: string; runs: number; created_by_name: string; updated_by_name: string; updated_at: string }
+export interface ModelRun { status: "done" | "failed"; message?: string; failed_step?: string; ms?: number; layers: Layer[];
+  steps: { id: string; tool: string; name: string; ms: number; layer_id?: string; features?: number | null; error?: string }[] }

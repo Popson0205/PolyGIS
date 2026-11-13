@@ -39,7 +39,7 @@ collectors and viewers are **viewers** (open and export). An expired licence is 
 2. **Geoprocessing**: 107 vector tools in nine groups (proximity, overlay, generalization, conversion, topology, sampling, spatial statistics such as hot spots and Moran's I, and network analysis such as routes, closest facility and service areas), run as jobs, results as layers.
 3. **Rasters and print layouts**: raster import and analysis (see Rasters below); print layouts (see Print layouts below).
 4. **Sharing**: share links, publishing to Geohub's Data hub, linked layers from the other products and 3D (see below);
-   next, a model builder, and a desktop app wrapping the same web app.
+   a model builder (see below); next, a desktop app wrapping the same web app.
 
 ## Print layouts
 
@@ -90,6 +90,19 @@ Map › 3D view tilts the map onto terrain: an elevation model in the project (s
 exaggeration; right-drag to turn and tilt. Polygons can be drawn in 3D (Symbology › Draw in 3D): their height from a
 numeric field times a factor (3 m per storey, say) or a fixed height. Shared maps show the heights too; print layouts
 are drawn flat, from above.
+
+## Model builder
+
+Analysis › Model builder chains geoprocessing and raster tools into a model the organization saves and runs again on
+other layers, as ArcGIS's ModelBuilder does without scripting. A model names its inputs (Boreholes: points, say);
+each step is one tool whose layer settings take an input or the result of an earlier step, shown as a flow diagram.
+Run… asks for each input's layer in the project and keeps the final result (and any step marked to keep) or every
+step's result; the layers in between are removed. Each step runs exactly as the tool does alone, so it shows in the
+project's history; when one fails, the run stops there and says which step and why.
+
+The API: `GET/POST /models`, `PATCH/DELETE /models/{id}` and `POST /projects/{id}/models/{model_id}/run` with
+`{"inputs": {"boreholes": "<layer id>"}, "keep": "final"}`. Saving and running need an editor and geoprocessing in
+the plan; a model with raster steps needs PolyGIS Advanced.
 
 ## How it is built
 
