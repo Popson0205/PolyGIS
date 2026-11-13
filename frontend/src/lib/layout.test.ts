@@ -90,7 +90,7 @@ describe("grid", () => {
     const toCrs = (lng: number, lat: number) => proj4("EPSG:4326", "EPSG:26332", [lng, lat]) as [number, number];
     const s = { ...S, grid: { on: true, interval: 100, labels: true } };
     const frame = sheetFrames(s).frame;
-    const ops = gridOps(frame, s.center, s.scale, s, { layers: [], toCrs, crs: { epsg: 26332, name: "Minna", proj4: "", geographic: false, unit: "m" } }, 1);
+    const ops = gridOps(frame, s.center, s.scale, s.grid, { layers: [], toCrs, crs: { epsg: 26332, name: "Minna", proj4: "", geographic: false, unit: "m" } }, 1);
     const lines = ops.filter((o): o is Extract<Op, { k: "line" }> => o.k === "line");
     expect(lines.length).toBeGreaterThan(4);
     // every point of a vertical line has the same easting, a multiple of 100 m
@@ -105,7 +105,7 @@ describe("grid", () => {
   });
   it("labels a geographic grid in degrees and minutes", () => {
     const s = { ...S, scale: 250000, grid: { on: true, interval: null, labels: true } };
-    const ops = gridOps(sheetFrames(s).frame, s.center, s.scale, s, { layers: [] }, 1);
+    const ops = gridOps(sheetFrames(s).frame, s.center, s.scale, s.grid, { layers: [] }, 1);
     const labels = ops.filter((o): o is Extract<Op, { k: "text" }> => o.k === "text").map((o) => o.s);
     expect(labels.length).toBeGreaterThan(2);
     expect(labels.every((t) => /^\d+°\d\d'(\d\d")?[NSEW]$/.test(t))).toBe(true);

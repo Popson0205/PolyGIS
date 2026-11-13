@@ -11,10 +11,12 @@ export function canvasMeasure(): Measure {
   return (s, pt, bold) => { c.font = `${bold ? "bold " : ""}100px ${FONT}`; return (c.measureText(s).width / 100) * ptToMm(pt); };
 }
 
-/** The map picture; while a newer one is drawn, the last is shown moved by (dx, dy) mm and enlarged by `zoom`. */
+/** A map frame's picture; while a newer one is drawn, the last is shown moved by (dx, dy) mm and enlarged by `zoom`. */
 export interface MapPicture { image: CanvasImageSource | null; dx?: number; dy?: number; zoom?: number }
+/** Each map frame's picture by the frame's id ("main" for a map operation without one). */
+export type MapPictures = Record<string, MapPicture | undefined>;
 
-export function drawCanvas(ctx: CanvasRenderingContext2D, ops: Op[], pxPerMm: number, map: MapPicture) {
+export function drawCanvas(ctx: CanvasRenderingContext2D, ops: Op[], pxPerMm: number, maps: MapPictures) {
   const k = pxPerMm;
   const clip = (r: Rect) => { ctx.beginPath(); ctx.rect(r.x * k, r.y * k, r.w * k, r.h * k); ctx.clip(); };
   for (const o of ops) {
@@ -24,7 +26,8 @@ export function drawCanvas(ctx: CanvasRenderingContext2D, ops: Op[], pxPerMm: nu
         if (o.fill) { ctx.fillStyle = o.fill; ctx.fillRect(o.x * k, o.y * k, o.w * k, o.h * k); }
         if (o.stroke) { ctx.strokeStyle = o.stroke; ctx.lineWidth = (o.lw ?? 0.2) * k; ctx.strokeRect(o.x * k, o.y * k, o.w * k, o.h * k); }
         break;
-      case "map":
+      case "map": {
+        const map = maps[o.id ?? "main"] ?? { image: null };
         ctx.fillStyle = "#eef1f5"; ctx.fillRect(o.x * k, o.y * k, o.w * k, o.h * k);
         if (map.image) {
           clip(o);
@@ -32,6 +35,7 @@ export function drawCanvas(ctx: CanvasRenderingContext2D, ops: Op[], pxPerMm: nu
           ctx.drawImage(map.image, (o.x + o.w / 2 - w / 2 + (map.dx ?? 0)) * k, (o.y + o.h / 2 - h / 2 + (map.dy ?? 0)) * k, w * k, h * k);
         }
         break;
+      }
       case "line":
         if (o.clip) clip(o.clip);
         ctx.strokeStyle = o.stroke; ctx.lineWidth = o.lw * k; ctx.lineCap = "round"; ctx.lineJoin = "round";
@@ -74,8 +78,8 @@ const rgb = (hex: string): [number, number, number] => {
 };
 const mix = (a: string, b: string, t: number) => { const x = rgb(a), y = rgb(b); return x.map((v, i) => Math.round(v + (y[i] - v) * t)) as [number, number, number]; };
 
-/** Writes the operations into a jsPDF page, in millimetres; the map is `mapJpeg` (a data URL). */
-export function drawPdf(doc: JsPDF, ops: Op[], mapJpeg: string | null) {
+/** Writes the operations into a jsPDF page, in millimetres; each map frame's picture is a JPEG data URL. */
+export function drawPdf(doc: JsPDF, ops: Op[], jpegs: Record<string, string | null | undefined>) {
   for (const o of ops) {
     switch (o.k) {
       case "rect": {
@@ -87,7 +91,7 @@ export function drawPdf(doc: JsPDF, ops: Op[], mapJpeg: string | null) {
       }
       case "map":
         doc.setFillColor(238, 241, 245); doc.rect(o.x, o.y, o.w, o.h, "F");
-        if (mapJpeg) doc.addImage(mapJpeg, "JPEG", o.x, o.y, o.w, o.h, undefined, "FAST");
+        { const jpeg = jpegs[o.id ?? "main"]; if (jpeg) doc.addImage(jpeg, "JPEG", o.x, o.y, o.w, o.h, undefined, "FAST"); }
         break;
       case "line": {
         if (o.pts.length < 2) break;

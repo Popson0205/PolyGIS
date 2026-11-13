@@ -16,6 +16,7 @@ import PolyEarth, { useEarthJobs } from "../components/PolyEarth";
 import LayerPanel from "../components/LayerPanel";
 import LayoutView from "../components/LayoutView";
 import ModelBuilder from "../components/ModelBuilder";
+import { Group, Tb } from "../components/Ribbon";
 import ShareDialog from "../components/ShareDialog";
 import PublishDialog from "../components/PublishDialog";
 import LinkedDialog from "../components/LinkedDialog";
@@ -888,12 +889,6 @@ function niceScale(s: number) {
   return (Math.round(s / p) * p).toLocaleString("en-GB");
 }
 
-function Group({ name, children }: { name: string; children: React.ReactNode }) {
-  return <div className="ws-group" role="group" aria-label={name}><div className="ws-group-body">{children}</div><div className="ws-group-name">{name}</div></div>;
-}
-function Tb({ icon, label, onClick, on, disabled }: { icon: ReactNode; label: string; onClick: () => void; on?: boolean; disabled?: boolean }) {
-  return <button type="button" className={`ws-tb${on ? " is-on" : ""}`} onClick={onClick} disabled={disabled} aria-pressed={on}><span aria-hidden="true" className="ws-tb-icon">{icon}</span>{label}</button>;
-}
 
 function NewFeatureForm({ layer, fid, onDone }: { layer: Layer; fid: number; onDone: () => void }) {
   const [v, setV] = useState<Record<string, string>>({});

@@ -32,7 +32,7 @@ export type Op =
   | { k: "circle"; x: number; y: number; r: number; fill?: string; stroke?: string; lw?: number }
   | { k: "text"; x: number; y: number; s: string; pt: number; color: string; bold?: boolean; align?: "left" | "center" | "right"; angle?: number; base?: "top" | "middle" | "bottom" }
   | ({ k: "gradient"; colors: string[]; vertical: boolean } & Rect)
-  | ({ k: "map" } & Rect);
+  | ({ k: "map"; id?: string } & Rect);           // `id`: which map frame's picture goes here
 
 /** Width of a line of text in millimetres (Helvetica). The canvas measures it; tests use an average. */
 export type Measure = (s: string, pt: number, bold?: boolean) => number;
@@ -45,6 +45,7 @@ export interface LayoutContext {
   toCrs?: (lng: number, lat: number) => XY;
   author?: string; org?: string; date?: string; credits?: string;
   measure?: Measure;
+  project?: string;                      // the project's name, for dynamic text
 }
 
 // ---------- Web Mercator: the map on the page ----------
@@ -145,7 +146,7 @@ export function scaleBar(scale: number, wantMm: number) {
   return { metres: len, mm, unit, labels: [0, len / 2, len].map(show) };
 }
 
-function scaleBarOps(x: number, y: number, maxW: number, scale: number, f: number): { ops: Op[]; h: number } {
+export function scaleBarOps(x: number, y: number, maxW: number, scale: number, f: number): { ops: Op[]; h: number } {
   const b = scaleBar(scale, maxW * 0.8);
   const seg = b.mm / 4, bh = 1.6 * f;
   const ops: Op[] = [];
@@ -155,7 +156,7 @@ function scaleBarOps(x: number, y: number, maxW: number, scale: number, f: numbe
   return { ops, h: bh + 4.5 * f };
 }
 
-function northOps(cx: number, top: number, f: number): { ops: Op[]; h: number } {
+export function northOps(cx: number, top: number, f: number): { ops: Op[]; h: number } {
   const h = 11 * f, w = 3.6 * f, y = top + 4 * f;
   return {
     h: h + 4 * f,
@@ -181,7 +182,7 @@ const dms = (v: number, pos: string, neg: string) => {
 const metresLabel = (v: number) => Math.round(v).toLocaleString("en-GB").replace(/,/g, " ");
 
 /** Grid lines of the project's system across the map frame, with their coordinates where they leave the frame. */
-export function gridOps(frame: Rect, center: XY, scale: number, s: LayoutSettings, ctx: LayoutContext, f: number): Op[] {
+export function gridOps(frame: Rect, center: XY, scale: number, grid: Pick<LayoutSettings["grid"], "interval" | "labels">, ctx: LayoutContext, f: number): Op[] {
   const geographic = !ctx.crs || ctx.crs.geographic;
   const to = ctx.toCrs ?? ((lng: number, lat: number): XY => [lng, lat]);
   const proj = frameProjection(frame, center, scale);
@@ -194,7 +195,7 @@ export function gridOps(frame: Rect, center: XY, scale: number, s: LayoutSetting
   const xy = edge.map(([x, y]) => to(...proj.toLngLat(x, y)));
   const [x0, x1] = [Math.min(...xy.map((p) => p[0])), Math.max(...xy.map((p) => p[0]))];
   const [y0, y1] = [Math.min(...xy.map((p) => p[1])), Math.max(...xy.map((p) => p[1]))];
-  const step = s.grid.interval && s.grid.interval > 0 ? s.grid.interval : niceInterval(Math.max(x1 - x0, y1 - y0));
+  const step = grid.interval && grid.interval > 0 ? grid.interval : niceInterval(Math.max(x1 - x0, y1 - y0));
   if (!isFinite(step) || step <= 0 || (x1 - x0) / step > 60 || (y1 - y0) / step > 60) return [];
   const back = (X: number, Y: number): XY => {
     // from the project's system back to the page: invert numerically with the frame's own mapping (Newton steps)
@@ -227,7 +228,7 @@ export function gridOps(frame: Rect, center: XY, scale: number, s: LayoutSetting
   for (let X = Math.ceil(x0 / step) * step; X <= x1; X += step) {
     const pts = Array.from({ length: N + 1 }, (_, i) => back(X, y0 + ((y1 - y0) * i) / N));
     ops.push({ k: "line", pts, stroke: color, lw, clip: frame });
-    if (s.grid.labels) {
+    if (grid.labels) {
       for (const [cx] of crossings(pts, (p) => p[1] - frame.y)) if (cx > frame.x + 2 && cx < frame.x + frame.w - 2) ops.push({ k: "text", x: cx, y: frame.y - 1 * f, s: lab(X, "x"), pt, color, align: "center", base: "bottom" });
       for (const [cx] of crossings(pts, (p) => p[1] - (frame.y + frame.h))) if (cx > frame.x + 2 && cx < frame.x + frame.w - 2) ops.push({ k: "text", x: cx, y: frame.y + frame.h + 1 * f, s: lab(X, "x"), pt, color, align: "center", base: "top" });
     }
@@ -235,7 +236,7 @@ export function gridOps(frame: Rect, center: XY, scale: number, s: LayoutSetting
   for (let Y = Math.ceil(y0 / step) * step; Y <= y1; Y += step) {
     const pts = Array.from({ length: N + 1 }, (_, i) => back(x0 + ((x1 - x0) * i) / N, Y));
     ops.push({ k: "line", pts, stroke: color, lw, clip: frame });
-    if (s.grid.labels) {
+    if (grid.labels) {
       for (const [, cy] of crossings(pts, (p) => p[0] - frame.x)) if (cy > frame.y + 2 && cy < frame.y + frame.h - 2) { const t = lab(Y, "y"); ops.push({ k: "text", x: frame.x - 1.4 * f, y: cy + measure(t, pt) / 2, s: t, pt, color, angle: 90 }); }
       for (const [, cy] of crossings(pts, (p) => p[0] - (frame.x + frame.w))) if (cy > frame.y + 2 && cy < frame.y + frame.h - 2) { const t = lab(Y, "y"); ops.push({ k: "text", x: frame.x + frame.w + 1.4 * f + pt * PT * 0.72, y: cy + measure(t, pt) / 2, s: t, pt, color, angle: 90 }); }
     }
@@ -287,12 +288,12 @@ function symbolOps(l: Layer, fill: string, x: number, y: number, w: number, h: n
 }
 
 /** Lays the legend out in columns inside `box`; what does not fit is counted at the end. */
-export function legendOps(layers: Layer[], box: Rect, f: number, measure: Measure, title = true): { ops: Op[]; used: Rect } {
+export function legendOps(layers: Layer[], box: Rect, f: number, measure: Measure, title: string | false = "Legend"): { ops: Op[]; used: Rect } {
   const rows = legendRows(layers);
   const ops: Op[] = [];
   const pt = 7 * f, headPt = 7.5 * f, line = 4.6 * f, sw = 5 * f, sh = 3.2 * f, colGap = 5 * f;
   let x = box.x, y = box.y, colW = 0, maxX = box.x, maxY = box.y;
-  if (title) { ops.push({ k: "text", x, y, s: "Legend", pt: 9 * f, bold: true, color: "#111827", base: "top" }); y += 6 * f; }
+  if (title) { ops.push({ k: "text", x, y, s: title, pt: 9 * f, bold: true, color: "#111827", base: "top" }); y += 6 * f; }
   const topY = y;
   const fit = (s: string, size: number, bold: boolean, width: number) => {
     if (measure(s, size, bold) <= width) return s;
@@ -336,7 +337,7 @@ export function legendOps(layers: Layer[], box: Rect, f: number, measure: Measur
 }
 
 // ---------- the whole sheet ----------
-const wrap = (text: string, pt: number, width: number, measure: Measure) => {
+export const wrap = (text: string, pt: number, width: number, measure: Measure) => {
   const out: string[] = [];
   for (const para of text.split(/\n/)) {
     let line = "";
@@ -357,7 +358,7 @@ export function composeSheet(s: LayoutSettings, ctx: LayoutContext): { sheet: Sh
   const m = 10 * f;
   const ops: Op[] = [{ k: "rect", x: 0, y: 0, w, h, fill: "#ffffff" }];
   ops.push({ k: "map", ...frame });
-  if (s.grid.on) ops.push(...gridOps(frame, s.center, s.scale, s, ctx, f));
+  if (s.grid.on) ops.push(...gridOps(frame, s.center, s.scale, s.grid, ctx, f));
   ops.push({ k: "rect", ...frame, stroke: "#1f2937", lw: 0.3 * f });
   ops.push({ k: "rect", x: m, y: m, w: w - 2 * m, h: h - 2 * m, stroke: "#1f2937", lw: 0.5 * f });     // neatline
 
@@ -439,7 +440,7 @@ export function composeSheet(s: LayoutSettings, ctx: LayoutContext): { sheet: Sh
   return { sheet, ops };
 }
 
-function fitText(s: string, pt: number, width: number, measure: Measure) {
+export function fitText(s: string, pt: number, width: number, measure: Measure) {
   if (measure(s, pt) <= width) return s;
   let t = s;
   while (t.length > 1 && measure(`${t}…`, pt) > width) t = t.slice(0, -1);
