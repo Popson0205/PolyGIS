@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudSun, Earth, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Wrench, X, ZoomIn,
+  PanelRightClose, PanelRightOpen, Printer, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -15,6 +15,7 @@ import Geoprocessing from "../components/Geoprocessing";
 import PolyEarth, { useEarthJobs } from "../components/PolyEarth";
 import LayerPanel from "../components/LayerPanel";
 import LayoutView from "../components/LayoutView";
+import ModelBuilder from "../components/ModelBuilder";
 import ShareDialog from "../components/ShareDialog";
 import PublishDialog from "../components/PublishDialog";
 import LinkedDialog from "../components/LinkedDialog";
@@ -60,6 +61,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [earth, setEarth] = useState<{ open: boolean; start: string | null }>({ open: false, start: null });
   const [panelTab, setPanelTab] = useState<{ tab: PanelTab; n: number }>({ tab: "symbology", n: 0 });
   const [layoutOpen, setLayoutOpen] = useState(false);
+  const [modelsOpen, setModelsOpen] = useState(false);
   // the 3D view: tilted, on terrain from an elevation model in the project or the open global one
   const [view3d, setView3d] = useStored<{ on: boolean; terrain: string; exaggeration: number }>(`view3d-${id}`, { on: false, terrain: "global", exaggeration: 1.5 });
   const earthJobs = useEarthJobs((j) => {
@@ -718,6 +720,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => openTool("dissolve")} icon={<Merge />} label="Dissolve" />
               <Tb onClick={() => openTool("spatial_join")} icon={<Link2 />} label="Spatial join" />
             </Group>
+            <Group name="Models">
+              <Tb onClick={() => (me.features.includes("geoprocessing") ? setModelsOpen(true) : setDialog("plan"))} icon={<Workflow />} label="Model builder" />
+            </Group>
             <Group name="Satellite">
               <Tb onClick={() => { setTab("earth"); openEarth(null); }} icon={<Earth />} label="Poly Earth" />
             </Group>
@@ -815,6 +820,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       {dialog === "attr" && active && <SelectByAttributes layer={active} onClose={() => setDialog(null)} onDone={(s, add) => applySelection(active.id, s, add)} />}
       {dialog === "loc" && active && <SelectByLocation layer={active} layers={layers} selection={selection} onClose={() => setDialog(null)} onDone={(s, add) => applySelection(active.id, s, add)} />}
       {dialog === "export" && active && <Export layer={active} selected={sel(active.id)} epsg={project.display_epsg} onClose={() => setDialog(null)} />}
+      {modelsOpen && <ModelBuilder projectId={id} layers={layers} canEdit={canEdit} rasterAllowed={me.features.includes("raster")} onClose={() => setModelsOpen(false)}
+        onDone={(ls) => { if (!ls.length) return; setLayers((cur) => [...cur, ...ls]); setActiveId(ls[ls.length - 1].id); if (ls[ls.length - 1].bbox) zoomTo(ls[ls.length - 1].bbox!); toast(ls.length === 1 ? `${ls[0].name} added to the map.` : `${ls.length} layers added to the map.`, "success"); }} />}
       {layoutOpen && map.current && <LayoutView project={project} layers={layers} crs={crs} me={me} map={map.current} canSave={canEdit && layoutsAllowed} onClose={() => setLayoutOpen(false)} />}
       {dialog === "plan" && <Dialog title="Print layouts" onClose={() => setDialog(null)}>
         <div className="ws-form"><p>Print layouts (map sheets with a title, legend, scale bar, north arrow and grid, exported as PDF) are in PolyGIS Advanced.
