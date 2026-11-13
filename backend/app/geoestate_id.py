@@ -104,6 +104,19 @@ class GeoEstateID:
             raise GeoEstateIDError(body.get("detail", f"Geohub answered {r.status_code}"), r.status_code, body.get("code") or "error")
         return r.json()
 
+    def send(self, access_token: str, path: str, body: dict, timeout: float = 120):
+        """Sends something to Geohub as the person (POST /id/data/...), e.g. a layer published to the Data hub:
+        "datasets", "datasets/{slug}/versions". Refusals come back as GeoEstateIDError with Geohub's own words."""
+        r = self._http.post(f"{self.api}/id/data/{path.lstrip('/')}", json=body, timeout=timeout,
+                            headers={"Authorization": f"Bearer {access_token}"})
+        if r.status_code >= 400:
+            try:
+                b = r.json()
+            except ValueError:
+                b = {}
+            raise GeoEstateIDError(b.get("detail", f"Geohub answered {r.status_code}"), r.status_code, b.get("code") or "error")
+        return r.json()
+
     # ---- checking an access token ----
     def _key(self, kid: str | None):
         if kid not in self._keys or time.time() - self._keys_at > self.key_ttl:

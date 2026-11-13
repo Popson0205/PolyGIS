@@ -43,6 +43,7 @@ class FakeGeohub:
         self.refresh: dict[str, dict] = {}
         self.calls: list[str] = []
         self.no_product_on_refresh = False
+        self.datasets: dict[str, dict] = {}
 
     def claims(self, role="owner", org="Abuja Survey Ltd", org_id=None, status="active", features=None, limits=None, staff=None,
                name="Ada Mapper"):
@@ -87,10 +88,35 @@ class FakeGeohub:
             return httpx.Response(200, json=self.tokens(c))
         if path == "/id/revoke":
             return httpx.Response(200, json={"revoked": True})
+        if path.startswith("/id/data/datasets"):
+            return self.hub(req, path)
         if path == "/id/apps":
             return httpx.Response(200, json=[{"product": "hub", "name": "Geohub", "status": "active", "url": settings.geohub_url, "current": False},
                                              {"product": "gis", "name": "PolyGIS", "status": "active", "url": settings.app_url, "current": True}])
         return httpx.Response(404, json={"detail": "Not found."})
+
+
+    def hub(self, req: httpx.Request, path: str) -> httpx.Response:
+        """A stand-in Data hub: datasets published from PolyGIS, as Geohub's /id/data/datasets keeps them."""
+        who = jwt.decode(req.headers["authorization"][7:], options={"verify_signature": False})
+        if req.method == "GET":
+            ref = req.url.params.get("ref")
+            return httpx.Response(200, json=[d for d in self.datasets.values() if d["by"] == who["sub"] and (not ref or d["source"]["ref"] == ref)])
+        body = json.loads(req.content)
+        if path == "/id/data/datasets":
+            if body["visibility"] == "public" and body["license"] == "Private":
+                return httpx.Response(422, json={"detail": "A Private licence cannot be published publicly.", "code": "validation"})
+            slug = f"{body['title'].lower().replace(' ', '-')}-{len(self.datasets) + 1}"
+            self.datasets[slug] = {"slug": slug, "title": body["title"], "visibility": body["visibility"], "latest_version": 1, "by": who["sub"],
+                                   "source": {"app": who["aud"], "name": "PolyGIS", "ref": body["ref"], "label": body["label"]},
+                                   "feature_count": len(body["features"]), "body": body}
+            return httpx.Response(201, json={"dataset": self.datasets[slug], "version": 1, "feature_count": len(body["features"])})
+        slug = path.split("/")[4]
+        d = self.datasets.get(slug)
+        if not d or d["by"] != who["sub"]:
+            return httpx.Response(404, json={"detail": "Dataset not found.", "code": "not_found"})
+        d["latest_version"] += 1; d["feature_count"] = len(body["features"]); d["body"] = body
+        return httpx.Response(201, json={"dataset": d, "version": d["latest_version"], "feature_count": len(body["features"])})
 
 
 ORG = str(uuid.uuid4())
