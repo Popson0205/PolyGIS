@@ -25,7 +25,7 @@ import RasterPanel from "../components/RasterPanel";
 import { ApiError, BASE, api, rasterDownloadUrl, rasterTileUrl, terrainTileUrl, tileUrl } from "../lib/api";
 import { formatCoords, loadCrs, metres, squareMetres } from "../lib/coords";
 import { Editor } from "../lib/editor";
-import { BASEMAPS, GLOBAL_TERRAIN, GLYPHS, allIds, basemapStyle, ids as layerIds, mapLayers, src } from "../lib/mapstyle";
+import { BASEMAPS, GLOBAL_TERRAIN, GLYPHS, allIds, basemapStyle, ids as layerIds, labelSrc, mapLayers, src } from "../lib/mapstyle";
 import type { CrsDef, Layer, Me, Project, Selection, VectorType } from "../lib/types";
 
 type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "earth" | "share";
@@ -94,6 +94,10 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
 
   const mapEl = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibre | null>(null);
+  // the style is in place (MapLibre's isStyleLoaded() also waits for every source's tiles, so one slow or failing tile
+  // server, such as the terrain, would stop the map from following changes)
+  const styleReady = useRef(false);
+  const tilt = useRef<boolean | null>(null);      // 3D turned on or off: tilt the camera once the terrain is in place
   const editor = useRef<Editor | null>(null);
   const snapFeatures = useRef<GeoJSON.Feature[]>([]);
   const versions = useRef<Map<string, number>>(new Map());
@@ -131,6 +135,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
     m.addControl(new maplibregl.ScaleControl({ unit: "metric", maxWidth: 120 }), "bottom-left");
     m.on("style.load", () => {
+      styleReady.current = true;
       if (!m.getStyle().glyphs) m.setGlyphs(GLYPHS);          // labels need fonts, whatever the basemap
       sync();
     });
@@ -154,7 +159,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     map.current = m;
     editor.current = new Editor(m, () => ({ on: state.current.snap, features: snapFeatures.current }));
     setZoom(m.getZoom());
-    return () => { editor.current?.stop(); m.remove(); map.current = null; };
+    return () => { editor.current?.stop(); m.remove(); map.current = null; styleReady.current = false; };
   }, [project?.id]);   // eslint-disable-line react-hooks/exhaustive-deps
   const basemapRef = useRef(basemap);
   basemapRef.current = basemap;
@@ -163,27 +168,29 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
    *  data changed (its version). */
   const sync = useCallback(() => {
     const m = map.current;
-    if (!m || !m.isStyleLoaded()) return;
+    if (!m || !styleReady.current) return;
     const { layers: ls, selection: s, reshaping: r, editId: e } = state.current;
     const before = m.getStyle().layers.find((x) => x.id.startsWith("gis-draw"))?.id;
     const wanted = new Set(ls.map((l) => l.id));
     for (const [lid] of versions.current) {
       if (!wanted.has(lid)) {
         for (const x of m.getStyle().layers.filter((y) => y.id.startsWith(`lyr-${lid}`))) m.removeLayer(x.id);
-        if (m.getSource(`src-${lid}`)) m.removeSource(`src-${lid}`);
+        for (const sid of [`src-${lid}`, `src-${lid}-labels`]) if (m.getSource(sid)) m.removeSource(sid);
         versions.current.delete(lid);
       }
     }
     for (const l of [...ls].sort((a, b) => a.position - b.position)) {
       for (const x of allIds(l)) if (m.getLayer(x)) m.removeLayer(x);
       if (l.geometry_type === "Raster" && l.raster?.missing) continue;     // its file is gone: asking for tiles would only fail
-      if (m.getSource(src(l)) && versions.current.get(l.id) !== l.version) m.removeSource(src(l));
+      if (m.getSource(src(l)) && versions.current.get(l.id) !== l.version) for (const sid of [src(l), labelSrc(l)]) if (m.getSource(sid)) m.removeSource(sid);
       if (!m.getSource(src(l))) {
         if (l.geometry_type === "Raster") m.addSource(src(l), { type: "raster", tiles: [rasterTileUrl(l)], tileSize: 256, minzoom: 0, maxzoom: 22, bounds: l.bbox ?? undefined });
         else m.addSource(src(l), { type: "vector", tiles: [tileUrl(l)], minzoom: 0, maxzoom: 16, promoteId: undefined });
         versions.current.set(l.id, l.version);
       }
-      for (const spec of mapLayers(l, s[l.id] ?? [], l.id === e && r != null ? [r] : [])) m.addLayer(spec, before);
+      if (l.geometry_type !== "Raster" && l.labels && !m.getSource(labelSrc(l))) m.addSource(labelSrc(l), { type: "vector", tiles: [tileUrl(l)], minzoom: 0, maxzoom: 16 });
+      if (!l.labels && m.getSource(labelSrc(l))) m.removeSource(labelSrc(l));
+      for (const spec of mapLayers(l, s[l.id] ?? [], l.id === e && r != null ? [r] : [], !state.current.view3d.on)) m.addLayer(spec, before);
     }
     applyTerrain(m);
   }, []);
@@ -195,8 +202,18 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     const dem = state.current.layers.find((l) => l.id === v.terrain && l.geometry_type === "Raster" && !l.raster?.missing);
     const want = !v.on ? null : dem ? `dem-${dem.id}-${dem.version}` : "global";
     const have = (m.getTerrain()?.source as string | undefined) ?? null;
-    if (have && have !== want) { m.setTerrain(null); if (m.getSource(have)) m.removeSource(have); }
-    if (!want) return;
+    const ease = () => {
+      if (tilt.current === null) return;
+      const on = tilt.current;
+      tilt.current = null;
+      m.easeTo({ pitch: on ? 60 : 0, bearing: on ? (m.getBearing() || -20) : 0, duration: 900 });
+    };
+    if (have && have !== want) {
+      m.setTerrain(null);
+      if (m.getSource(have)) m.removeSource(have);
+      m.fire("terrain");                       // the credits refresh on this, now the terrain source has gone
+    }
+    if (!want) { ease(); return; }
     if (!m.getSource(want)) {
       m.addSource(want, dem ? { type: "raster-dem", tiles: [terrainTileUrl(dem)], tileSize: 256, encoding: "terrarium", bounds: dem.bbox ?? undefined, maxzoom: 16 }
         : { type: "raster-dem", tiles: GLOBAL_TERRAIN.tiles, tileSize: 256, encoding: "terrarium", maxzoom: GLOBAL_TERRAIN.maxzoom, attribution: GLOBAL_TERRAIN.attribution });
@@ -204,12 +221,11 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     m.setTerrain({ source: want, exaggeration: v.exaggeration });
     const sky = (m as unknown as { setSky?: (s: Record<string, unknown>) => void }).setSky;
     sky?.call(m, { "sky-color": "#a9c8ec", "horizon-color": "#e8eef6", "fog-color": "#eef2f7", "sky-horizon-blend": 0.6, "horizon-fog-blend": 0.5, "fog-ground-blend": 0.85 });
+    ease();
   }
   function toggle3d(on: boolean) {
     setView3d({ ...view3d, on });
-    const m = map.current;
-    if (!m) return;
-    m.easeTo({ pitch: on ? 60 : 0, bearing: on ? (m.getBearing() || -20) : 0, duration: 900 });
+    tilt.current = on;                       // applyTerrain() eases the camera after the terrain changes
     if (on && !layers.some((l) => l.raster && !l.raster.missing) && view3d.terrain !== "global") setView3d({ ...view3d, on, terrain: "global" });
   }
 
@@ -503,6 +519,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     setBasemap(b);
     editor.current?.stop();
     versions.current.clear();
+    styleReady.current = false;
     map.current?.setStyle(basemapStyle(b) as maplibregl.StyleSpecification | string);
     if (canEdit) void api.updateProject(id, { view: { ...(project?.view ?? {}), basemap: b } }).catch(() => undefined);
   }
@@ -579,7 +596,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
         <a className="ge-brand" href="/" aria-label="GeoEstate PolyGIS: all projects"><img src="/logo.png" alt="" /><span>Poly<strong>GIS</strong></span></a>
         <nav className="ws-crumbs" aria-label="Where you are">
           <ChevronRight size={14} aria-hidden="true" /><Link to="/">Projects</Link><ChevronRight size={14} aria-hidden="true" />
-          <strong title={project.description || project.name}>{project.name}</strong>
+          <h1 className="ws-crumb-title" title={project.description || project.name}>{project.name}</h1>
         </nav>
         <form className="ws-command" role="search" onSubmit={(e) => { e.preventDefault(); openTool(null, command); }}>
           <Search size={15} aria-hidden="true" />
@@ -594,12 +611,14 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       {notice && <div className={`ge-notice ge-notice-${notice.tone}`} role="status">{notice.text}</div>}
       </div>
 
-      <div className={`ws-ribbon${ribbonFolded ? " is-folded" : ""}`}>
-        <div className="ws-ribbon-tabs" role="tablist" aria-label="Ribbon">
+      <section className={`ws-ribbon${ribbonFolded ? " is-folded" : ""}`} aria-label="Ribbon">
+        <div className="ws-ribbon-tabs">
+          <div className="ws-tablist" role="tablist" aria-label="Ribbon tabs">
           {tabs.map(([t, label]) => (
             <button key={t} role="tab" aria-selected={tab === t} className={t === "edit" && editId ? "ws-tab-ctx" : ""}
               onClick={() => { if (ribbonFolded && tab === t) setRibbonFolded(false); setTab(t); }} onDoubleClick={() => setRibbonFolded(!ribbonFolded)}>{label}{t === "edit" && editId ? ": editing" : ""}</button>
           ))}
+          </div>
           <IconButton label={ribbonFolded ? "Show the ribbon" : "Fold the ribbon away"} onClick={() => setRibbonFolded(!ribbonFolded)}>
             {ribbonFolded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
           </IconButton>
@@ -621,7 +640,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               </div>
             </Group>
             <Group name="3D">
-              <Tb on={view3d.on} onClick={() => toggle3d(!view3d.on)} icon={<Box />} label={view3d.on ? "3D on" : "3D view"} />
+              <Tb on={view3d.on} onClick={() => toggle3d(!view3d.on)} icon={<Box />} label="3D view" />
               <div className="ws-tb-stack ws-tb-mini">
                 <label className="ws-tb-select">Terrain
                   <select value={view3d.terrain} onChange={(e) => setView3d({ ...view3d, terrain: e.target.value })}>
@@ -763,9 +782,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             </Group>
           </>}
         </div>
-      </div>
+      </section>
 
-      <div className={`ws-body${leftOpen ? "" : " no-left"}${rightOpen ? "" : " no-right"}`}>
+      <main className={`ws-body${leftOpen ? "" : " no-left"}${rightOpen ? "" : " no-right"}`}>
         {leftOpen ? (
           <Contents projectName={project.name} layers={layers} activeId={activeId} editingId={editId} canEdit={canEdit} canExport={me.features.includes("export")}
             selection={selection} onActivate={setActiveId} onToggle={(l) => void toggle(l)}
@@ -790,7 +809,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             <IconButton label="Geoprocessing tools" onClick={() => openTool(null)}><Wrench size={18} /></IconButton></div>
         )}
         {(leftOpen || rightOpen) && <div className="ws-scrim" onClick={() => { setLeftOpen(false); setRightOpen(false); }} aria-hidden="true" />}
-      </div>
+      </main>
 
       {tableLayer && <AttributeTable layer={tableLayer} selected={sel(tableLayer.id)} editing={editId === tableLayer.id}
         resizer={<Resizer axis="y" value={tableH} min={140} max={640} invert onChange={setTableH} label="Resize the table" />}

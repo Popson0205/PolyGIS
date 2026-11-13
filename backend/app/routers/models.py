@@ -215,7 +215,7 @@ async def run_model(project_id: UUID, model_id: UUID, body: RunModelIn,
         lid = str(out["layer"]["id"])
         bound[f"step:{s['id']}"] = lid
         made.append(lid)
-        done.append({**step, "layer_id": lid, "features": out["layer"].get("feature_count")})
+        done.append({**step, "layer_id": lid, "features": None if out["layer"]["geometry_type"] == "Raster" else out["layer"].get("feature_count")})
     keep = made if body.keep == "all" else [made[-1], *[bound[f"step:{s['id']}"] for s in m["steps"][:-1] if s.get("keep")]]
     for lid in made:
         if lid not in keep:

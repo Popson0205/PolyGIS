@@ -71,7 +71,7 @@ export default function ModelBuilder({ projectId, layers, canEdit, rasterAllowed
 
   return (
     <div className="lo mb" role="dialog" aria-modal="true" aria-label="Model builder">
-      <header className="lo-bar">
+      <div className="lo-bar">
         <Workflow size={18} aria-hidden="true" />
         <strong>Model builder</strong>
         <select className="lo-pick" value={current?.id ?? ""} onChange={(e) => open(e.target.value)} aria-label="Saved models">
@@ -88,7 +88,7 @@ export default function ModelBuilder({ projectId, layers, canEdit, rasterAllowed
         <Button small variant="primary" disabled={!canEdit || !current || dirty || !m.steps.length} onClick={() => setRunning(true)}
           title={!current || dirty ? "Save the model first" : undefined}><Play size={14} aria-hidden="true" />Run…</Button>
         <IconButton label="Close the model builder" onClick={onClose}><X size={18} /></IconButton>
-      </header>
+      </div>
       <div className="lo-body">
         <div className="mb-stage">
           <ErrorText error={error} />
@@ -127,7 +127,7 @@ function Diagram({ m, tools, sel, onSel }: { m: ModelDraft; tools: Tool[]; sel: 
   const name = (s: ModelStep) => tools.find((t) => t.id === s.tool)?.name ?? (s.tool || "Choose a tool");
   const refs = (s: ModelStep) => Object.values(s.params).flatMap((v) => (Array.isArray(v) ? v : [v])).filter((v): v is string => typeof v === "string" && /^(input|step):/.test(v));
   return (
-    <svg className="mb-svg" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label="The model's flow">
+    <svg className="mb-svg" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="group" aria-label="The model's flow: choose an input or a step to change it">
       <defs><marker id="mb-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#8b93a2" /></marker></defs>
       {m.steps.flatMap((s) => refs(s).map((r) => {
         const a = pos.get(r), b = pos.get(`step:${s.id}`);
@@ -205,13 +205,14 @@ function StepEditor({ m, i, tools, tool, onChange, onMove, onDelete }: {
         <p className="mb-tool"><strong>{tool.name}</strong> <button type="button" className="ws-link" onClick={() => set({ tool: "", params: {} })}>change</button><br /><span className="ws-muted">{tool.about}</span></p>
         {tool.params.filter(shown).map((p) => {
           if (p.type === "layer") {
-            const ok = sources.filter((x) => !p.geometry || x.kinds.some((k) => p.geometry!.includes(k as never)));
+            const ok = sources.filter((x) => (p.geometry ? x.kinds.some((k) => p.geometry!.includes(k as never)) : x.kinds.some((k) => k !== "Raster")));
             return <label key={p.name} className="ws-f">{p.label}<select value={String(value(p) ?? "")} onChange={(e) => setP(p.name, e.target.value)}>
               <option value="">{p.optional ? "Nothing" : "Choose…"}</option>{ok.map((x) => <option key={x.ref} value={x.ref}>{x.label}</option>)}</select></label>;
           }
           if (p.type === "layers") {
             const chosen = (value(p) as string[]) ?? [];
-            return <div key={p.name} className="ws-f">{p.label}{sources.map((x) => <label key={x.ref} className="lo-check"><input type="checkbox" checked={chosen.includes(x.ref)}
+            const ok = sources.filter((x) => (p.geometry ? x.kinds.some((k) => p.geometry!.includes(k as never)) : x.kinds.some((k) => k !== "Raster")));
+            return <div key={p.name} className="ws-f">{p.label}{ok.map((x) => <label key={x.ref} className="lo-check"><input type="checkbox" checked={chosen.includes(x.ref)}
               onChange={(e) => setP(p.name, e.target.checked ? [...chosen, x.ref] : chosen.filter((y) => y !== x.ref))} />{x.label}</label>)}</div>;
           }
           if (p.type === "number") return <label key={p.name} className="ws-f">{p.label}{p.unit ? ` (${p.unit === "m" ? "metres" : p.unit})` : ""}

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Legend } from "../components/Contents";
 import { ApiError, publicApi, signInUrl, type PublicShare } from "../lib/api";
-import { BASEMAPS, GLYPHS, basemapStyle, ids as layerIds, mapLayers, src } from "../lib/mapstyle";
+import { BASEMAPS, GLYPHS, basemapStyle, ids as layerIds, labelSrc, mapLayers, src } from "../lib/mapstyle";
 import type { Layer } from "../lib/types";
 import { splash } from "../splash";
 
@@ -23,6 +23,7 @@ export default function SharePage() {
   const [picked, setPicked] = useState<{ layer: Layer; props: Record<string, unknown> } | null>(null);
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibre | null>(null);
+  const styleReady = useRef(false);        // not isStyleLoaded(): that also waits for every source's tiles
   const state = useRef({ share, hidden });
   state.current = { share, hidden };
 
@@ -34,7 +35,7 @@ export default function SharePage() {
 
   const draw = () => {
     const m = map.current, s = state.current.share;
-    if (!m || !s || !m.isStyleLoaded()) return;
+    if (!m || !s || !styleReady.current) return;
     if (!m.getStyle().glyphs) m.setGlyphs(GLYPHS);
     for (const l of [...s.layers].sort((a, b) => a.position - b.position)) {
       if (l.geometry_type === "Raster" && l.raster?.missing) continue;
@@ -44,6 +45,7 @@ export default function SharePage() {
         if (l.geometry_type === "Raster") m.addSource(src(l), { type: "raster", tiles: [publicApi.rasterTiles(token, l)], tileSize: 256, bounds: l.bbox ?? undefined });
         else m.addSource(src(l), { type: "vector", tiles: [publicApi.tiles(token, l)], maxzoom: 16 });
       }
+      if (l.geometry_type !== "Raster" && l.labels && !m.getSource(labelSrc(l))) m.addSource(labelSrc(l), { type: "vector", tiles: [publicApi.tiles(token, l)], maxzoom: 16 });
       for (const spec of mapLayers(shown, []).filter((x) => !x.id.includes("-sel-"))) m.addLayer(spec);
     }
   };
@@ -55,7 +57,7 @@ export default function SharePage() {
     m.addControl(new maplibregl.NavigationControl(), "top-right");
     m.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
     m.addControl(new maplibregl.FullscreenControl(), "top-right");
-    m.on("style.load", draw);
+    m.on("style.load", () => { styleReady.current = true; draw(); });
     m.on("click", (e) => void identify(e.point, e.lngLat));
     map.current = m;
     if (!v.center) fit();
@@ -89,6 +91,7 @@ export default function SharePage() {
     setBasemap(b);
     const m = map.current;
     if (!m) return;
+    styleReady.current = false;
     m.setStyle(basemapStyle(b) as maplibregl.StyleSpecification | string);
   }
 
@@ -131,14 +134,14 @@ export default function SharePage() {
           </div>
           <p className="sp-foot">Read-only map from <a href="/">GeoEstate PolyGIS</a>. Click a feature for its details.</p>
         </aside>}
-        <div className="sp-map-wrap">
+        <main className="sp-map-wrap" aria-label="Map">
           <div ref={el} className="sp-map" />
           <button type="button" className="sp-fit" onClick={fit} title="Show all the layers"><Maximize size={15} aria-hidden="true" /><span>All layers</span></button>
           {picked && <div className="sp-pop" role="dialog" aria-label={picked.layer.name}>
             <div className="sp-pop-head"><Info size={15} aria-hidden="true" /><strong>{picked.layer.name}</strong><button type="button" aria-label="Close" onClick={() => setPicked(null)}><X size={15} /></button></div>
             <dl>{Object.entries(picked.props).filter(([k]) => !k.startsWith("_")).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{show(v)}</dd></div>)}</dl>
           </div>}
-        </div>
+        </main>
       </div>
     </div>
   );
