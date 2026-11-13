@@ -187,7 +187,7 @@ export default function Contents({ projectName, layers, activeId, editingId, can
           </div>
         ) : view === "order" ? (
           <>
-            <h3 className="ct-heading">Drawing Order</h3>
+            <h2 className="ct-heading">Drawing Order</h2>
             <div className="ct-map">
               <button type="button" className="ct-tw" aria-expanded={mapOpen} aria-label={mapOpen ? "Fold the map" : "Unfold the map"} onClick={() => setMapOpen(!mapOpen)}><Tri open={mapOpen} /></button>
               <MapIcon size={16} className="ct-map-icon" aria-hidden="true" /><span title={projectName}>Map</span>
@@ -220,7 +220,7 @@ export default function Contents({ projectName, layers, activeId, editingId, can
           <BySource layers={shown} render={(l) => <div className="ct-row ct-flat" onContextMenu={(e) => openMenu(e, l)}>{check(l)}{name(l, <small className="ct-src">{sourceOf(l)}</small>)}{more(l)}</div>} />
         ) : view === "selection" ? (
           <>
-            <h3 className="ct-heading">Selection</h3>
+            <h2 className="ct-heading">Selection</h2>
             <ul className="ct-layers">{shown.filter((l) => l.geometry_type !== "Raster").map((l) => {
               const n = selection[l.id]?.length ?? 0;
               return (
@@ -236,7 +236,7 @@ export default function Contents({ projectName, layers, activeId, editingId, can
           </>
         ) : (
           <>
-            <h3 className="ct-heading">Labeling</h3>
+            <h2 className="ct-heading">Labeling</h2>
             <ul className="ct-layers">{shown.filter((l) => l.geometry_type !== "Raster").map((l) => (
               <li key={l.id} className={`ct-layer${l.id === activeId ? " is-active" : ""}`}>
                 <div className="ct-row ct-flat" onContextMenu={(e) => openMenu(e, l)}>
@@ -284,7 +284,7 @@ function BySource({ layers, render }: { layers: Layer[]; render: (l: Layer) => R
     .map((g) => [g, layers.filter((l) => groupOf(l) === g)] as const).filter(([, ls]) => ls.length);
   return (
     <>
-      <h3 className="ct-heading">Data Source</h3>
+      <h2 className="ct-heading">Data Source</h2>
       {groups.map(([g, ls]) => (
         <section key={g} className="ct-group">
           <div className="ct-group-head"><Database size={14} aria-hidden="true" />{g}<span>{ls.length}</span></div>

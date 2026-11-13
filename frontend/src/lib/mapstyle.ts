@@ -23,6 +23,9 @@ export const basemapStyle = (id?: string) => (BASEMAPS.find((b) => b.id === id) 
 
 export const SELECT = "#00d5ff";     // the selection colour, as in ArcGIS Pro
 export const src = (l: Layer) => `src-${l.id}`;
+/** Labels read the same tiles through a source of their own: when the label font cannot load, MapLibre fails the
+ *  whole tile for every layer on that source, and the features would vanish with their labels. */
+export const labelSrc = (l: Layer) => `src-${l.id}-labels`;
 export const ids = (l: Layer) => {
   const base = `lyr-${l.id}`;
   return { raster: `${base}-raster`, fill: `${base}-fill`, line: `${base}-line`, circle: `${base}-circle`, label: `${base}-label`,
@@ -47,7 +50,8 @@ export function colour(l: Layer): ExpressionSpecification | string {
 }
 
 /** MapLibre layers that draw one PolyGIS layer, its selection and its labels. */
-export function mapLayers(l: Layer, selected: number[], hidden: number[] = []): LayerSpecification[] {
+/** `flat`: draw polygons on the ground even when their style stands them up (the 2D view). */
+export function mapLayers(l: Layer, selected: number[], hidden: number[] = [], flat = false): LayerSpecification[] {
   const i = ids(l);
   if (l.geometry_type === "Raster") {
     const rs = l.style as unknown as RasterStyle;
@@ -61,7 +65,7 @@ export function mapLayers(l: Layer, selected: number[], hidden: number[] = []): 
   const sel: ExpressionSpecification = ["in", ["id"], ["literal", selected.length ? selected : [-1]]];
   const c = colour(l);
   const out: LayerSpecification[] = [];
-  if (l.geometry_type === "Polygon" && s.extrude) {
+  if (l.geometry_type === "Polygon" && s.extrude && !flat) {
     // in 3D: the polygons stand up to their height; the outline and selection stay on the ground
     const e = s.extrude;
     const height: ExpressionSpecification | number = e.field ? ["*", ["to-number", ["coalesce", ["get", e.field], 0], 0], e.scale || 1] : e.height;
@@ -89,7 +93,7 @@ export function mapLayers(l: Layer, selected: number[], hidden: number[] = []): 
   }
   if (l.labels) {
     const lb = l.labels;
-    out.push({ id: i.label, type: "symbol", ...base,
+    out.push({ id: i.label, type: "symbol", ...base, source: labelSrc(l),
       layout: { visibility: vis, "text-field": ["to-string", ["coalesce", ["get", lb.field], ""]], "text-font": FONT, "text-size": lb.size,
         "symbol-placement": l.geometry_type === "LineString" ? "line" : "point", "text-offset": l.geometry_type === "Point" ? [0, 1.1] : [0, 0],
         "text-anchor": l.geometry_type === "Point" ? "top" : "center", "text-max-width": 10 },

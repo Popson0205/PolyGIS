@@ -55,7 +55,7 @@ export default function Geoprocessing({ projectId, layers, selection, activeId, 
     <aside className="ws-panel" aria-label="Geoprocessing">
       <div className="ws-pane-head">
         {tool ? <IconButton label="All tools" onClick={() => setTool(null)}><ArrowLeft size={16} /></IconButton> : <Wrench size={16} aria-hidden="true" className="ws-pane-icon" />}
-        <strong>{tool ? tool.name : "Geoprocessing"}</strong>
+        <h2 className="ws-pane-title">{tool ? tool.name : "Geoprocessing"}</h2>
         <IconButton label="Close geoprocessing" onClick={onClose}><X size={16} /></IconButton>
       </div>
       {!allowed ? (

@@ -58,7 +58,7 @@ export default function App() {
         <Route path="/" element={<ProjectsPage me={me} />} />
         <Route path="/projects/:id" element={<WorkspacePage me={me} onSignOut={signOut} />} />
         <Route path="/activity" element={<ActivityPage />} />
-        <Route path="*" element={<div className="ge-main"><div className="ge-card"><h1>Not found</h1><p><a href="/">Back to the projects</a></p></div></div>} />
+        <Route path="*" element={<main className="ge-main"><div className="ge-card"><h1>Not found</h1><p><a href="/">Back to the projects</a></p></div></main>} />
       </Routes>
     </div>
   );
@@ -71,7 +71,7 @@ const WORDS: Record<string, string> = { "project.create": "made the project", "p
 function ActivityPage() {
   const { data, error } = useLoad(api.activity);
   return (
-    <div className="ge-main">
+    <main className="ge-main">
       <h1>Activity</h1>
       <ErrorText error={error} />
       <table className="ge-table">
@@ -81,6 +81,6 @@ function ActivityPage() {
             <td>{WORDS[a.action] ?? a.action} {String(a.details.name ?? a.details.file ?? "")}{a.details.features != null ? ` (${Number(a.details.features).toLocaleString("en-GB")} features)` : ""}</td></tr>
         ))}</tbody>
       </table>
-    </div>
+    </main>
   );
 }

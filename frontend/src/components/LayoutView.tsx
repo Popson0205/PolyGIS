@@ -38,6 +38,7 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
   const [saved, setSaved] = useState<SavedLayout[]>([]);
   const [current, setCurrent] = useState<SavedLayout | null>(null);
   const [busy, setBusy] = useState<string>("");
+  const [drawing, setDrawing] = useState(false);     // the preview's map picture is being drawn
   const [error, setError] = useState<unknown>(null);
   const [pic, setPic] = useState<Picture | null>(null);
   const [drag, setDrag] = useState<{ x: number; y: number; dx: number; dy: number } | null>(null);
@@ -81,13 +82,15 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
   // the preview's map picture: drawn again a moment after the map's centre, scale or frame changes
   const frameKey = `${frame.w.toFixed(1)}x${frame.h.toFixed(1)}`;
   useEffect(() => {
-    if (drag) return;
+    if (drag) { setDrawing(false); return; }
     const ac = new AbortController();
     const t = setTimeout(() => {
       const ratio = Math.max(0.35, Math.min(2, (pxPerMm * dpr * 25.4) / 96));
       const px = mapPixels(frame, 96 * ratio);
+      setDrawing(true);
       renderMap({ style: printableStyle(map.getStyle()), center: s.center, scale: s.scale, cssW: px.cssW, cssH: px.cssH, ratio: px.ratio }, ac.signal)
-        .then((r) => setPic({ canvas: r.canvas, center: s.center, scale: s.scale, frameW: frame.w, frameH: frame.h }), () => undefined);
+        .then((r) => setPic({ canvas: r.canvas, center: s.center, scale: s.scale, frameW: frame.w, frameH: frame.h }), () => undefined)
+        .finally(() => { if (!ac.signal.aborted) setDrawing(false); });
     }, 350);
     return () => { clearTimeout(t); ac.abort(); };
   }, [s.center[0], s.center[1], s.scale, frameKey, pxPerMm, layers, drag === null]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -219,7 +222,7 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
   const px = mapPixels(frame, s.dpi);
   return (
     <div className="lo" role="dialog" aria-modal="true" aria-label="Print layout">
-      <header className="lo-bar">
+      <div className="lo-bar">
         <Printer size={18} aria-hidden="true" />
         <strong>Print layout</strong>
         <select className="lo-pick" value={current?.id ?? ""} onChange={(e) => open(e.target.value)} aria-label="Saved layouts">
@@ -232,11 +235,11 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
           {current && <IconButton label="Delete this layout" onClick={() => void remove()}><Trash2 size={16} /></IconButton>}
         </>}
         <span className="ge-spacer" />
-        {busy && <span className="lo-busy" role="status">{busy}</span>}
+        {busy ? <span className="lo-busy" role="status">{busy}</span> : drawing && <span className="lo-busy" role="status">Drawing the map…</span>}
         <Button small onClick={() => void exportPng()} disabled={!!busy}><ImageIcon size={14} aria-hidden="true" />PNG</Button>
         <Button small variant="primary" onClick={() => void exportPdf()} disabled={!!busy}><FileDown size={14} aria-hidden="true" />Export PDF</Button>
         <IconButton label="Close the layout" onClick={onClose}><X size={18} /></IconButton>
-      </header>
+      </div>
       <div className="lo-body">
         <div className="lo-stage" ref={stage} onWheel={onWheel}>
           <canvas ref={canvas} className={`lo-page${drag ? " is-dragging" : ""}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}

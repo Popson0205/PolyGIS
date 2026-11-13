@@ -72,7 +72,7 @@ export default function PolyEarth({ projectId, layers, selection, activeId, canE
     <aside className="ws-panel pe" aria-label="Poly Earth">
       <div className="ws-pane-head">
         {tool ? <IconButton label="All Poly Earth tools" onClick={() => setTool(null)}><ArrowLeft size={16} /></IconButton> : <Earth size={16} aria-hidden="true" className="ws-pane-icon pe-mark" />}
-        <strong>{tool ? tool.name : "Poly Earth"}</strong>
+        <h2 className="ws-pane-title">{tool ? tool.name : "Poly Earth"}</h2>
         <IconButton label="Close Poly Earth" onClick={onClose}><X size={16} /></IconButton>
       </div>
       {!allowed ? (
