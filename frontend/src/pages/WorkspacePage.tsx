@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, BarChart3, ChevronDown, CloudSun, Earth, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Ruler, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Wrench, X, ZoomIn,
+  PanelRightClose, PanelRightOpen, Printer, Ruler, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Wrench, X, ZoomIn,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -14,6 +14,7 @@ import { AddData, CrsPicker, Dialog, Export, NewLayer, SelectByAttributes, Selec
 import Geoprocessing from "../components/Geoprocessing";
 import PolyEarth, { useEarthJobs } from "../components/PolyEarth";
 import LayerPanel from "../components/LayerPanel";
+import LayoutView from "../components/LayoutView";
 import { Apps, UserMenu, licenceNotice, useApps } from "../components/Bar";
 import { Button, ErrorText, IconButton, Resizer, useStored, useToast } from "../components/ui";
 import RasterPanel from "../components/RasterPanel";
@@ -23,9 +24,9 @@ import { Editor } from "../lib/editor";
 import { BASEMAPS, GLYPHS, allIds, basemapStyle, ids as layerIds, mapLayers, src } from "../lib/mapstyle";
 import type { CrsDef, Layer, Me, Project, Selection, VectorType } from "../lib/types";
 
-type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "earth";
+type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "earth" | "share";
 type Tool = "explore" | "select" | "select-area" | "measure-line" | "measure-area" | "create" | "reshape" | "pick-reshape";
-type DialogName = "add" | "imagery" | "new" | "attr" | "loc" | "export" | "crs" | null;
+type DialogName = "add" | "imagery" | "new" | "attr" | "loc" | "export" | "crs" | "plan" | null;
 const DRAW = { Point: "point", LineString: "linestring", Polygon: "polygon" } as const;
 
 /** A project open in the workspace, laid out like a desktop GIS: ribbon, contents, map, properties, table, status. */
@@ -55,6 +56,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [gp, setGp] = useState<{ open: boolean; start: string | null; query: string }>({ open: false, start: null, query: "" });
   const [earth, setEarth] = useState<{ open: boolean; start: string | null }>({ open: false, start: null });
   const [panelTab, setPanelTab] = useState<{ tab: PanelTab; n: number }>({ tab: "symbology", n: 0 });
+  const [layoutOpen, setLayoutOpen] = useState(false);
   const earthJobs = useEarthJobs((j) => {
     if (j.status === "failed") { toast(`${j.tool_name} did not finish: ${j.error}`, "bad"); return; }
     if (j.status === "stopped") { toast(`${j.tool_name} stopped. Nothing was kept.`, "info"); return; }
@@ -518,7 +520,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       <div className="ws-empty-state"><SlidersHorizontal size={22} aria-hidden="true" />Choose a layer in Contents to style it, label it and see its fields.</div>
     </aside>
   );
-  const tabs: [Tab, string][] = [["map", "Map"], ["insert", "Insert"], ["select", "Select"], ["edit", "Edit"], ["analysis", "Analysis"], ["earth", "Poly Earth"]];
+  const tabs: [Tab, string][] = [["map", "Map"], ["insert", "Insert"], ["select", "Select"], ["edit", "Edit"], ["analysis", "Analysis"], ["earth", "Poly Earth"], ["share", "Share"]];
+  const layoutsAllowed = me.features.includes("layouts");
+  const openLayout = () => { if (!layoutsAllowed) { setDialog("plan"); return; } if (map.current) setLayoutOpen(true); };
 
   return (
     <div className="ws" style={{ "--left": `${leftW}px`, "--right": `${rightW}px`, "--table": `${tableH}px` } as React.CSSProperties}>
@@ -575,11 +579,24 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => setDialog("crs")} icon={<Globe2 />} label={crs ? shortCrs(crs.name) : `EPSG:${project.display_epsg}`} />
             </Group>
           </>}
-          {tab === "insert" && <Group name="Data">
-            <Tb onClick={() => setDialog("add")} icon={<FilePlus2 />} label="Add data" disabled={!canEdit} />
-            <Tb onClick={() => setDialog("new")} icon={<Layers />} label="New layer" disabled={!canEdit} />
-            <Tb onClick={() => setDialog("export")} icon={<Download />} label="Export layer" disabled={!active || active.geometry_type === "Raster"} />
-          </Group>}
+          {tab === "insert" && <>
+            <Group name="Data">
+              <Tb onClick={() => setDialog("add")} icon={<FilePlus2 />} label="Add data" disabled={!canEdit} />
+              <Tb onClick={() => setDialog("new")} icon={<Layers />} label="New layer" disabled={!canEdit} />
+              <Tb onClick={() => setDialog("export")} icon={<Download />} label="Export layer" disabled={!active || active.geometry_type === "Raster"} />
+            </Group>
+            <Group name="Layout">
+              <Tb onClick={openLayout} icon={<Printer />} label="New layout" />
+            </Group>
+          </>}
+          {tab === "share" && <>
+            <Group name="Print">
+              <Tb onClick={openLayout} icon={<Printer />} label="Print layout" />
+            </Group>
+            <Group name="Export">
+              <Tb onClick={() => setDialog("export")} icon={<Download />} label="Export layer" disabled={!active || active.geometry_type === "Raster"} />
+            </Group>
+          </>}
           {tab === "select" && <>
             <Group name="Interactive">
               <Tb on={tool === "select"} onClick={() => chooseTool("select")} icon={<MousePointerClick />} label="Select" disabled={!active || active.geometry_type === "Raster"} />
@@ -732,6 +749,12 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       {dialog === "attr" && active && <SelectByAttributes layer={active} onClose={() => setDialog(null)} onDone={(s, add) => applySelection(active.id, s, add)} />}
       {dialog === "loc" && active && <SelectByLocation layer={active} layers={layers} selection={selection} onClose={() => setDialog(null)} onDone={(s, add) => applySelection(active.id, s, add)} />}
       {dialog === "export" && active && <Export layer={active} selected={sel(active.id)} epsg={project.display_epsg} onClose={() => setDialog(null)} />}
+      {layoutOpen && map.current && <LayoutView project={project} layers={layers} crs={crs} me={me} map={map.current} canSave={canEdit && layoutsAllowed} onClose={() => setLayoutOpen(false)} />}
+      {dialog === "plan" && <Dialog title="Print layouts" onClose={() => setDialog(null)}>
+        <div className="ws-form"><p>Print layouts (map sheets with a title, legend, scale bar, north arrow and grid, exported as PDF) are in PolyGIS Advanced.
+          Ask GeoEstate NIG Limited to move your organization to Advanced.</p>
+          <div className="ws-row"><Button variant="primary" onClick={() => setDialog(null)}>OK</Button></div></div>
+      </Dialog>}
       {dialog === "crs" && <CrsDialog project={project} canEdit={canEdit} onClose={() => setDialog(null)} onDone={async (p) => { setProject(p); setCrs(await loadCrs(p.display_epsg)); setDialog(null); }} />}
     </div>
   );
