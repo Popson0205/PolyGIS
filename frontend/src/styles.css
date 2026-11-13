@@ -552,3 +552,4 @@ body.is-resizing { cursor: col-resize; user-select: none; } body.is-resizing .ma
 .ws-3d { border-top: 1px solid var(--c-line-2) !important; padding-top: 10px !important; }
 .ws-tb-mini .ws-tb-select { flex-direction: row; align-items: center; gap: 6px; padding: 2px 4px; }
 .ws-tb-mini .ws-tb-select select { height: 26px; min-width: 150px; font-size: 12.5px; }
+.ct-linked { color: var(--c-violet); flex: none; margin-left: 4px; }

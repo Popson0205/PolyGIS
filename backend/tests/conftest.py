@@ -44,6 +44,9 @@ class FakeGeohub:
         self.calls: list[str] = []
         self.no_product_on_refresh = False
         self.datasets: dict[str, dict] = {}
+        self.products: set[str] = set()                   # other apps the organization has (for linked layers)
+        self.hub_projects: list[dict] = []
+        self.hub_features: dict[str, list[dict]] = {}
 
     def claims(self, role="owner", org="Abuja Survey Ltd", org_id=None, status="active", features=None, limits=None, staff=None,
                name="Ada Mapper"):
@@ -75,6 +78,11 @@ class FakeGeohub:
             f = {k: v[0] for k, v in parse_qs(req.content.decode()).items()}
             if f.get("client_secret") != settings.id_secret:
                 return httpx.Response(401, json={"detail": "The app's secret is not right.", "code": "invalid_client"})
+            if f["grant_type"] == "urn:ietf:params:oauth:grant-type:token-exchange":
+                who = jwt.decode(f["subject_token"], options={"verify_signature": False})
+                if f["audience"] not in self.products:
+                    return httpx.Response(403, json={"detail": f"{who['org']['name']} does not have that app.", "code": "no_product"})
+                return httpx.Response(200, json={"access_token": f"{f['audience']}-token-for-{who['sub']}", "token_type": "Bearer", "expires_in": 900})
             if f["grant_type"] == "authorization_code":
                 c = self.codes.pop(f["code"], None)
                 if not c:
@@ -92,7 +100,19 @@ class FakeGeohub:
             return self.hub(req, path)
         if path == "/id/apps":
             return httpx.Response(200, json=[{"product": "hub", "name": "Geohub", "status": "active", "url": settings.geohub_url, "current": False},
-                                             {"product": "gis", "name": "PolyGIS", "status": "active", "url": settings.app_url, "current": True}])
+                                             {"product": "gis", "name": "PolyGIS", "status": "active", "url": settings.app_url, "current": True},
+                                             *[{"product": p, "name": n, "status": "active", "url": f"http://{p}.test", "current": False}
+                                               for p, n in (("land", "Land Registry"), ("farm", "FarmScan")) if p in self.products]])
+        if path == "/id/data/projects":
+            return httpx.Response(200, json=self.hub_projects)
+        if path.startswith("/id/data/forms/"):
+            feats = self.hub_features.get(path.split("/")[4], [])
+            after = int(req.url.params.get("after") or 0)
+            if req.url.params.get("status"):
+                feats = [x for x in feats if x["status"] == req.url.params["status"]]
+            page = feats[after:after + int(req.url.params.get("limit") or 1000)]
+            nxt = after + len(page)
+            return httpx.Response(200, json={"features": page, "next": str(nxt) if nxt < len(feats) else None})
         return httpx.Response(404, json={"detail": "Not found."})
 
 

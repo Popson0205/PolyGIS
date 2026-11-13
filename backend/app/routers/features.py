@@ -12,7 +12,7 @@ from .. import gisdata
 from ..db import get_conn
 from ..errors import Problem
 from ..identity import need
-from .layers import _geom_in, _touch, layer_of
+from .layers import not_linked, _geom_in, _touch, layer_of
 
 router = APIRouter(tags=["editing"])
 
@@ -137,6 +137,7 @@ async def features_in(layer_id: UUID, bbox: str, limit: int = 5000, user=Depends
 @router.post("/layers/{layer_id}/features", status_code=201, summary="Add a feature")
 async def add_feature(layer_id: UUID, body: FeatureIn, user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     layer = await layer_of(conn, layer_id, user, lock=True)
+    not_linked(layer)
     geom = _geom_ok(layer, body.geometry)
     props = _props_ok(layer, body.properties)
     cur = await conn.execute("INSERT INTO features (layer_id, geom, props, updated_by) VALUES (%s, ST_GeomFromEWKB(%s), %s, %s) RETURNING id",
@@ -151,6 +152,7 @@ async def add_feature(layer_id: UUID, body: FeatureIn, user=Depends(need("editor
 @router.patch("/layers/{layer_id}/features/{fid}", summary="Change a feature's shape or attributes")
 async def change_feature(layer_id: UUID, fid: int, body: FeaturePatch, user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     layer = await layer_of(conn, layer_id, user, lock=True)
+    not_linked(layer)
     before = await _snapshot(conn, layer_id, fid)
     if not before:
         raise Problem(404, "Feature not found.", code="not_found")
@@ -173,6 +175,7 @@ class ManyIn(BaseModel):
 @router.post("/layers/{layer_id}/features/delete", summary="Delete features (each can be undone)")
 async def delete_features(layer_id: UUID, body: ManyIn, user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     layer = await layer_of(conn, layer_id, user, lock=True)
+    not_linked(layer)
     n = 0
     for fid in body.ids:
         before = await _snapshot(conn, layer_id, fid)
@@ -195,6 +198,7 @@ class CalcIn(BaseModel):
 @router.post("/layers/{layer_id}/calculate", summary="Field calculator: set a field for many features at once")
 async def calculate(layer_id: UUID, body: CalcIn, user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     layer = await layer_of(conn, layer_id, user, lock=True)
+    not_linked(layer)
     names = {f["name"] for f in layer["fields"]}
     if body.field not in names or (body.from_field and body.from_field not in names):
         raise Problem(422, f"{layer['name']} has no such field.", code="validation", fields={"field": ["unknown"]})
@@ -222,6 +226,7 @@ async def calculate(layer_id: UUID, body: CalcIn, user=Depends(need("editor", wr
 @router.post("/layers/{layer_id}/undo", summary="Undo your latest edit on this layer")
 async def undo(layer_id: UUID, user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     layer = await layer_of(conn, layer_id, user, lock=True)
+    not_linked(layer)
     cur = await conn.execute("SELECT * FROM edits WHERE layer_id = %s AND actor_id = %s AND undone_at IS NULL ORDER BY id DESC LIMIT 1",
                              (layer_id, user["id"]))
     e = await cur.fetchone()

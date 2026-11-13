@@ -82,6 +82,12 @@ class GeoEstateID:
     def refresh(self, refresh_token: str) -> dict:
         return self._post("token", {"grant_type": "refresh_token", "refresh_token": refresh_token})
 
+    def token_for(self, access_token: str, audience: str) -> dict:
+        """A short access token for another GeoEstate app ("land", "farm"…), as the same person (token exchange): to read
+        that app's data for them. Refused (no_product) when their organization does not have that app."""
+        return self._post("token", {"grant_type": "urn:ietf:params:oauth:grant-type:token-exchange", "subject_token": access_token,
+                                    "subject_token_type": "urn:ietf:params:oauth:token-type:access_token", "audience": audience})
+
     def sign_out(self, refresh_token: str) -> None:
         self._post("revoke", {"token": refresh_token})
 

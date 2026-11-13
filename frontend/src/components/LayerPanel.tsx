@@ -206,7 +206,9 @@ function Source({ layer, onExport }: { layer: Layer; onExport: () => void }) {
     <div className="ws-form">
       <dl className="ws-dl">
         <dt>Features</dt><dd>{layer.feature_count.toLocaleString("en-GB")} {layer.geometry_type === "Point" ? "points" : layer.geometry_type === "LineString" ? "lines" : "polygons"}</dd>
-        <dt>Came from</dt><dd>{layer.source.drawn ? "Drawn in PolyGIS" : layer.source.filename ?? "—"}</dd>
+        <dt>Came from</dt><dd>{layer.source.linked ? `${layer.source.linked.app_name}: ${layer.source.linked.label}` : layer.source.drawn ? "Drawn in PolyGIS" : layer.source.filename ?? "—"}</dd>
+        {layer.source.linked && <><dt>Up to date as of</dt><dd>{layer.source.linked.refreshed_at ? new Date(layer.source.linked.refreshed_at).toLocaleString("en-GB") : "—"}</dd>
+          <dt>Changes</dt><dd>Made in {layer.source.linked.app_name}; refresh the layer to see them (it also refreshes when the project opens).</dd></>}
         {layer.source.crs && <><dt>Its coordinate system</dt><dd>{layer.source.crs} (stored in WGS 84)</dd></>}
         {!!layer.source.dropped && <><dt>Left out</dt><dd>{layer.source.dropped} feature{layer.source.dropped === 1 ? "" : "s"} without a usable shape</dd></>}
         {b && <><dt>Extent</dt><dd className="ws-mono">{b.map((x) => x.toFixed(5)).join(", ")}</dd></>}

@@ -17,6 +17,7 @@ import LayerPanel from "../components/LayerPanel";
 import LayoutView from "../components/LayoutView";
 import ShareDialog from "../components/ShareDialog";
 import PublishDialog from "../components/PublishDialog";
+import LinkedDialog from "../components/LinkedDialog";
 import { Apps, UserMenu, licenceNotice, useApps } from "../components/Bar";
 import { Button, ErrorText, IconButton, Resizer, useStored, useToast } from "../components/ui";
 import RasterPanel from "../components/RasterPanel";
@@ -28,7 +29,7 @@ import type { CrsDef, Layer, Me, Project, Selection, VectorType } from "../lib/t
 
 type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "earth" | "share";
 type Tool = "explore" | "select" | "select-area" | "measure-line" | "measure-area" | "create" | "reshape" | "pick-reshape";
-type DialogName = "add" | "imagery" | "new" | "attr" | "loc" | "export" | "crs" | "plan" | "share" | "publish" | null;
+type DialogName = "add" | "imagery" | "new" | "attr" | "loc" | "export" | "crs" | "plan" | "share" | "publish" | "linked" | null;
 const DRAW = { Point: "point", LineString: "linestring", Polygon: "polygon" } as const;
 
 /** A project open in the workspace, laid out like a desktop GIS: ribbon, contents, map, properties, table, status. */
@@ -403,6 +404,22 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     try { setLayers(await api.order(id, ids)); } catch (e) { toast(e instanceof ApiError ? e.message : "Could not change the order.", "error"); void load(); }
   }
 
+  /** A linked layer brought up to date with its app (quietly when the project opens). */
+  async function refreshLinked(l: Layer, quiet = false) {
+    try {
+      const fresh = await api.refreshLinked(l.id);
+      replaceLayer(fresh);
+      if (!quiet) toast(`${l.name} is up to date with ${l.source.linked?.app_name}: ${fresh.feature_count.toLocaleString("en-GB")} features.`, "success");
+    } catch (e) { if (!quiet) toast(e instanceof ApiError ? e.message : "Could not refresh it.", "error"); }
+  }
+  const refreshedOnOpen = useRef(false);
+  useEffect(() => {
+    if (refreshedOnOpen.current || !project || !canEdit) return;
+    refreshedOnOpen.current = true;
+    const stale = layers.filter((l) => l.source.linked && Date.now() - new Date(l.source.linked.refreshed_at ?? 0).getTime() > 10 * 60 * 1000);
+    for (const l of stale) void refreshLinked(l, true);
+  }, [project, layers]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---------- keyboard: Esc ends a tool, Ctrl+K finds a tool ----------
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -500,7 +517,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
 
   if (error) return <div className="ge-main"><ErrorText error={error} /><Link to="/">All projects</Link></div>;
   if (!project) return <p className="loading">Opening the project…</p>;
-  const editable = layers.filter((l) => canEdit && l.geometry_type !== "Raster");
+  const editable = layers.filter((l) => canEdit && l.geometry_type !== "Raster" && !l.source.linked);
   const totalSel = Object.values(selection).reduce((n, x) => n + x.length, 0);
   const notice = licenceNotice(me.product);
   const openTool = (t: string | null, q = "") => { setEarth({ open: false, start: null }); setGp({ open: true, start: t, query: q }); setRightOpen(true); };
@@ -625,6 +642,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             <Group name="Data">
               <Tb onClick={() => setDialog("add")} icon={<FilePlus2 />} label="Add data" disabled={!canEdit} />
               <Tb onClick={() => setDialog("new")} icon={<Layers />} label="New layer" disabled={!canEdit} />
+              <Tb onClick={() => setDialog("linked")} icon={<Link2 />} label="Linked layer" disabled={!canEdit} />
               <Tb onClick={() => setDialog("export")} icon={<Download />} label="Export layer" disabled={!active || active.geometry_type === "Raster"} />
             </Group>
             <Group name="Layout">
@@ -750,7 +768,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             onPanel={openPanel} onSelection={(l, op) => void selectionOp(l, op)} onLabels={(l, on) => void labelsOn(l, on)} onRename={(l, n) => void renameLayer(l, n)}
             onPaste={(t, f) => void pasteProperties(t, f)} onSourceResolution={sourceResolution}
             onExport={(l) => { setActiveId(l.id); if (l.geometry_type !== "Raster") setDialog("export"); else window.location.assign(rasterDownloadUrl(l.id)); }}
-            onEdit={(l) => startEditing(l.id)} onAdd={() => setDialog("add")} onCollapse={() => setLeftOpen(false)} />
+            onEdit={(l) => startEditing(l.id)} onAdd={() => setDialog("add")} onCollapse={() => setLeftOpen(false)} onRefresh={(l) => void refreshLinked(l)} />
         ) : (
           <div className="ws-rail is-left"><IconButton label="Show Contents" onClick={() => setLeftOpen(true)}><PanelLeftOpen size={18} /></IconButton>
             <IconButton label="Add data" onClick={() => setDialog("add")} disabled={!canEdit}><FilePlus2 size={18} /></IconButton></div>
@@ -803,6 +821,10 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
           Ask GeoEstate NIG Limited to move your organization to Advanced.</p>
           <div className="ws-row"><Button variant="primary" onClick={() => setDialog(null)}>OK</Button></div></div>
       </Dialog>}
+      {dialog === "linked" && <LinkedDialog projectId={id} onClose={() => setDialog(null)} onDone={(l) => {
+        setLayers((cur) => [...cur, l]); setActiveId(l.id); setDialog(null); setLeftOpen(true);
+        toast(`${l.name} added from ${l.source.linked?.app_name}: ${l.feature_count.toLocaleString("en-GB")} features.`, "success"); if (l.bbox) zoomTo(l.bbox);
+      }} />}
       {dialog === "publish" && active && <PublishDialog layer={active} selected={sel(active.id)} onClose={() => setDialog(null)} />}
       {dialog === "share" && <ShareDialog project={project} layers={layers} canEdit={canEdit} onClose={() => setDialog(null)}
         view={() => { const m = map.current; const c = m?.getCenter(); return c && m ? { center: [c.lng, c.lat], zoom: m.getZoom(), bearing: m.getBearing(), basemap } : project.view; }} />}
