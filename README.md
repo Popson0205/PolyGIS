@@ -53,6 +53,15 @@ sharp vector text and lines and the map as a picture at 150, 200 or 300 dpi (les
 cannot draw that much: the sheet says so), or a PNG. Layouts are saved with the project. The page is drawn in the
 browser (`src/lib/layout.ts`), so the preview and the PDF are the same drawing.
 
+## Share links
+
+Share › Share link makes a read-only link to the map: the layers chosen, opening where the map is when the link is made,
+with their legend, a feature's details on click, a choice of basemap and, if allowed, downloads of those layers. A link
+is for anyone who has it (no sign-in) or only for people of the organization (signed in); it can end after a week, 30 or
+90 days or a year; it shows the layers as they are when opened, so later edits appear; "show the map as it is now"
+updates its view and layers without changing its address; turning it off stops it at once. Views are counted and
+downloads recorded in the activity log. A shared page may be embedded in another site (an iframe).
+
 ## How it is built
 
 FastAPI with PostgreSQL and PostGIS (the `gis` schema of the platform database) behind; React with TypeScript, Vite and

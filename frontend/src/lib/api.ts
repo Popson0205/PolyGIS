@@ -49,6 +49,10 @@ export const api = {
   createLayout: (projectId: string, name: string, settings: LayoutSettings) => req<SavedLayout>("POST", `/projects/${projectId}/layouts`, { name, settings }),
   updateLayout: (id: string, b: { name?: string; settings?: LayoutSettings }) => req<SavedLayout>("PATCH", `/layouts/${id}`, b),
   deleteLayout: (id: string) => req<void>("DELETE", `/layouts/${id}`),
+  shares: (projectId: string) => req<Share[]>("GET", `/projects/${projectId}/shares`),
+  createShare: (projectId: string, b: ShareIn) => req<Share>("POST", `/projects/${projectId}/shares`, b),
+  updateShare: (id: string, b: Partial<ShareIn>) => req<Share>("PATCH", `/shares/${id}`, b),
+  revokeShare: (id: string) => req<Share>("DELETE", `/shares/${id}`),
   updateProject: (id: string, b: { name?: string; description?: string; display_epsg?: number; view?: View }) => req<Project>("PATCH", `/projects/${id}`, b),
   deleteProject: (id: string) => req<void>("DELETE", `/projects/${id}`),
 
@@ -108,3 +112,30 @@ export const api = {
 };
 
 export interface SavedLayout { id: string; project_id: string; name: string; settings: LayoutSettings; created_by_name: string; updated_by_name: string; updated_at: string }
+
+export interface ShareIn { title: string; description?: string; layer_ids: string[]; view?: View; audience: "anyone" | "organization"; downloads: boolean; expires_in_days?: number | null }
+export interface Share {
+  id: string; project_id: string; token: string; title: string; description: string; layer_ids: string[]; view: View; audience: "anyone" | "organization";
+  downloads: boolean; expires_at: string | null; revoked_at: string | null; views: number; last_viewed_at: string | null; created_by_name: string; created_at: string;
+}
+export interface PublicShare {
+  title: string; description: string; project_name: string; view: View; layers: Layer[]; downloads: boolean; audience: "anyone" | "organization";
+  expires_at: string | null; shared_by: string;
+}
+export const shareUrl = (token: string) => `${window.location.origin}/share/${token}`;
+const pub = (token: string) => `${BASE}/public/shares/${encodeURIComponent(token)}`;
+export const publicApi = {
+  /** A shared map. Errors keep their status (401: sign in for an organization's link; 404 revoked; 410 ended). */
+  open: async (token: string): Promise<PublicShare> => {
+    let res: Response;
+    try { res = await fetch(pub(token), { credentials: "same-origin" }); } catch { throw new ApiError(0, "Can't reach PolyGIS. Check your connection."); }
+    if (!res.ok) { let p: Record<string, unknown> = {}; try { p = await res.json(); } catch { /* not JSON */ } throw new ApiError(res.status, String(p.detail ?? res.statusText), p.code as string | undefined); }
+    return res.json();
+  },
+  tiles: (token: string, l: Layer) => `${window.location.origin}${pub(token)}/layers/${l.id}/tiles/{z}/{x}/{y}.pbf?v=${l.version}`,
+  rasterTiles: (token: string, l: Layer) => `${window.location.origin}${pub(token)}/layers/${l.id}/raster/{z}/{x}/{y}.png?v=${l.version}`,
+  feature: async (token: string, layerId: string, fid: number) => (await fetch(`${pub(token)}/layers/${layerId}/features/${fid}`, { credentials: "same-origin" })).json() as Promise<{ properties: Record<string, unknown> }>,
+  rasterValue: async (token: string, layerId: string, lng: number, lat: number) =>
+    (await fetch(`${pub(token)}/layers/${layerId}/raster/value?lng=${lng}&lat=${lat}`, { credentials: "same-origin" })).json() as Promise<{ values: (number | null)[] | null; bands: string[] }>,
+  download: (token: string, layerId: string, format: string) => `${pub(token)}/layers/${layerId}/export?format=${format}`,
+};

@@ -17,6 +17,8 @@
  *   data-min       how long the full launch lasts, in seconds (default 10, 1 to 20)
  *   data-wait      "app": stay until the application calls GeoEstateSplash.done() (at most 15 s more);
  *                  otherwise (default): leave when the page has loaded
+ *   data-quick     pages that start quickly (the short launch) every time, as path prefixes separated by commas,
+ *                  e.g. "/share/" for maps shared with people who are not opening the application itself
  *
  * From the application:
  *   GeoEstateSplash.step("Checking your GeoEstate ID")       what it is doing (the bar follows the launch's time)
@@ -36,6 +38,7 @@
   var key = "ge-splash:" + product;
   var warm = false;
   try { warm = sessionStorage.getItem(key) === "1"; sessionStorage.setItem(key, "1"); } catch (e) { /* private window */ }
+  if ((ds.quick || "").split(",").some(function (p) { p = p.trim(); return p && location.pathname.indexOf(p) === 0; })) warm = true;
   var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   // how long the full launch lasts (data-min, in seconds; 10 by default), like desktop software starting; a reload in the same
   // session is quick, and reduced motion quicker still
