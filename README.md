@@ -37,10 +37,21 @@ collectors and viewers are **viewers** (open and export). An expired licence is 
 ## Next phases
 
 2. **Geoprocessing**: 107 vector tools in nine groups (proximity, overlay, generalization, conversion, topology, sampling, spatial statistics such as hot spots and Moran's I, and network analysis such as routes, closest facility and service areas), run as jobs, results as layers.
-3. **Rasters and print layouts**: raster import and analysis (slope, hillshade, reclassify, zonal statistics), and
-   layouts with legend, scale bar, north arrow and grid to PDF.
+3. **Rasters and print layouts**: raster import and analysis (see Rasters below); print layouts (see Print layouts below).
 4. **Sharing**: publish to Geohub's data hub, live layers from the other products, a model builder, 3D, a desktop app
    wrapping the same web app.
+
+## Print layouts
+
+Share › Print layout (or Insert › New layout) opens the sheet as it will print, beside its settings (Advanced plan,
+`layouts` feature). A4 to A0, Letter, Legal and Tabloid, portrait or landscape; the map at a set scale (1:N, true at the
+map's centre), moved by dragging it on the sheet and rescaled by scrolling; title, subtitle and notes; a legend in a
+side column, a band below the map, inside the map or none (the visible layers, as Contents shows them); a scale bar, a
+north arrow, and a grid of the project's coordinate system with its eastings and northings (or degrees and minutes)
+round the frame; a footer with the system, the date, who printed it and the basemap's credits. Export makes a PDF with
+sharp vector text and lines and the map as a picture at 150, 200 or 300 dpi (less on very large sheets, where a browser
+cannot draw that much: the sheet says so), or a PNG. Layouts are saved with the project. The page is drawn in the
+browser (`src/lib/layout.ts`), so the preview and the PDF are the same drawing.
 
 ## How it is built
 
