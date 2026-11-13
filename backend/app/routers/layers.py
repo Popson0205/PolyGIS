@@ -61,6 +61,15 @@ async def layer_of(conn, layer_id, user, lock: bool = False) -> dict:
     return _shape(r)
 
 
+def not_linked(layer: dict) -> None:
+    """A layer that follows another GeoEstate app (Land Registry's parcels, FarmScan's farms, a Geohub form) is changed
+    there, not here: refreshing it would undo edits made in PolyGIS."""
+    lk = (layer.get("source") or {}).get("linked")
+    if lk:
+        raise Problem(409, f"{layer['name']} follows {lk.get('app_name') or 'another app'}: change it there, then refresh it here. "
+                           "To edit a copy, export it and add it as a new layer.", code="linked_layer")
+
+
 async def _next_position(conn, project_id) -> int:
     cur = await conn.execute("SELECT COALESCE(max(position), -1) + 1 AS n FROM layers WHERE project_id = %s", (project_id,))
     return (await cur.fetchone())["n"]
@@ -264,6 +273,7 @@ class FieldOp(BaseModel):
 @router.post("/layers/{layer_id}/fields", summary="Add, rename or delete a field")
 async def change_fields(layer_id: UUID, body: FieldOp, user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     layer = await layer_of(conn, layer_id, user, lock=True)
+    not_linked(layer)
     fields = list(layer["fields"])
     names = [f["name"] for f in fields]
     if body.op == "add":

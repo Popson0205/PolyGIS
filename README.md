@@ -38,8 +38,8 @@ collectors and viewers are **viewers** (open and export). An expired licence is 
 
 2. **Geoprocessing**: 107 vector tools in nine groups (proximity, overlay, generalization, conversion, topology, sampling, spatial statistics such as hot spots and Moran's I, and network analysis such as routes, closest facility and service areas), run as jobs, results as layers.
 3. **Rasters and print layouts**: raster import and analysis (see Rasters below); print layouts (see Print layouts below).
-4. **Sharing**: share links and publishing to Geohub's Data hub (see below); next, live layers from the other products,
-   a model builder, and a desktop app wrapping the same web app (3D: see below).
+4. **Sharing**: share links, publishing to Geohub's Data hub, linked layers from the other products and 3D (see below);
+   next, a model builder, and a desktop app wrapping the same web app.
 
 ## Print layouts
 
@@ -70,6 +70,18 @@ their organization, or anyone). Geohub keeps each publication as a version that 
 downloads; publishing the layer again adds the next version to a dataset published from it before. Field names travel
 as column labels. Up to 50,000 features at a time. Needs Geohub with `/id/data/datasets` (Geohub PR "Data hub: datasets
 published from the other GeoEstate apps").
+
+## Linked layers
+
+Insert › Linked layer shows data that lives in another GeoEstate app as a layer that follows it: Land Registry's parcel
+fabric (PIN, title, land use, area, locality, survey plan; coloured by land use), FarmScan's farms (farmer, crop, area,
+latest NDVI; coloured red to green), or the records of a Geohub form (approved ones, or all). PolyGIS reads them as the
+person signed in, so each shows only what they may see in that app: Geohub's data with their own access token, Land
+Registry and FarmScan with a short token from Geohub's token exchange (GeoHub PR 46; Land Registry PR 17 and FarmScan
+PR 13 accept it). The features are copied into the layer, so it is styled, labelled, queried, analysed, printed and
+shared like any other; it is refreshed from its app on demand and when the project opens (if older than ten minutes),
+and is changed in its app, not here. `LAND_API` and `FARM_API` override the apps' API addresses (default: their
+addresses from Geohub, with `/api` for Land Registry).
 
 ## 3D
 

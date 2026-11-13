@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # Uploads: the largest file accepted, and the most features one layer may hold.
     max_upload_mb: int = 200
     max_features: int = 500_000
+    land_api: str = ""                         # Land Registry's API for linked layers; default: its address from Geohub + /api
+    farm_api: str = ""                         # FarmScan's API (its routes start /api/); default: its address from Geohub
+    linked_max: int = 50_000                   # features in a linked layer
     tool_timeout_s: int = 120                  # the longest a geoprocessing tool may run
 
     # Rasters (elevation models, imagery, results of raster tools) are kept as Cloud-Optimized GeoTIFFs: in an

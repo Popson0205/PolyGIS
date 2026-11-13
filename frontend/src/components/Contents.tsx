@@ -1,6 +1,6 @@
 import {
   AlertTriangle, ArrowLeftRight, ChevronRight, ClipboardPaste, Copy, Database, Download, Eraser, FilePlus2, Filter, Info, Layers, ListFilter, ListTree,
-  LocateFixed, Map as MapIcon, MousePointerSquareDashed, PanelLeftClose, PenLine, Ratio, Scan, Search, SlidersHorizontal, SquareMousePointer, Table2, Tag,
+  Link2, LocateFixed, Map as MapIcon, RefreshCw, MousePointerSquareDashed, PanelLeftClose, PenLine, Ratio, Scan, Search, SlidersHorizontal, SquareMousePointer, Table2, Tag,
   Tags, Trash2, X, ZoomIn,
 } from "lucide-react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
@@ -44,12 +44,13 @@ export function Swatch({ layer }: { layer: Layer }) {
 /** The Contents pane, laid out like a desktop GIS's: the map's layers in drawing order with their legends, or listed by data
  * source, by selection or by labelling; a right-click (or the ⋯ button) opens each layer's menu. */
 export default function Contents({ projectName, layers, activeId, editingId, canEdit, canExport, selection, onActivate, onToggle, onReorder, onZoom, onTable, onRemove,
-  onPanel, onExport, onEdit, onAdd, onCollapse, onSelection, onLabels, onRename, onPaste, onSourceResolution }: {
+  onPanel, onExport, onEdit, onAdd, onCollapse, onSelection, onLabels, onRename, onPaste, onSourceResolution, onRefresh }: {
   projectName: string; layers: Layer[]; activeId: string | null; editingId: string | null; canEdit: boolean; canExport: boolean; selection: Record<string, number[]>;
   onActivate: (id: string) => void; onToggle: (l: Layer) => void; onReorder: (bottomToTop: string[]) => void;
   onZoom: (l: Layer) => void; onTable: (l: Layer) => void; onRemove: (l: Layer) => void; onPanel: (l: Layer, tab: PanelTab) => void; onExport: (l: Layer) => void;
   onEdit: (l: Layer) => void; onAdd: () => void; onCollapse: () => void; onSelection: (l: Layer, op: SelectionOp) => void;
   onLabels: (l: Layer, on: boolean) => void; onRename: (l: Layer, name: string) => void; onPaste: (target: Layer, from: Layer) => void; onSourceResolution: (l: Layer) => void;
+  onRefresh: (l: Layer) => void;
 }) {
   const [view, setView] = useStored<View>("contents-view", "order");
   const [show, setShow] = useStored<Show>("contents-show", "all");
@@ -113,7 +114,8 @@ export default function Contents({ projectName, layers, activeId, editingId, can
         { label: "Label", icon: <Tag size={15} />, checked: !!l.labels, disabled: !canEdit, onSelect: () => onLabels(l, !l.labels) },
         { label: "Labeling properties…", icon: <Tags size={15} />, onSelect: () => onPanel(l, "labels") }, { label: "", divider: true }] : []),
       { label: "Symbology", icon: <SlidersHorizontal size={15} />, onSelect: () => onPanel(l, "symbology") },
-      ...(!raster && canEdit && l.id !== editingId ? [{ label: "Edit features", icon: <PenLine size={15} />, onSelect: () => onEdit(l) }] : []),
+      ...(!raster && canEdit && l.id !== editingId && !l.source.linked ? [{ label: "Edit features", icon: <PenLine size={15} />, onSelect: () => onEdit(l) }] : []),
+      ...(l.source.linked && canEdit ? [{ label: `Refresh from ${l.source.linked.app_name}`, icon: <RefreshCw size={15} />, onSelect: () => onRefresh(l) }] : []),
       { label: "", divider: true },
       { label: "Data", icon: <Database size={15} />, items: [
         raster ? { label: "Download GeoTIFF", icon: <Download size={15} />, disabled: !canExport, onSelect: () => onExport(l) }
@@ -147,6 +149,7 @@ export default function Contents({ projectName, layers, activeId, editingId, can
       <span>{l.name}</span>
       {broken(l) && <AlertTriangle size={14} className="ct-broken" aria-label="The data cannot be found" />}
       {l.id === editingId && <em className="ws-tag">Editing</em>}
+      {l.source.linked && <Link2 size={13} className="ct-linked" aria-label={`Follows ${l.source.linked.app_name}`} />}
       {extra}
     </button>
   );
@@ -260,6 +263,7 @@ function Tri({ open }: { open: boolean }) {
 
 function sourceOf(l: Layer): string {
   const s = l.source;
+  if (s.linked) return `${s.linked.app_name} · ${s.linked.label}`;
   if (s.imagery) return `${{ "planetary-computer": "Planetary Computer", "earth-search": "Earth Search", gee: "Earth Engine" }[s.imagery.provider] ?? s.imagery.provider} · ${s.imagery.dataset}`;
   if (s.tool?.startsWith("earth:")) return s.tool_name?.replace(/^Poly Earth: /, "") ?? "Poly Earth";
   if (s.tool) return s.tool_name ?? s.tool;
@@ -268,6 +272,7 @@ function sourceOf(l: Layer): string {
 }
 function groupOf(l: Layer): string {
   const s = l.source;
+  if (s.linked) return "Linked from GeoEstate apps";
   if (s.imagery) return "Satellite imagery";
   if (s.tool?.startsWith("earth:")) return "Poly Earth results";
   if (s.tool) return "Geoprocessing results";
@@ -275,7 +280,7 @@ function groupOf(l: Layer): string {
   return "Made in PolyGIS";
 }
 function BySource({ layers, render }: { layers: Layer[]; render: (l: Layer) => ReactNode }) {
-  const groups = ["Imported files", "Satellite imagery", "Poly Earth results", "Geoprocessing results", "Made in PolyGIS"]
+  const groups = ["Imported files", "Linked from GeoEstate apps", "Satellite imagery", "Poly Earth results", "Geoprocessing results", "Made in PolyGIS"]
     .map((g) => [g, layers.filter((l) => groupOf(l) === g)] as const).filter(([, ls]) => ls.length);
   return (
     <>

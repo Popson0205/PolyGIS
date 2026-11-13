@@ -33,6 +33,7 @@ export interface Layer {
   id: string; project_id: string; name: string; geometry_type: GeometryType; fields: Field[]; style: Style; labels: Labels | null;
   visible: boolean; position: number;
   source: { filename?: string; crs?: string | null; dropped?: number; drawn?: boolean; tool?: string; tool_name?: string; summary?: Record<string, unknown>;
+    linked?: { app: "land" | "farm" | "hub"; app_name: string; kind: string; label: string; form_id?: string; status?: string; refreshed_at?: string };
     imagery?: { provider: ImageryProviderId; dataset: ImageryDatasetId; bands: string[]; start: string | null; end: string | null; max_cloud: number | null; scenes: string[]; cell_m: number } };
   raster?: RasterMeta | null; feature_count: number; bbox: [number, number, number, number] | null; version: number; updated_at: string;
 }

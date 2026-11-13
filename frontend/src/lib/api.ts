@@ -50,6 +50,9 @@ export const api = {
   createLayout: (projectId: string, name: string, settings: LayoutSettings) => req<SavedLayout>("POST", `/projects/${projectId}/layouts`, { name, settings }),
   updateLayout: (id: string, b: { name?: string; settings?: LayoutSettings }) => req<SavedLayout>("PATCH", `/layouts/${id}`, b),
   deleteLayout: (id: string) => req<void>("DELETE", `/layouts/${id}`),
+  linkedSources: (projectId: string) => req<LinkedSource[]>("GET", `/projects/${projectId}/linked/sources`),
+  addLinked: (projectId: string, b: { app: string; form_id?: string; status?: "approved" | "all" }) => req<Layer>("POST", `/projects/${projectId}/layers/linked`, b),
+  refreshLinked: (layerId: string) => req<Layer>("POST", `/layers/${layerId}/refresh`),
   hubDatasets: (layerId: string) => req<HubDataset[]>("GET", `/layers/${layerId}/hub`),
   publishHub: (layerId: string, b: { title: string; description: string; license: string; tags: string[]; visibility: string; ids?: number[] }) => req<HubDataset & { version: number }>("POST", `/layers/${layerId}/hub`, b),
   publishHubVersion: (layerId: string, slug: string, ids?: number[]) => req<HubDataset & { version: number }>("POST", `/layers/${layerId}/hub/${slug}/versions`, { ids }),
@@ -144,3 +147,4 @@ export const publicApi = {
   download: (token: string, layerId: string, format: string) => `${pub(token)}/layers/${layerId}/export?format=${format}`,
 };
 export interface HubDataset { slug: string; title: string; visibility: string; latest_version: number; feature_count: number; url: string; published_at?: string }
+export interface LinkedSource { app: "land" | "farm" | "hub"; app_name: string; label: string; geometry_type: string; form_id?: string; features?: number; approved?: number; available: boolean; why: string | null }
