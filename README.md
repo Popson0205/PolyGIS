@@ -38,8 +38,8 @@ collectors and viewers are **viewers** (open and export). An expired licence is 
 
 2. **Geoprocessing**: 107 vector tools in nine groups (proximity, overlay, generalization, conversion, topology, sampling, spatial statistics such as hot spots and Moran's I, and network analysis such as routes, closest facility and service areas), run as jobs, results as layers.
 3. **Rasters and print layouts**: raster import and analysis (see Rasters below); print layouts (see Print layouts below).
-4. **Sharing**: publish to Geohub's data hub, live layers from the other products, a model builder, 3D, a desktop app
-   wrapping the same web app.
+4. **Sharing**: share links and publishing to Geohub's Data hub (see below); next, live layers from the other products,
+   3D, a model builder, and a desktop app wrapping the same web app.
 
 ## Print layouts
 
@@ -61,6 +61,15 @@ is for anyone who has it (no sign-in) or only for people of the organization (si
 90 days or a year; it shows the layers as they are when opened, so later edits appear; "show the map as it is now"
 updates its view and layers without changing its address; turning it off stops it at once. Views are counted and
 downloads recorded in the activity log. A shared page may be embedded in another site (an iframe).
+
+## Publishing to the Data hub
+
+Share › Publish layer sends the active vector layer (or only its selection) to Geohub's Data hub as a dataset, as the
+person signed in (their GeoEstate ID access token): title, description, licence, tags, and who may see it (only them,
+their organization, or anyone). Geohub keeps each publication as a version that never changes, with previews and
+downloads; publishing the layer again adds the next version to a dataset published from it before. Field names travel
+as column labels. Up to 50,000 features at a time. Needs Geohub with `/id/data/datasets` (Geohub PR "Data hub: datasets
+published from the other GeoEstate apps").
 
 ## How it is built
 

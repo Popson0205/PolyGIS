@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, BarChart3, ChevronDown, CloudSun, Earth, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, Ruler, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Wrench, X, ZoomIn,
+  PanelRightClose, PanelRightOpen, Printer, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Wrench, X, ZoomIn,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -16,6 +16,7 @@ import PolyEarth, { useEarthJobs } from "../components/PolyEarth";
 import LayerPanel from "../components/LayerPanel";
 import LayoutView from "../components/LayoutView";
 import ShareDialog from "../components/ShareDialog";
+import PublishDialog from "../components/PublishDialog";
 import { Apps, UserMenu, licenceNotice, useApps } from "../components/Bar";
 import { Button, ErrorText, IconButton, Resizer, useStored, useToast } from "../components/ui";
 import RasterPanel from "../components/RasterPanel";
@@ -27,7 +28,7 @@ import type { CrsDef, Layer, Me, Project, Selection, VectorType } from "../lib/t
 
 type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "earth" | "share";
 type Tool = "explore" | "select" | "select-area" | "measure-line" | "measure-area" | "create" | "reshape" | "pick-reshape";
-type DialogName = "add" | "imagery" | "new" | "attr" | "loc" | "export" | "crs" | "plan" | "share" | null;
+type DialogName = "add" | "imagery" | "new" | "attr" | "loc" | "export" | "crs" | "plan" | "share" | "publish" | null;
 const DRAW = { Point: "point", LineString: "linestring", Polygon: "polygon" } as const;
 
 /** A project open in the workspace, laid out like a desktop GIS: ribbon, contents, map, properties, table, status. */
@@ -594,6 +595,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             <Group name="Link">
               <Tb onClick={() => setDialog("share")} icon={<Link2 />} label="Share link" />
             </Group>
+            <Group name="Data hub">
+              <Tb onClick={() => setDialog("publish")} icon={<UploadCloud />} label="Publish layer" disabled={!canEdit || !active || active.geometry_type === "Raster"} />
+            </Group>
             <Group name="Print">
               <Tb onClick={openLayout} icon={<Printer />} label="Print layout" />
             </Group>
@@ -759,6 +763,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
           Ask GeoEstate NIG Limited to move your organization to Advanced.</p>
           <div className="ws-row"><Button variant="primary" onClick={() => setDialog(null)}>OK</Button></div></div>
       </Dialog>}
+      {dialog === "publish" && active && <PublishDialog layer={active} selected={sel(active.id)} onClose={() => setDialog(null)} />}
       {dialog === "share" && <ShareDialog project={project} layers={layers} canEdit={canEdit} onClose={() => setDialog(null)}
         view={() => { const m = map.current; const c = m?.getCenter(); return c && m ? { center: [c.lng, c.lat], zoom: m.getZoom(), bearing: m.getBearing(), basemap } : project.view; }} />}
       {dialog === "crs" && <CrsDialog project={project} canEdit={canEdit} onClose={() => setDialog(null)} onDone={async (p) => { setProject(p); setCrs(await loadCrs(p.display_epsg)); setDialog(null); }} />}
