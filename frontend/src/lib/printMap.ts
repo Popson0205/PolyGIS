@@ -8,7 +8,8 @@ export function printableStyle(style: StyleSpecification): StyleSpecification {
   const keep = style.layers.filter((l) => !/-sel-/.test(l.id) && !l.id.startsWith("gis-draw") && !l.id.startsWith("td-"));
   const used = new Set(keep.map((l) => ("source" in l ? (l.source as string) : "")).filter(Boolean));
   const sources = Object.fromEntries(Object.entries(style.sources).filter(([k]) => used.has(k)));
-  return { ...style, layers: keep, sources };
+  const { terrain: _t, sky: _s, ...flat } = style as StyleSpecification & { sky?: unknown };   // a sheet is printed flat, from above
+  return { ...flat, layers: keep, sources } as StyleSpecification;
 }
 
 export interface PrintRequest { style: StyleSpecification; center: [number, number]; scale: number; cssW: number; cssH: number; ratio: number }

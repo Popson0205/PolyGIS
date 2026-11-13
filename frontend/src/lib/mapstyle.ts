@@ -61,7 +61,17 @@ export function mapLayers(l: Layer, selected: number[], hidden: number[] = []): 
   const sel: ExpressionSpecification = ["in", ["id"], ["literal", selected.length ? selected : [-1]]];
   const c = colour(l);
   const out: LayerSpecification[] = [];
-  if (l.geometry_type === "Polygon") {
+  if (l.geometry_type === "Polygon" && s.extrude) {
+    // in 3D: the polygons stand up to their height; the outline and selection stay on the ground
+    const e = s.extrude;
+    const height: ExpressionSpecification | number = e.field ? ["*", ["to-number", ["coalesce", ["get", e.field], 0], 0], e.scale || 1] : e.height;
+    out.push({ id: i.fill, type: "fill-extrusion", ...base, ...(notHidden ? { filter: notHidden } : {}),
+      paint: { "fill-extrusion-color": c, "fill-extrusion-opacity": Math.max(0.3, s.opacity), "fill-extrusion-height": height, "fill-extrusion-base": e.base || 0,
+        "fill-extrusion-vertical-gradient": true } } as LayerSpecification);
+    out.push({ id: i.line, type: "line", ...base, ...(notHidden ? { filter: notHidden } : {}),
+      paint: { "line-color": s.type === "single" ? s.stroke : c, "line-width": s.width, "line-opacity": 0.6 } } as LayerSpecification);
+    out.push({ id: i.selLine, type: "line", ...base, filter: sel, paint: { "line-color": SELECT, "line-width": Math.max(2.5, s.width + 1.5) } } as LayerSpecification);
+  } else if (l.geometry_type === "Polygon") {
     out.push({ id: i.fill, type: "fill", ...base, ...(notHidden ? { filter: notHidden } : {}), paint: { "fill-color": c, "fill-opacity": s.opacity } } as LayerSpecification);
     out.push({ id: i.line, type: "line", ...base, ...(notHidden ? { filter: notHidden } : {}),
       paint: { "line-color": s.type === "single" ? s.stroke : c, "line-width": s.width } } as LayerSpecification);
@@ -116,3 +126,7 @@ export function breaks(method: "equal" | "quantile", min: number, max: number, n
   if (method === "quantile" && quantiles && quantiles.length === n + 1) return quantiles;
   return Array.from({ length: n + 1 }, (_, k) => min + ((max - min) * k) / n);
 }
+
+/** Terrain for the 3D view: an elevation model in the project, or the open Terrain Tiles (Mapzen, AWS Open Data). */
+export const GLOBAL_TERRAIN = { tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"], maxzoom: 15,
+  attribution: '<a href="https://registry.opendata.aws/terrain-tiles/">Terrain Tiles</a> (Mapzen, AWS Open Data)' };

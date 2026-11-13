@@ -39,7 +39,7 @@ collectors and viewers are **viewers** (open and export). An expired licence is 
 2. **Geoprocessing**: 107 vector tools in nine groups (proximity, overlay, generalization, conversion, topology, sampling, spatial statistics such as hot spots and Moran's I, and network analysis such as routes, closest facility and service areas), run as jobs, results as layers.
 3. **Rasters and print layouts**: raster import and analysis (see Rasters below); print layouts (see Print layouts below).
 4. **Sharing**: share links and publishing to Geohub's Data hub (see below); next, live layers from the other products,
-   3D, a model builder, and a desktop app wrapping the same web app.
+   a model builder, and a desktop app wrapping the same web app (3D: see below).
 
 ## Print layouts
 
@@ -70,6 +70,14 @@ their organization, or anyone). Geohub keeps each publication as a version that 
 downloads; publishing the layer again adds the next version to a dataset published from it before. Field names travel
 as column labels. Up to 50,000 features at a time. Needs Geohub with `/id/data/datasets` (Geohub PR "Data hub: datasets
 published from the other GeoEstate apps").
+
+## 3D
+
+Map › 3D view tilts the map onto terrain: an elevation model in the project (served as Terrarium tiles from
+`/layers/{id}/raster/terrain/…`) or, anywhere, the open Terrain Tiles (Mapzen, AWS Open Data), with 1× to 5×
+exaggeration; right-drag to turn and tilt. Polygons can be drawn in 3D (Symbology › Draw in 3D): their height from a
+numeric field times a factor (3 m per storey, say) or a fixed height. Shared maps show the heights too; print layouts
+are drawn flat, from above.
 
 ## How it is built
 

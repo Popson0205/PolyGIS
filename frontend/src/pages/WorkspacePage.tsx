@@ -1,7 +1,7 @@
 import maplibregl, { type Map as MapLibre, type MapGeoJSONFeature } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
-  ArrowLeftRight, BarChart3, ChevronDown, CloudSun, Earth, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
+  ArrowLeftRight, Box, BarChart3, ChevronDown, CloudSun, Earth, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
   PanelRightClose, PanelRightOpen, Printer, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Wrench, X, ZoomIn,
 } from "lucide-react";
@@ -20,10 +20,10 @@ import PublishDialog from "../components/PublishDialog";
 import { Apps, UserMenu, licenceNotice, useApps } from "../components/Bar";
 import { Button, ErrorText, IconButton, Resizer, useStored, useToast } from "../components/ui";
 import RasterPanel from "../components/RasterPanel";
-import { ApiError, BASE, api, rasterDownloadUrl, rasterTileUrl, tileUrl } from "../lib/api";
+import { ApiError, BASE, api, rasterDownloadUrl, rasterTileUrl, terrainTileUrl, tileUrl } from "../lib/api";
 import { formatCoords, loadCrs, metres, squareMetres } from "../lib/coords";
 import { Editor } from "../lib/editor";
-import { BASEMAPS, GLYPHS, allIds, basemapStyle, ids as layerIds, mapLayers, src } from "../lib/mapstyle";
+import { BASEMAPS, GLOBAL_TERRAIN, GLYPHS, allIds, basemapStyle, ids as layerIds, mapLayers, src } from "../lib/mapstyle";
 import type { CrsDef, Layer, Me, Project, Selection, VectorType } from "../lib/types";
 
 type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "earth" | "share";
@@ -59,6 +59,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [earth, setEarth] = useState<{ open: boolean; start: string | null }>({ open: false, start: null });
   const [panelTab, setPanelTab] = useState<{ tab: PanelTab; n: number }>({ tab: "symbology", n: 0 });
   const [layoutOpen, setLayoutOpen] = useState(false);
+  // the 3D view: tilted, on terrain from an elevation model in the project or the open global one
+  const [view3d, setView3d] = useStored<{ on: boolean; terrain: string; exaggeration: number }>(`view3d-${id}`, { on: false, terrain: "global", exaggeration: 1.5 });
   const earthJobs = useEarthJobs((j) => {
     if (j.status === "failed") { toast(`${j.tool_name} did not finish: ${j.error}`, "bad"); return; }
     if (j.status === "stopped") { toast(`${j.tool_name} stopped. Nothing was kept.`, "info"); return; }
@@ -92,8 +94,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const editor = useRef<Editor | null>(null);
   const snapFeatures = useRef<GeoJSON.Feature[]>([]);
   const versions = useRef<Map<string, number>>(new Map());
-  const state = useRef({ layers, selection, reshaping, editId, snap, tool, activeId });
-  state.current = { layers, selection, reshaping, editId, snap, tool, activeId };
+  const state = useRef({ layers, selection, reshaping, editId, snap, tool, activeId, view3d });
+  state.current = { layers, selection, reshaping, editId, snap, tool, activeId, view3d };
 
   const active = layers.find((l) => l.id === activeId) ?? null;
   const editLayer = layers.find((l) => l.id === editId) ?? null;
@@ -180,8 +182,33 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       }
       for (const spec of mapLayers(l, s[l.id] ?? [], l.id === e && r != null ? [r] : [])) m.addLayer(spec, before);
     }
+    applyTerrain(m);
   }, []);
-  useEffect(() => { sync(); }, [layers, selection, reshaping, editId, sync]);
+  useEffect(() => { sync(); }, [layers, selection, reshaping, editId, view3d, sync]);
+
+  /** Terrain under the map in the 3D view (an elevation model of the project, or the global Terrain Tiles); none in 2D. */
+  function applyTerrain(m: MapLibre) {
+    const v = state.current.view3d;
+    const dem = state.current.layers.find((l) => l.id === v.terrain && l.geometry_type === "Raster" && !l.raster?.missing);
+    const want = !v.on ? null : dem ? `dem-${dem.id}-${dem.version}` : "global";
+    const have = (m.getTerrain()?.source as string | undefined) ?? null;
+    if (have && have !== want) { m.setTerrain(null); if (m.getSource(have)) m.removeSource(have); }
+    if (!want) return;
+    if (!m.getSource(want)) {
+      m.addSource(want, dem ? { type: "raster-dem", tiles: [terrainTileUrl(dem)], tileSize: 256, encoding: "terrarium", bounds: dem.bbox ?? undefined, maxzoom: 16 }
+        : { type: "raster-dem", tiles: GLOBAL_TERRAIN.tiles, tileSize: 256, encoding: "terrarium", maxzoom: GLOBAL_TERRAIN.maxzoom, attribution: GLOBAL_TERRAIN.attribution });
+    }
+    m.setTerrain({ source: want, exaggeration: v.exaggeration });
+    const sky = (m as unknown as { setSky?: (s: Record<string, unknown>) => void }).setSky;
+    sky?.call(m, { "sky-color": "#a9c8ec", "horizon-color": "#e8eef6", "fog-color": "#eef2f7", "sky-horizon-blend": 0.6, "horizon-fog-blend": 0.5, "fog-ground-blend": 0.85 });
+  }
+  function toggle3d(on: boolean) {
+    setView3d({ ...view3d, on });
+    const m = map.current;
+    if (!m) return;
+    m.easeTo({ pitch: on ? 60 : 0, bearing: on ? (m.getBearing() || -20) : 0, duration: 900 });
+    if (on && !layers.some((l) => l.raster && !l.raster.missing) && view3d.terrain !== "global") setView3d({ ...view3d, on, terrain: "global" });
+  }
 
   // ---------- clicking on the map ----------
   const hitLayers = (only?: Layer | null) => {
@@ -572,6 +599,19 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
                     <i style={{ background: BASEMAP_LOOK[b.id] ?? "#ddd" }} />{b.name.split(" (")[0]}
                   </button>
                 ))}
+              </div>
+            </Group>
+            <Group name="3D">
+              <Tb on={view3d.on} onClick={() => toggle3d(!view3d.on)} icon={<Box />} label={view3d.on ? "3D on" : "3D view"} />
+              <div className="ws-tb-stack ws-tb-mini">
+                <label className="ws-tb-select">Terrain
+                  <select value={view3d.terrain} onChange={(e) => setView3d({ ...view3d, terrain: e.target.value })}>
+                    <option value="global">Global (Terrain Tiles)</option>
+                    {layers.filter((l) => l.raster && !l.raster.missing && l.raster.count === 1).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select></label>
+                <label className="ws-tb-select">Exaggeration
+                  <select value={view3d.exaggeration} onChange={(e) => setView3d({ ...view3d, exaggeration: Number(e.target.value) })}>
+                    {[1, 1.5, 2, 3, 5].map((x) => <option key={x} value={x}>{x}×</option>)}</select></label>
               </div>
             </Group>
             <Group name="Layer">

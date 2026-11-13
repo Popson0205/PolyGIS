@@ -141,6 +141,21 @@ async def raster_tile(layer_id: UUID, z: int, x: int, y: int, v: str | None = No
     return Response(png or _empty_png(), media_type="image/png", headers={"Cache-Control": "private, max-age=86400" if v else "no-cache"})
 
 
+@router.get("/layers/{layer_id}/raster/terrain/{z}/{x}/{y}.png", summary="The raster's heights as a 3D terrain tile (Terrarium)",
+            response_class=Response, responses={200: {"content": {"image/png": {}}}})
+async def terrain_tile(layer_id: UUID, z: int, x: int, y: int, band: int = Query(1, ge=1, le=64), v: str | None = None, user=Depends(need())):
+    if not (0 <= z <= 24 and 0 <= x < 2 ** z and 0 <= y < 2 ** z):
+        raise Problem(404, "No such tile.", code="not_found")
+    lay = await _cached(layer_id, v, user)
+    try:
+        png = await anyio.to_thread.run_sync(lambda: rasters.terrain(lay["raster"], z, x, y, band))
+    except rasters.RasterError as e:
+        raise Problem(404, str(e), code="not_found") from None
+    if png is None:
+        raise Problem(404, "The elevation model does not reach this tile.", code="not_found")
+    return Response(png, media_type="image/png", headers={"Cache-Control": "private, max-age=86400" if v else "no-cache"})
+
+
 @router.get("/layers/{layer_id}/raster/value", summary="The raster's values (every band) at a point")
 async def raster_value(layer_id: UUID, lng: float = Query(ge=-180, le=180), lat: float = Query(ge=-90, le=90), user=Depends(need())):
     lay = await _cached(layer_id, None, user)
