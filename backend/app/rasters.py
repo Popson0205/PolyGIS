@@ -321,6 +321,14 @@ def _overview_level(src, tile_res: float) -> int | None:
     return best
 
 
+def _covered(vrt, src) -> np.ndarray:
+    """Where the warped tile has the raster's cells. For a raster without a nodata value the warp adds an alpha band;
+    the VRT's own dataset mask ignores it (and reports the whole tile), so the alpha band is read itself."""
+    if vrt.count > src.count:
+        return vrt.read(vrt.count) > 0
+    return vrt.dataset_mask() > 0
+
+
 def render(meta: dict, style: dict, z: int, x: int, y: int) -> bytes | None:
     """The tile as a PNG, or None when the raster does not reach it."""
     from .raster_style import colourise
@@ -342,7 +350,7 @@ def render(meta: dict, style: dict, z: int, x: int, y: int) -> bytes | None:
             with WarpedVRT(src, crs=MERC, transform=from_bounds(*mb, TILE, TILE), width=TILE, height=TILE, resampling=rs,
                            src_nodata=src.nodata, nodata=src.nodata, add_alpha=src.nodata is None) as vrt:
                 data = vrt.read(bands).astype("float64")
-                valid = vrt.dataset_mask() > 0
+                valid = _covered(vrt, src)
     for b in data:
         valid &= np.isfinite(b)
         if meta.get("nodata") is not None:
@@ -353,6 +361,37 @@ def render(meta: dict, style: dict, z: int, x: int, y: int) -> bytes | None:
     from PIL import Image
     buf = io.BytesIO()
     Image.fromarray(rgba, "RGBA").save(buf, "PNG", compress_level=1)
+    return buf.getvalue()
+
+
+def terrain(meta: dict, z: int, x: int, y: int, band: int = 1) -> bytes | None:
+    """The tile's heights as a Terrarium-encoded PNG (MapLibre's 3D terrain), or None when the raster does not reach
+    it. Cells without data take the lowest height of the tile, so the edge of an elevation model does not drop away."""
+    w, s, e, n = _tile_lonlat(z, x, y)
+    bw, bs, be, bn = meta["bbox"]
+    if e < bw or w > be or n < bs or s > bn:
+        return None
+    band = min(max(1, band), meta["count"])
+    mb = tile_bounds(z, x, y)
+    path = local(meta["key"])
+    with rasterio.Env(GDAL_CACHEMAX=64):
+        with rasterio.open(path) as src0:
+            level = _overview_level(src0, (mb[2] - mb[0]) / TILE)
+        with rasterio.open(path, overview_level=level) if level is not None else rasterio.open(path) as src:
+            with WarpedVRT(src, crs=MERC, transform=from_bounds(*mb, TILE, TILE), width=TILE, height=TILE, resampling=Resampling.bilinear,
+                           src_nodata=src.nodata, nodata=src.nodata, add_alpha=src.nodata is None) as vrt:
+                h = vrt.read(band).astype("float64")
+                valid = _covered(vrt, src) & np.isfinite(h)
+    if meta.get("nodata") is not None:
+        valid &= h != meta["nodata"]
+    if not valid.any():
+        return None
+    h = np.where(valid, h, h[valid].min())
+    v = np.clip(h + 32768.0, 0, 65535.99)
+    rgb = np.stack([np.floor(v / 256), np.floor(v) % 256, np.floor((v - np.floor(v)) * 256)], axis=-1).astype("uint8")
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.fromarray(rgb, "RGB").save(buf, "PNG", compress_level=1)
     return buf.getvalue()
 
 

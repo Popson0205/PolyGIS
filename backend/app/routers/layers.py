@@ -174,6 +174,17 @@ class StyleIn(BaseModel):
     classes: list[dict] = Field(default_factory=list, max_length=20, description="[{min, max, color}] for graduated")
     method: Literal["quantile", "equal", "manual"] = "quantile"
     ramp: str = Field("", max_length=40)
+    extrude: "Extrude | None" = Field(None, description="Polygons drawn in 3D: a height from a field (times scale) or a fixed height")
+
+
+class Extrude(BaseModel):
+    field: str | None = None
+    height: float = Field(10, ge=0, le=10000, description="Metres, when there is no field")
+    scale: float = Field(1, gt=0, le=1000, description="Metres per unit of the field (e.g. 3 for storeys)")
+    base: float = Field(0, ge=0, le=10000)
+
+
+StyleIn.model_rebuild()
 
 
 class LabelsIn(BaseModel):
@@ -210,6 +221,10 @@ async def update_layer(layer_id: UUID, body: LayerPatch, user=Depends(need("edit
             if not st["field"]:
                 raise Problem(422, "Choose the field to style by.", code="validation", fields={"style.field": ["missing"]})
             _has_field(layer, st["field"])
+        if st.get("extrude"):
+            if layer["geometry_type"] != "Polygon":
+                raise Problem(422, "Only polygons can be drawn in 3D.", code="validation", fields={"style.extrude": ["polygons only"]})
+            _has_field(layer, st["extrude"].get("field"))
         for c in st["categories"] + st["classes"]:
             if not re.match(r"^#[0-9a-fA-F]{6}$", str(c.get("color", ""))):
                 raise Problem(422, "Every class needs a colour like #2f6db5.", code="validation", fields={"style": ["colour"]})

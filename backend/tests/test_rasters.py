@@ -353,3 +353,27 @@ def test_a_raster_whose_file_is_gone_is_marked_missing(person, tmp_path, monkeyp
     assert lay["raster"]["missing"] is True
     r = who.get(f"/layers/{lid}/raster/5/16/15.png")
     assert r.status_code == 404 and "redeploy" in r.json()["detail"]
+
+
+def test_terrain_tiles_decode_to_the_heights_and_polygons_extrude(pro, R):
+    """3D: an elevation model as Terrarium tiles (height = R*256 + G + B/256 - 32768), and polygons with a height."""
+    import io
+
+    from PIL import Image
+    lay = R["plane"]
+    lng, lat = cell_ll(50, 50)
+    z = 12
+    x, y = int((lng + 180) / 360 * 2 ** z), int((1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * 2 ** z)
+    t = pro.get(f"/layers/{lay['id']}/raster/terrain/{z}/{x}/{y}.png?v=1")
+    assert t.status_code == 200 and t.headers["content-type"] == "image/png"
+    px = np.asarray(Image.open(io.BytesIO(t.content)).convert("RGB")).astype(float)
+    h = px[..., 0] * 256 + px[..., 1] + px[..., 2] / 256 - 32768
+    assert float(PLANE.min()) - 1 <= h.min() and h.max() <= float(PLANE.max()) + 1     # heights of the plane, nothing invented
+    assert pro.get(f"/layers/{lay['id']}/raster/terrain/{z}/0/0.png").status_code == 404
+
+    p = R["p"]
+    poly = pro.post(f"/projects/{p['id']}/layers/import", files={"file": ("blocks.geojson", json.dumps(fc((square_ll(10, 10, 20, 20), {"storeys": 3}))))}).json()[0]
+    st = {**poly["style"], "extrude": {"field": "storeys", "scale": 3}}
+    r = pro.patch(f"/layers/{poly['id']}", json={"style": st})
+    assert r.status_code == 200 and r.json()["style"]["extrude"] == {"field": "storeys", "height": 10, "scale": 3, "base": 0}
+    assert pro.patch(f"/layers/{poly['id']}", json={"style": {**st, "extrude": {"field": "floors"}}}).status_code == 422

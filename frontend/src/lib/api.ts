@@ -32,6 +32,7 @@ export async function req<T>(method: string, path: string, body?: unknown): Prom
 export const signInUrl = (next = window.location.pathname + window.location.search) => `${BASE}/auth/sign-in?next=${encodeURIComponent(next)}`;
 export const tileUrl = (layer: Layer) => `${window.location.origin}${BASE}/layers/${layer.id}/tiles/{z}/{x}/{y}.pbf?v=${layer.version}`;
 export const rasterTileUrl = (layer: Layer) => `${window.location.origin}${BASE}/layers/${layer.id}/raster/{z}/{x}/{y}.png?v=${layer.version}`;
+export const terrainTileUrl = (layer: Layer) => `${window.location.origin}${BASE}/layers/${layer.id}/raster/terrain/{z}/{x}/{y}.png?v=${layer.version}`;
 export const rasterDownloadUrl = (layerId: string) => `${BASE}/layers/${layerId}/raster/download`;
 export const exportUrl = (layerId: string, format: string, epsg = 4326, ids?: number[]) =>
   `${BASE}/layers/${layerId}/export?format=${format}&epsg=${epsg}${ids?.length ? `&ids=${ids.join(",")}` : ""}`;

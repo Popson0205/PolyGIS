@@ -103,6 +103,20 @@ function Symbology({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
           {layer.geometry_type === "Point" && <label className="ws-f">Size <input type="number" min={1} max={40} value={s.size} onChange={(e) => setS({ ...s, size: Number(e.target.value) })} /></label>}
           <label className="ws-f">Opacity <input type="range" min={0} max={1} step={0.05} value={s.opacity} onChange={(e) => setS({ ...s, opacity: Number(e.target.value) })} /></label>
         </div>
+        {layer.geometry_type === "Polygon" && <fieldset className="ws-3d">
+          <label className="lo-check"><input type="checkbox" checked={!!s.extrude}
+            onChange={(e) => setS({ ...s, extrude: e.target.checked ? { field: numeric[0]?.name ?? null, height: 10, scale: 1, base: 0 } : null })} />Draw in 3D (extrude)</label>
+          {s.extrude && <div className="ws-row">
+            <label className="ws-f">Height from
+              <select value={s.extrude.field ?? ""} onChange={(e) => setS({ ...s, extrude: { ...s.extrude!, field: e.target.value || null } })}>
+                <option value="">A fixed height</option>{numeric.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}</select></label>
+            {s.extrude.field
+              ? <label className="ws-f">Metres per unit<input type="number" min={0.01} step="any" value={s.extrude.scale} onChange={(e) => setS({ ...s, extrude: { ...s.extrude!, scale: Number(e.target.value) || 1 } })} />
+                <span className="ws-help">e.g. 3 when the field counts storeys</span></label>
+              : <label className="ws-f">Height (m)<input type="number" min={0} step="any" value={s.extrude.height} onChange={(e) => setS({ ...s, extrude: { ...s.extrude!, height: Number(e.target.value) || 0 } })} /></label>}
+          </div>}
+          {s.extrude && <p className="ws-muted">Tilt the map (Map › 3D view, or right-drag) to see the heights.</p>}
+        </fieldset>}
         <ErrorText error={error} />
         <Button type="submit" variant="primary" small busy={busy === "style"}>Apply</Button>
       </fieldset>

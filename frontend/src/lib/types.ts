@@ -25,6 +25,8 @@ export interface ClassBreak { min: number; max: number; color: string }
 export interface Style {
   type: "single" | "categorized" | "graduated"; color: string; stroke: string; width: number; size: number; opacity: number;
   field?: string | null; categories?: Category[]; classes?: ClassBreak[]; method?: "quantile" | "equal" | "manual"; ramp?: string;
+  /** Polygons drawn in 3D: the height from a field (times scale) or a fixed height, in metres. */
+  extrude?: { field: string | null; height: number; scale: number; base: number } | null;
 }
 export interface Labels { field: string; size: number; color: string; halo: string }
 export interface Layer {
