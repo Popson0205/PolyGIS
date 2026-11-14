@@ -274,7 +274,7 @@ export function legendRows(layers: Layer[]): Row[] {
       if (st.categories.length > 12) rows.push({ kind: "more", text: `and ${st.categories.length - 12} more` });
     } else if (st.type === "graduated" && st.classes?.length) {
       rows.push({ kind: "head", text: st.field ? `${l.name}: ${st.field}` : l.name });
-      st.classes.forEach((c) => rows.push({ kind: "sym", layer: l, fill: c.color, text: `${num(c.min)} – ${num(c.max)}` }));
+      st.classes.forEach((c) => rows.push({ kind: "sym", layer: l, fill: c.color, text: c.label || `${num(c.min)} – ${num(c.max)}` }));
     } else rows.push({ kind: "sym", layer: l, fill: st.color, text: l.name });
   }
   return rows;

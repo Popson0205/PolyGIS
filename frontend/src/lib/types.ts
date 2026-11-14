@@ -21,14 +21,23 @@ export interface RasterMeta {
   key: string; width: number; height: number; count: number; dtype: string; nodata: number | null; crs: string; epsg: number | null; crs_name: string;
   geographic: boolean; missing?: boolean; unplaced?: boolean; res: [number, number]; res_m: [number, number]; bbox: [number, number, number, number]; bands: RasterBand[]; size_bytes: number;
 }
-export interface ClassBreak { min: number; max: number; color: string }
+export interface ClassBreak { min: number; max: number; color: string; label?: string }
 export interface Style {
   type: "single" | "categorized" | "graduated"; color: string; stroke: string; width: number; size: number; opacity: number;
   field?: string | null; categories?: Category[]; classes?: ClassBreak[]; method?: "quantile" | "equal" | "manual"; ramp?: string;
   /** Polygons drawn in 3D: the height from a field (times scale) or a fixed height, in metres. */
   extrude?: { field: string | null; height: number; scale: number; base: number } | null;
 }
-export interface Labels { field: string; size: number; color: string; halo: string }
+/** A label class (ArcGIS-style): Class (what it says, when), Symbol (how it looks), Position (where). Only `field` is
+ *  required; labels saved before the rest existed take the defaults. */
+export interface Labels {
+  field: string; size: number; color: string; halo: string;
+  expression?: string; min_zoom?: number; max_zoom?: number;
+  font?: "regular" | "bold" | "italic"; opacity?: number; halo_width?: number; halo_blur?: number; case?: "normal" | "upper" | "lower";
+  letter_spacing?: number; rotation?: number; rotation_field?: string | null;
+  anchor?: "auto" | "center" | "top" | "bottom" | "left" | "right" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
+  offset?: number; line_placement?: "along" | "horizontal"; line_spacing?: number; wrap?: number; allow_overlap?: boolean;
+}
 export interface Layer {
   id: string; project_id: string; name: string; geometry_type: GeometryType; fields: Field[]; style: Style; labels: Labels | null;
   visible: boolean; position: number;

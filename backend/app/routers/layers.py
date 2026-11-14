@@ -11,7 +11,7 @@ import anyio
 import shapely
 from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .. import gisdata
 from ..audit import audit
@@ -245,11 +245,43 @@ class Extrude(BaseModel):
 StyleIn.model_rebuild()
 
 
+HEX = r"^#[0-9a-fA-F]{6}$"
+ANCHORS = Literal["auto", "center", "top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]
+
+
 class LabelsIn(BaseModel):
+    """A label class, as ArcGIS lays it out: what the label says (Class), how it looks (Symbol) and where it goes
+    (Position). Everything but the field is optional, so labels saved before keep working."""
     field: str
+    # Class
+    expression: str = Field("", max_length=500, description="Text with {field} placeholders, e.g. “{name} ({population})”; empty: the field")
+    min_zoom: float = Field(0, ge=0, le=24, description="Shown from this zoom in")
+    max_zoom: float = Field(24, ge=0, le=24, description="Hidden past this zoom")
+    # Symbol
+    font: Literal["regular", "bold", "italic"] = "regular"
     size: float = Field(12, ge=6, le=40)
-    color: str = Field("#1a2233", pattern=r"^#[0-9a-fA-F]{6}$")
-    halo: str = Field("#ffffff", pattern=r"^#[0-9a-fA-F]{6}$")
+    color: str = Field("#1a2233", pattern=HEX)
+    opacity: float = Field(1, ge=0, le=1)
+    halo: str = Field("#ffffff", pattern=HEX)
+    halo_width: float = Field(1.4, ge=0, le=10, description="Outline (halo) width in pixels; 0 for none")
+    halo_blur: float = Field(0, ge=0, le=10)
+    case: Literal["normal", "upper", "lower"] = "normal"
+    letter_spacing: float = Field(0, ge=-0.5, le=2, description="In ems")
+    rotation: float = Field(0, ge=-360, le=360, description="Degrees, clockwise")
+    rotation_field: str | None = Field(None, description="Turned by this field's degrees instead")
+    # Position
+    anchor: ANCHORS = Field("auto", description="Points: where the label sits; auto tries around the point")
+    offset: float = Field(4, ge=0, le=60, description="Pixels from the point")
+    line_placement: Literal["along", "horizontal"] = "along"
+    line_spacing: float = Field(250, ge=20, le=2000, description="Pixels between repeated labels along a line")
+    wrap: float = Field(10, ge=0, le=100, description="Wrap after about this many characters; 0 never")
+    allow_overlap: bool = Field(False, description="Never remove labels that collide")
+
+    @model_validator(mode="after")
+    def _zoom_order(self):
+        if self.max_zoom <= self.min_zoom:
+            raise ValueError("The largest zoom to show labels at must be above the smallest.")
+        return self
 
 
 class LayerPatch(BaseModel):
@@ -291,6 +323,9 @@ async def update_layer(layer_id: UUID, body: LayerPatch, user=Depends(need("edit
         sets.append("labels = NULL")
     elif body.labels is not None:
         _has_field(layer, body.labels.field)
+        _has_field(layer, body.labels.rotation_field)
+        for name in re.findall(r"\{([^{}]+)\}", body.labels.expression):
+            _has_field(layer, name.strip())
         sets.append("labels = %s"); vals.append(Jsonb(body.labels.model_dump()))
     if sets:
         await conn.execute(f"UPDATE layers SET {', '.join(sets)}, updated_at = clock_timestamp() WHERE id = %s", (*vals, layer_id))
