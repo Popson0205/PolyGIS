@@ -72,3 +72,20 @@ def test_a_raster_layer_goes_to_the_data_hub_as_its_geotiff(person):
     other = person(role="member", name="Not The Publisher", features=["maps", "editing", "raster"])
     assert other.get(f"/layers/{lay['id']}/hub/uploads/{out['upload']}").status_code == 404
     assert other.post(f"/layers/{lay['id']}/hub/{out['slug']}/versions", json={}).status_code == 404
+
+
+def test_a_geohub_not_yet_updated_is_named_plainly(person):
+    """A Geohub without the raster update answers 405 or 404 with no code: PolyGIS says it needs updating, not 'Method Not Allowed'."""
+    import numpy as np
+    from test_rasters import tif
+    ed = person(role="member", name="Early Publisher", features=["maps", "editing", "raster"])
+    p = ed.post("/projects", json={"name": "Early"}).json()
+    lay = ed.post(f"/projects/{p['id']}/layers/import", files={"file": ("dem.tif", tif(np.ones((20, 20), dtype="float32")))}).json()[0]
+    real = HUB.rasters
+    for status, detail in ((405, "Method Not Allowed"), (404, "Not Found")):
+        HUB.rasters = lambda req, path, s=status, d=detail: __import__("httpx").Response(s, json={"detail": d})
+        try:
+            r = ed.post(f"/layers/{lay['id']}/hub", json={"title": "DEM"})
+        finally:
+            HUB.rasters = real
+        assert r.status_code == 502 and r.json()["code"] == "geohub_outdated" and "has not been updated to take rasters" in r.json()["detail"], r.text
