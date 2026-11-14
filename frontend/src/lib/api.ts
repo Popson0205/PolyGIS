@@ -67,12 +67,13 @@ export const api = {
   deleteProject: (id: string) => req<void>("DELETE", `/projects/${id}`),
 
   /** One file, or several chosen together (a Shapefile's parts, a picture and its world file): the first goes as `file`. */
-  importFile: async (projectId: string, files: File | File[], epsg?: number): Promise<Layer[]> => {
+  importFile: async (projectId: string, files: File | File[], epsg?: number, place?: [number, number, number, number]): Promise<Layer[]> => {
     const all = Array.isArray(files) ? files : [files];
     const form = new FormData();
     form.append("file", all[0]);
     for (const f of all.slice(1)) form.append("extra", f);
     if (epsg) form.append("epsg", String(epsg));
+    if (place) form.append("place", place.join(","));   // where a picture without coordinates goes until it is georeferenced
     let res: Response;
     try {
       res = await fetch(`${BASE}/projects/${projectId}/layers/import`, { method: "POST", credentials: "same-origin", headers: { "X-GeoEstate": "1" }, body: form });

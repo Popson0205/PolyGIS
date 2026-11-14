@@ -27,7 +27,9 @@ const fmt = (v: number | null | undefined) => (v == null ? "–" : Math.abs(v) >
 type Tab = "symbology" | "source";
 
 /** The right-hand pane for a raster layer: how it is coloured, and what it is. */
-export default function RasterPanel({ layer, canEdit, canExport, onChange, initialTab = "symbology" }: { layer: Layer; canEdit: boolean; canExport: boolean; onChange: (l: Layer) => void; initialTab?: string }) {
+export default function RasterPanel({ layer, canEdit, canExport, onChange, initialTab = "symbology", onGeoreference }: {
+  layer: Layer; canEdit: boolean; canExport: boolean; onChange: (l: Layer) => void; initialTab?: string; onGeoreference?: (l: Layer) => void;
+}) {
   const [tab, setTab] = useState<Tab>(initialTab === "source" ? "source" : "symbology");
   return (
     <aside className="ws-panel" aria-label={`${layer.name}: properties`}>
@@ -36,6 +38,9 @@ export default function RasterPanel({ layer, canEdit, canExport, onChange, initi
         {(["symbology", "source"] as Tab[]).map((t) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}
       </div>
       <div className="ws-panel-body">
+        {layer.raster?.unplaced && <div className="ws-callout ws-unplaced" role="note">
+          <span><strong>Not georeferenced yet.</strong> It has no coordinates, so it is shown where you were looking when you added it.</span>
+          {onGeoreference && canEdit && <Button small variant="primary" onClick={() => onGeoreference(layer)}>Georeference it</Button>}</div>}
         {tab === "symbology" ? <Symbology key={layer.id} layer={layer} canEdit={canEdit} onChange={onChange} /> : <Source layer={layer} canExport={canExport} />}
       </div>
     </aside>

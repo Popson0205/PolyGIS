@@ -122,12 +122,20 @@ async def _save_all(files: list[UploadFile], most_mb: int) -> tuple[Path, Path, 
              summary="Add the layers in a file, or in several files chosen together (a Shapefile's parts, a picture and its world "
                      "file): any vector or raster format GDAL reads")
 async def import_layers(project_id: UUID, file: UploadFile = File(...), extra: list[UploadFile] = File(default=[]), epsg: int | None = Form(None),
+                        place: str | None = Form(None, description="west,south,east,north: put a picture without coordinates here, to georeference later"),
                         user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     await project_of(conn, project_id, user)
     from . import rasters as rasters_router
     if epsg is not None:
         from .projects import _epsg_ok
         _epsg_ok(epsg)
+    view = None
+    if place:
+        try:
+            view = tuple(float(x) for x in place.split(","))
+            assert len(view) == 4 and view[0] < view[2] and view[1] < view[3]
+        except (ValueError, AssertionError):
+            raise Problem(422, "place is west,south,east,north.", code="validation") from None
     raster_ish = rasters_router.is_raster(file.filename or "") or any(rasters_router.is_raster(x.filename or "") for x in extra)
     d, path, name = await _save_all([file, *extra], settings.max_raster_mb if raster_ish else settings.max_upload_mb)
     try:
@@ -135,7 +143,7 @@ async def import_layers(project_id: UUID, file: UploadFile = File(...), extra: l
         as_raster = (rasters_router.is_raster(name) and not low.endswith((".kml", ".kmz", ".xml", ".gpkg", ".sqlite", ".vrt")) or
                      low.endswith(".zip") and rasters_router.raster_zip(path))
         if as_raster:
-            return [await rasters_router.import_raster(conn, project_id, path, name, epsg, user)]
+            return [await rasters_router.import_raster(conn, project_id, path, name, epsg, user, view)]
         try:
             read = await anyio.to_thread.run_sync(lambda: gisdata.read_file(path, name, epsg, settings.max_features))
         except gisdata.ReadError as e:

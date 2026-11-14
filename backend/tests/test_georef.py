@@ -146,3 +146,70 @@ def test_replacing_a_misplaced_raster(pro):
     assert pro.delete(f"/georeference/{g['id']}").status_code == 204
     assert pro.get(f"/layers/{lay['id']}/raster/value", params={"lng": lng, "lat": lat}).status_code == 200   # the original's file is kept
     assert pro.get(f"/georeference/{g['id']}").status_code == 404
+
+
+def test_a_picture_added_without_coordinates_is_placed_in_view_then_moved_into_place(pro):
+    """Add data with a plain photo: it lands in the middle of the map view, marked unplaced. Georeferencing it moves that
+    same layer to where it belongs."""
+    p = pro.post("/projects", json={"name": "Photo first"}).json()
+    view = "3.30,6.50,3.40,6.60"
+    r = pro.post(f"/projects/{p['id']}/layers/import", files={"file": ("site photo.png", scan_png())}, data={"place": view})
+    assert r.status_code == 201, r.text
+    lay = r.json()[0]
+    m = lay["raster"]
+    assert m["unplaced"] and lay["source"]["unplaced"] and (m["width"], m["height"]) == (W, H)
+    cx, cy = (m["bbox"][0] + m["bbox"][2]) / 2, (m["bbox"][1] + m["bbox"][3]) / 2
+    assert cx == pytest.approx(3.35, abs=1e-3) and cy == pytest.approx(6.55, abs=1e-3)       # in the middle of the view
+    assert m["bbox"][2] - m["bbox"][0] <= 0.051                                             # at most half the view
+    assert lay["style"]["mins"] == [0, 0, 0] and lay["style"]["maxs"] == [255, 255, 255]   # its own colours
+    # without a view it is still refused, pointing to georeferencing
+    assert pro.post(f"/projects/{p['id']}/layers/import", files={"file": ("x.png", scan_png())}).json()["code"] == "no_georeference"
+    g = pro.post(f"/projects/{p['id']}/georeference/from-layer", json={"layer_id": lay["id"]}).json()
+    pts = [gcp(c, r, i) for i, (c, r) in enumerate(CORNERS)]
+    out = pro.post(f"/georeference/{g['id']}/save", json={"points": pts, "method": "affine"})
+    assert out.status_code == 201, out.text
+    moved = out.json()["layer"]
+    assert moved["id"] == lay["id"] and moved["name"] == "site photo" and not moved["raster"].get("unplaced")
+    lng, lat = LL.transform(*true_xy(125, 125))                                             # the red square, where it truly is
+    v = pro.get(f"/layers/{lay['id']}/raster/value", params={"lng": lng, "lat": lat}).json()["values"]
+    assert v[0] > 180 and v[1] < 60
+    # georeferencing an ordinary (placed) raster still makes a new layer
+    again = pro.post(f"/georeference/{g['id']}/save", json={"points": pts, "method": "affine"}).json()["layer"]
+    assert again["id"] != lay["id"]
+
+
+def test_photos_are_kept_small_and_a_full_storage_says_so(pro, monkeypatch):
+    p = pro.post("/projects", json={"name": "Big"}).json()
+    rng = np.random.default_rng(0)
+    a = rng.integers(0, 255, (3, 300, 400), dtype="uint8")
+    a[:, :, :200] = 120                                                                   # half flat, half noisy, like a photo
+    b = io.BytesIO()
+    with rasterio.MemoryFile() as mf:
+        with mf.open(driver="GTiff", width=400, height=300, count=3, dtype="uint8", crs="EPSG:32631",
+                     transform=rasterio.transform.from_origin(660000, 830000, 1, 1)) as d:
+            d.write(a)
+        b.write(mf.read())
+    lay = pro.post(f"/projects/{p['id']}/layers/import", files={"file": ("ortho.tif", b.getvalue())}).json()[0]
+    from app import rasters
+    with rasterio.open(rasters.local(lay["raster"]["key"])) as s:
+        assert "jpeg" in str(getattr(s.compression, "name", s.compression)).lower()                                               # photos as JPEG inside the GeoTIFF
+    dem = np.linspace(0, 100, 400 * 300, dtype="float32").reshape(1, 300, 400)
+    b2 = io.BytesIO()
+    with rasterio.MemoryFile() as mf:
+        with mf.open(driver="GTiff", width=400, height=300, count=1, dtype="float32", crs="EPSG:32631",
+                     transform=rasterio.transform.from_origin(660000, 830000, 1, 1)) as d:
+            d.write(dem)
+        b2.write(mf.read())
+    lay2 = pro.post(f"/projects/{p['id']}/layers/import", files={"file": ("dem.tif", b2.getvalue())}).json()[0]
+    with rasterio.open(rasters.local(lay2["raster"]["key"])) as s:
+        assert str(getattr(s.compression, "name", s.compression)).lower() == "deflate"                                            # data stays exact
+    # a storage that refuses large files: a plain message, not a crash
+
+    class Full:
+        def upload_file(self, *a, **k):
+            raise Exception("An error occurred (EntityTooLarge) when calling the UploadPart operation: The object exceeded the maximum allowed size")
+    monkeypatch.setattr(rasters, "_bucket", lambda: Full())
+    r = pro.post(f"/projects/{p['id']}/georeference", files={"file": ("huge scan.png", scan_png())})
+    assert r.status_code == 422 and "size limit" in r.json()["detail"]
+    r = pro.post(f"/projects/{p['id']}/layers/import", files={"file": ("dem.tif", b2.getvalue())})
+    assert r.status_code == 422 and "size limit" in r.json()["detail"]

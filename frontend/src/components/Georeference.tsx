@@ -14,8 +14,8 @@ const newId = () => Math.random().toString(36).slice(2, 10);
 
 /** Georeferencing: place an image without coordinates (a scanned map, a plan, a photo), or a raster in the wrong place,
  *  by matching points on the image to the same places on the map. */
-export default function Georeference({ projectId, layers, canEdit, view, file, onClose, onDone }: {
-  projectId: string; layers: Layer[]; canEdit: boolean; view: { center: [number, number]; zoom: number } | null; file?: File | null;
+export default function Georeference({ projectId, layers, canEdit, view, file, layerId, onClose, onDone }: {
+  projectId: string; layers: Layer[]; canEdit: boolean; view: { center: [number, number]; zoom: number } | null; file?: File | null; layerId?: string | null;
   onClose: () => void; onDone: (l: Layer) => void;
 }) {
   const toast = useToast();
@@ -41,6 +41,14 @@ export default function Georeference({ projectId, layers, canEdit, view, file, o
     if (file && startedWith.current !== file && canEdit) { startedWith.current = file; void start(file); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file]);
+  const startedLayer = useRef<string | null>(null);
+  useEffect(() => {                                              // sent here to place a picture added without coordinates
+    if (!layerId || startedLayer.current === layerId || !canEdit || earlier == null) return;
+    startedLayer.current = layerId;
+    const going = earlier.find((g) => g.layer_id === layerId);    // carry on with its earlier points, if any
+    if (going) open(going); else void start(undefined, layerId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layerId, earlier]);
   useEffect(() => {
     const esc = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || (e.target as HTMLElement)?.closest?.("input, textarea, select")) return;
@@ -51,7 +59,8 @@ export default function Georeference({ projectId, layers, canEdit, view, file, o
   }, [onClose, pending]);
 
   function open(g: GeorefSource) {
-    setSrc(g); setPts(g.points.map((p) => ({ ...p, on: p.on !== false }))); setMethod(g.method); setName(g.layer_id ? `${g.name} (re-placed)` : `${g.name} (georeferenced)`);
+    setSrc(g); setPts(g.points.map((p) => ({ ...p, on: p.on !== false }))); setMethod(g.method); const unplaced = !!layers.find((l) => l.id === g.layer_id)?.raster?.unplaced;
+    setName(unplaced ? g.name : g.layer_id ? `${g.name} (re-placed)` : `${g.name} (georeferenced)`);
     setPending(null); setSel(null); setFit(null); setFitError(null); setError(null);
   }
   async function start(file?: File, layerId?: string) {
@@ -107,7 +116,8 @@ export default function Georeference({ projectId, layers, canEdit, view, file, o
     setBusy(true); setError(null);
     try {
       const r = await api.georefWarp(src.id, { points: pts, method, epsg: epsg ? Number(epsg) : null, name: name.trim() || undefined, resampling });
-      toast(`${r.layer.name} added to the map (RMS error ${r.fit.exact ? "0, the spline passes through every point" : `${r.fit.rmse_m} m`}).`, "success");
+      const moved = !!src.layer_id && r.layer.id === src.layer_id;
+      toast(`${r.layer.name} ${moved ? "moved into place" : "added to the map"} (RMS error ${r.fit.exact ? "0, the spline passes through every point" : `${r.fit.rmse_m} m`}).`, "success");
       onDone(r.layer);
     } catch (e) { setError(e instanceof ApiError ? e : new Error("Could not save the georeferenced image.")); }
     finally { setBusy(false); }

@@ -713,3 +713,4 @@ h2.ct-heading, .ct-heading { margin: 0; color: var(--c-ink); padding: 10px 12px 
 .gr-warn { margin: 0; padding: 8px 10px; border-radius: var(--r-m); background: var(--ge-bad-50); color: var(--c-bad); font-size: 12.5px; line-height: 1.45; }
 .ws-callout { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r-m); background: var(--ge-navy-50); font-size: 13px; flex-wrap: wrap; }
 .ws-callout > span { flex: 1; min-width: 200px; }
+.ws-unplaced { margin-bottom: 10px; background: #fff4e6; color: #8a3c00; }
