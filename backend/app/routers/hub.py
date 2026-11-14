@@ -72,9 +72,14 @@ RAMPS = {"Gray": "gray", "Terrain": "terrain", "Greens": "greens", "Blues": "blu
 
 
 def _render(layer: dict) -> dict | None:
-    """How Geohub should draw the raster: the layer's own ramp (its colours, and the nearest named ramp) and range; an
-    RGB image is drawn as a photo there anyway."""
+    """How Geohub should draw the raster: its classes (value, colour, name) when it is shown by class; else the layer's own
+    ramp (its colours, and the nearest named ramp) and range; an RGB image is drawn as a photo there anyway."""
     st = layer.get("style") or {}
+    if st.get("mode") == "classes":                       # land cover and the like: each shown class in its colour, with its name
+        shown = [{"value": int(c["value"]), "color": c["color"].lower(), "label": str(c.get("label") or c["value"])[:100]}
+                 for c in st.get("categories") or [] if not c.get("hidden") and float(c["value"]).is_integer()
+                 and re.fullmatch(r"#[0-9a-fA-F]{6}", c.get("color") or "")]
+        return {"classes": shown[:200]} if shown else None
     if st.get("mode", "ramp") != "ramp" or st.get("ramp") not in RAMPS:
         return None
     name = RAMPS[st["ramp"]]

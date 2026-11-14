@@ -89,3 +89,18 @@ def test_a_geohub_not_yet_updated_is_named_plainly(person):
         finally:
             HUB.rasters = real
         assert r.status_code == 502 and r.json()["code"] == "geohub_outdated" and "has not been updated to take rasters" in r.json()["detail"], r.text
+
+
+def test_a_land_cover_raster_goes_with_its_classes(person):
+    """A raster shown by class goes with each shown class's value, colour and name; hidden classes are left out."""
+    import numpy as np
+    from test_rasters import tif
+    ed = person(role="member", name="Land Cover Publisher", features=["maps", "editing", "raster"])
+    p = ed.post("/projects", json={"name": "Land Check Mapping"}).json()
+    lc = np.where(np.arange(400).reshape(20, 20) % 20 < 10, 10, 20).astype("uint8")
+    lay = ed.post(f"/projects/{p['id']}/layers/import", files={"file": ("worldcover.tif", tif(lc))}).json()[0]
+    style = {**lay["style"], "mode": "classes", "categories": [{"value": 10, "color": "#006400", "label": "Tree cover"},
+                                                               {"value": 20, "color": "#FFBB22", "label": "Shrubland", "hidden": True}]}
+    assert ed.put(f"/layers/{lay['id']}/raster-style", json=style).status_code == 200
+    out = ed.post(f"/layers/{lay['id']}/hub", json={"title": "Land cover"}).json()
+    assert HUB.uploads[out["upload"]]["body"]["render"] == {"classes": [{"value": 10, "color": "#006400", "label": "Tree cover"}]}
