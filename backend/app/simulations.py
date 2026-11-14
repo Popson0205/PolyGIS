@@ -222,7 +222,7 @@ def suitability(p: dict, inp: Inputs) -> Out:
         "largest_site_ha": _ha(int(sizes.max()) if len(sizes) else 0, g),
     }
     summary["steps"] = [{"label": "Suitability", "mean": summary["mean"], "best_ha": summary["best_ha"]}]
-    style = {"type": "raster", "mode": "ramp", "band": 1, "min": 0, "max": 100, "ramp": "RdYlGn", "opacity": 0.85}
+    style = {"type": "raster", "mode": "ramp", "band": 1, "min": 0, "max": 100, "ramp": "Spectral", "invert": True, "opacity": 0.85}   # red poor, blue best
     return _bands_out("Suitability", [suit], ["Suitability (0–100)"], g, style, summary=summary)
 
 
@@ -518,7 +518,7 @@ def spread(p: dict, inp: Inputs) -> Out:
         lab = f"{hr:g} h"
         labels.append(lab)
         steps.append({"label": lab, "area_ha": _ha(int(reached.sum()), g), "assets": _impacts(inp, assets, g, reached)})
-    style = {"type": "raster", "mode": "ramp", "band": len(bands), "min": 0, "max": max(hours), "ramp": "YlOrRd", "opacity": 0.85}
+    style = {"type": "raster", "mode": "ramp", "band": len(bands), "min": 0, "max": max(hours), "ramp": "Magma", "opacity": 0.85}
     return _bands_out("Spread", bands, labels, g, style,
                       summary={"steps": steps, "speed_m_per_h": speed, "wind_from": p.get("wind_from"), "wind_strength": strength})
 

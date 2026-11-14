@@ -74,7 +74,7 @@ def test_suitability_scores_and_excludes(pro, P):
     assert [c["share"] for c in sm["criteria"]] == [66.7, 33.3]
     assert sm["excluded_ha"] == pytest.approx(110 * 0.09, abs=1)   # cells the park touches and sm["best_sites"] >= 1
     assert sum(c["area_ha"] for c in sm["classes"]) == pytest.approx(sm["scored_ha"], abs=0.1)
-    assert out["scenario"]["status"] == "ready" and out["layer"]["style"]["ramp"] == "RdYlGn"
+    assert out["scenario"]["status"] == "ready" and out["layer"]["style"]["ramp"] == "Spectral"
     # a raster scored by distance is refused plainly
     bad = scenario(pro, P, "suitability", "Bad", criteria=[{"layer": sl["id"], "rule": "near"}])
     r = pro.post(f"/scenarios/{bad['id']}/run")
@@ -162,6 +162,8 @@ def test_spread_with_wind_and_barriers(pro, P):
     out = run(pro, s)
     a, names = bands(out["layer"])
     assert names == ["1 h", "2 h"]
+    from app.raster_style import RAMPS
+    assert out["layer"]["style"]["ramp"] in RAMPS                               # a ramp the map knows
     st = out["scenario"]["summary"]["steps"]
     import math
     assert st[0]["area_ha"] == pytest.approx(math.pi * 300 ** 2 / 1e4, rel=0.15)    # a circle 300 m across in an hour
