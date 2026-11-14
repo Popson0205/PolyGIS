@@ -711,3 +711,5 @@ h2.ct-heading, .ct-heading { margin: 0; color: var(--c-ink); padding: 10px 12px 
 .gr-earlier span { color: var(--c-muted); }
 @media (max-width: 1000px) { .gr-body { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr auto; } .gr-side { grid-column: 1 / -1; max-height: 40vh; } }
 .gr-warn { margin: 0; padding: 8px 10px; border-radius: var(--r-m); background: var(--ge-bad-50); color: var(--c-bad); font-size: 12.5px; line-height: 1.45; }
+.ws-callout { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r-m); background: var(--ge-navy-50); font-size: 13px; flex-wrap: wrap; }
+.ws-callout > span { flex: 1; min-width: 200px; }

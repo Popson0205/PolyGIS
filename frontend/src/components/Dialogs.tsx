@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { api, exportUrl } from "../lib/api";
+import { ApiError, api, exportUrl } from "../lib/api";
+import { ACCEPT, PICTURE } from "../lib/formats";
 import type { Crs, Field, FieldType, Filter, Layer, Selection, VectorType } from "../lib/types";
-import { FileUp, X } from "lucide-react";
+import { FileUp, MapPinned, X } from "lucide-react";
 import { Button, ErrorText, IconButton, useAction } from "./ui";
 
 export function Dialog({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
@@ -41,33 +42,46 @@ export function CrsPicker({ value, onChange, label = "Coordinate system", allowN
   );
 }
 
-export function AddData({ projectId, onDone, onClose, onImagery }: { projectId: string; onDone: (l: Layer[]) => void; onClose: () => void; onImagery?: () => void }) {
-  const [file, setFile] = useState<File | null>(null);
+export function AddData({ projectId, onDone, onClose, onImagery, onGeoreference }: {
+  projectId: string; onDone: (l: Layer[]) => void; onClose: () => void; onImagery?: () => void; onGeoreference?: (f: File) => void;
+}) {
+  const [files, setFiles] = useState<File[]>([]);
   const [epsg, setEpsg] = useState<number | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
+  const pick = (list: FileList | null) => { setFiles(list ? Array.from(list) : []); setError(null); };
   async function go(e: FormEvent) {
     e.preventDefault();
-    if (!file) return;
+    if (!files.length) return;
     setBusy(true); setError(null);
-    try { onDone(await api.importFile(projectId, file, epsg ?? undefined)); } catch (x) { setError(x); } finally { setBusy(false); }
+    try { onDone(await api.importFile(projectId, files, epsg ?? undefined)); } catch (x) { setError(x); } finally { setBusy(false); }
   }
+  const picture = files.find((f) => PICTURE.test(f.name));
+  const unplaced = error instanceof ApiError && error.code === "no_georeference";
+  const shp = files.some((f) => /\.shp$/i.test(f.name)) && !files.some((f) => /\.shx$/i.test(f.name));
   return (
     <Dialog title="Add data" onClose={onClose}>
       <form className="ws-form" onSubmit={go}>
         <label className={`ws-drop${drag ? " is-over" : ""}`} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
-          onDrop={(e) => { e.preventDefault(); setDrag(false); if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); }}>
-          <input type="file" accept=".geojson,.json,.zip,.gpkg,.kml,.kmz,.csv,.txt,.dxf,.gpx,.gml,.tif,.tiff,.img,.asc,.jp2,.hgt,.dem,.bil,.nc,.vrt" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          onDrop={(e) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files); }}>
+          <input type="file" multiple accept={ACCEPT} onChange={(e) => pick(e.target.files)} />
           <FileUp size={28} aria-hidden="true" />
-          <strong>{file ? file.name : "Drop a file here, or click to choose one"}</strong>
-          <span>GeoJSON, Shapefile (zipped with its .shp, .shx, .dbf and .prj), GeoPackage, KML/KMZ, CSV with longitude/latitude or WKT, DXF, GPX; or a raster: GeoTIFF (elevation models, drone and satellite imagery), Erdas IMG, ASCII grid, JPEG 2000, SRTM .hgt</span>
+          <strong>{files.length === 1 ? files[0].name : files.length ? `${files.length} files: ${files.map((f) => f.name).join(", ")}` : "Drop files here, or click to choose"}</strong>
+          <span>Vector: GeoJSON, Shapefile (choose its .shp, .shx, .dbf and .prj together, or zip them), GeoPackage, KML/KMZ, CSV with longitude/latitude
+            or WKT, DXF, DGN, GPX, GML, FlatGeobuf, MapInfo TAB/MIF, file geodatabase (zipped .gdb), SpatiaLite, OpenStreetMap, TopoJSON.<br />
+            Raster: GeoTIFF, Erdas IMG, ASCII and Surfer grids, JPEG 2000, ECW, MrSID, ENVI, NetCDF, HDF, GRIB, DTED, SRTM .hgt, Esri grid (zipped),
+            SAGA, Idrisi, MBTiles; JPEG, PNG and other pictures with their world file (.jgw, .pgw, .tfw…), or placed by Georeference.</span>
         </label>
+        {shp && <p className="ws-muted">A Shapefile needs its .shx and .dbf too (and .prj for its coordinate system): choose them together.</p>}
         {onImagery && <p className="ws-muted">No imagery file? <button type="button" className="ws-link" onClick={onImagery}>Get data from an open source</button> (Sentinel-2, Landsat, radar, elevation, land cover, rainfall; Planetary Computer, Earth Search or Google Earth Engine) instead of downloading it yourself.</p>}
         <CrsPicker value={epsg} onChange={setEpsg} label="Its coordinate system" allowNone="As the file says (WGS 84 if it does not say)" />
-        <p className="ws-muted">Choose one when the file does not say, e.g. a CSV of eastings and northings, or a Shapefile without its .prj.</p>
+        <p className="ws-muted">Choose one when the file does not say, e.g. a CSV of eastings and northings, a Shapefile without its .prj, or a picture's world file.</p>
         <ErrorText error={error} />
-        <div className="ws-row"><Button type="submit" variant="primary" busy={busy} disabled={!file}>Add to the map</Button><Button variant="ghost" onClick={onClose}>Cancel</Button></div>
+        {unplaced && picture && onGeoreference && <div className="ws-callout">
+          <span>Place <strong>{picture.name}</strong> by matching points on it to the map.</span>
+          <Button small variant="primary" onClick={() => onGeoreference(picture)}><MapPinned size={14} aria-hidden="true" />Georeference this image</Button></div>}
+        <div className="ws-row"><Button type="submit" variant="primary" busy={busy} disabled={!files.length}>Add to the map</Button><Button variant="ghost" onClick={onClose}>Cancel</Button></div>
       </form>
     </Dialog>
   );

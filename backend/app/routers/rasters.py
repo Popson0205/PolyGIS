@@ -28,20 +28,26 @@ from .layers import _copy_features, _next_position, _touch, default_style, layer
 from .projects import project_of
 
 router = APIRouter(tags=["rasters"])
-SIDECARS = (".tfw", ".tifw", ".aux.xml", ".prj", ".hdr", ".ovr", ".rrd", ".j2w", ".wld", ".xml", ".ige", ".rde")
+SIDECARS = (".tfw", ".tifw", ".tiffw", ".aux.xml", ".prj", ".hdr", ".ovr", ".rrd", ".j2w", ".wld", ".xml", ".ige", ".rde",
+            ".jgw", ".jpgw", ".jpw", ".jpegw", ".pgw", ".pngw", ".gfw", ".gifw", ".bpw", ".bmpw", ".wpw", ".eww", ".sdw", ".blw", ".bqw",
+            ".clr", ".stx", ".aux", ".sgrd", ".rdc", ".ers", ".lbl", ".ovr.aux.xml")
 
 
 def is_raster(name: str) -> bool:
     n = name.lower()
-    return n.endswith(rasters.EXTENSIONS) or n.endswith((".hgt.zip", ".tif.zip", ".tiff.zip"))
+    return n.endswith(rasters.EXTENSIONS) or n.endswith(tuple(f"{e}.zip" for e in (".hgt", ".tif", ".tiff", ".dem", ".asc", ".img", ".jpg", ".png")))
 
 
 def _unzip_raster(path: Path) -> Path:
     with zipfile.ZipFile(path) as z:
         names = [n for n in z.namelist() if not n.endswith("/") and "__MACOSX" not in n]
-        main = [n for n in names if n.lower().endswith(rasters.EXTENSIONS)]
+        grid = next((n for n in names if Path(n).name.lower() == "hdr.adf"), None)
+        if grid:                                                   # an Esri grid is a folder of .adf files: unpack it whole
+            z.extractall(path.parent / "unzipped", [n for n in names if not n.startswith("/") and ".." not in n])
+            return path.parent / "unzipped" / Path(grid).parent
+        main = [n for n in names if n.lower().endswith(rasters.EXTENSIONS) and not n.lower().endswith(SIDECARS)]
         if len(main) != 1:
-            raise rasters.RasterError("The zip must hold one raster (with its .tfw, .aux.xml or .prj if it has them).")
+            raise rasters.RasterError("The zip must hold one raster (with its world file, .aux.xml or .prj if it has them).")
         for n in names:
             if n == main[0] or n.lower().endswith(SIDECARS):
                 target = path.parent / Path(n).name
@@ -50,33 +56,34 @@ def _unzip_raster(path: Path) -> Path:
         return path.parent / Path(main[0]).name
 
 
-async def import_raster(conn, project_id, file, epsg, user) -> dict:
-    d = Path(tempfile.mkdtemp(prefix="polygis-r-"))
+def raster_zip(path: Path) -> bool:
+    """Whether a zip holds a raster (and no vector data), so it is read as one."""
     try:
-        path = d / (Path(file.filename or "raster.tif").name)
-        size, most = 0, settings.max_raster_mb * 1024 * 1024
-        with open(path, "wb") as f:
-            while chunk := await file.read(4 * 1024 * 1024):
-                size += len(chunk)
-                if size > most:
-                    raise Problem(413, f"The raster is larger than {settings.max_raster_mb} MB.", code="too_large")
-                f.write(chunk)
-        if not size:
-            raise Problem(422, "The file is empty.", code="validation")
-        try:
-            if path.suffix.lower() == ".zip":
-                path = _unzip_raster(path)
-            meta = await anyio.to_thread.run_sync(lambda: rasters.ingest(path, epsg))
-        except (rasters.RasterError, zipfile.BadZipFile) as e:
-            raise Problem(422, str(e) if isinstance(e, rasters.RasterError) else "The zip file is damaged.", code="unreadable") from None
-    finally:
-        shutil.rmtree(d, ignore_errors=True)
-    name = Path(file.filename or "raster").name
+        with zipfile.ZipFile(path) as z:
+            names = [n.lower() for n in z.namelist() if "__macosx" not in n.lower()]
+    except zipfile.BadZipFile:
+        return False
+    from ..gisdata import IN_ZIP
+    if any(n.endswith(IN_ZIP) or ".gdb/" in n for n in names):
+        return False
+    return any(Path(n).name == "hdr.adf" or (n.endswith(rasters.EXTENSIONS) and not n.endswith(SIDECARS)) for n in names)
+
+
+async def import_raster(conn, project_id, path: Path, filename: str, epsg, user) -> dict:
+    """A raster file (already saved, with any companion files beside it) added as a layer."""
+    try:
+        if path.suffix.lower() == ".zip":
+            path = _unzip_raster(path)
+        meta = await anyio.to_thread.run_sync(lambda: rasters.ingest(path, epsg))
+    except (rasters.RasterError, zipfile.BadZipFile) as e:
+        raise Problem(422, str(e) if isinstance(e, rasters.RasterError) else "The zip file is damaged.",
+                      code=getattr(e, "code", "unreadable")) from None
+    name = Path(filename or "raster").name
     for ext in (".zip", *rasters.EXTENSIONS):
         if name.lower().endswith(ext):
             name = name[: -len(ext)]
-    lid = await _insert(conn, project_id, user, name or "Raster", meta, rasters.default_style(meta), {"filename": file.filename, "crs": meta["crs_name"]})
-    await audit(conn, user, "layer.import", "layer", lid, name=name, file=file.filename, raster=f"{meta['width']}x{meta['height']}x{meta['count']}")
+    lid = await _insert(conn, project_id, user, name or "Raster", meta, rasters.default_style(meta), {"filename": filename, "crs": meta["crs_name"]})
+    await audit(conn, user, "layer.import", "layer", lid, name=name, file=filename, raster=f"{meta['width']}x{meta['height']}x{meta['count']}")
     await _touch(conn, lid, project_id)
     return await layer_of(conn, lid, user)
 

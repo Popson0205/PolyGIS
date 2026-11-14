@@ -14,8 +14,8 @@ const newId = () => Math.random().toString(36).slice(2, 10);
 
 /** Georeferencing: place an image without coordinates (a scanned map, a plan, a photo), or a raster in the wrong place,
  *  by matching points on the image to the same places on the map. */
-export default function Georeference({ projectId, layers, canEdit, view, onClose, onDone }: {
-  projectId: string; layers: Layer[]; canEdit: boolean; view: { center: [number, number]; zoom: number } | null;
+export default function Georeference({ projectId, layers, canEdit, view, file, onClose, onDone }: {
+  projectId: string; layers: Layer[]; canEdit: boolean; view: { center: [number, number]; zoom: number } | null; file?: File | null;
   onClose: () => void; onDone: (l: Layer) => void;
 }) {
   const toast = useToast();
@@ -36,6 +36,11 @@ export default function Georeference({ projectId, layers, canEdit, view, onClose
   const [resampling, setResampling] = useState<"bilinear" | "nearest">("bilinear");
 
   useEffect(() => { void api.georefList(projectId).then(setEarlier, () => setEarlier([])); }, [projectId]);
+  const startedWith = useRef<File | null>(null);
+  useEffect(() => {                                              // sent here from Add data with a picture that has no coordinates
+    if (file && startedWith.current !== file && canEdit) { startedWith.current = file; void start(file); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file]);
   useEffect(() => {
     const esc = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || (e.target as HTMLElement)?.closest?.("input, textarea, select")) return;
