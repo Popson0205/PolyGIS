@@ -28,6 +28,8 @@ KINDS = {
     "flood": "Flood and sea-level rise",
     "land_change": "Land-use change and urban growth",
     "spread": "Spread over time",
+    "raster_forecast": "Raster time-series forecast",
+    "value_forecast": "Value forecast for features",
 }
 CLASS_NAMES = ["Very low", "Low", "Moderate", "High", "Very high"]
 CLASS_COLOURS = ["#d7191c", "#fdae61", "#ffffbf", "#a6d96a", "#1a9641"]
@@ -523,20 +525,299 @@ def spread(p: dict, inp: Inputs) -> Out:
                       summary={"steps": steps, "speed_m_per_h": speed, "wind_from": p.get("wind_from"), "wind_strength": strength})
 
 
-RUN = {"suitability": suitability, "flood": flood, "land_change": land_change, "spread": spread}
+# =====================================================================================================================
+# Forecasting
+# =====================================================================================================================
+def decimal_year(v) -> float:
+    """2019, "2019", "2019-07-02" or "2019-07" as a year with a fraction (2019.5 is about 2 July)."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
+    t = str(v or "").strip()
+    try:
+        if len(t) <= 4:
+            return float(t)
+        from datetime import date
+        parts = [int(x) for x in t[:10].split("-")]
+        d = date(parts[0], parts[1] if len(parts) > 1 else 1, parts[2] if len(parts) > 2 else 1)
+        start, end = date(d.year, 1, 1), date(d.year + 1, 1, 1)
+        return d.year + (d - start).days / (end - start).days
+    except (ValueError, IndexError):
+        raise bad(f"“{t}” is not a year or a date (e.g. 2019 or 2019-07-02).") from None
+
+
+def _design(t: np.ndarray, seasonal: bool) -> np.ndarray:
+    cols = [np.ones_like(t), t]
+    if seasonal:
+        cols += [np.sin(2 * np.pi * t), np.cos(2 * np.pi * t)]
+    return np.stack(cols, 1)
+
+
+def _batched_ls(X: np.ndarray, Y: np.ndarray):
+    """Least squares for every column of Y (times × cells) with the same design X, skipping missing values.
+    Returns the coefficients (cells × k), the residual standard deviation, the inverse normal matrices and the counts."""
+    W = np.isfinite(Y).astype(float)
+    Yf = np.nan_to_num(Y)
+    A = np.einsum("ic,ij,ik->cjk", W, X, X)
+    b = np.einsum("ic,ij->cj", W * Yf, X)
+    k = X.shape[1]
+    n = W.sum(0)
+    ok = n >= k + 1
+    A[~ok] = np.eye(k)
+    Ainv = np.linalg.inv(A + np.eye(k) * 1e-12)
+    beta = np.einsum("cjk,ck->cj", Ainv, b)
+    resid = (Yf - (X @ beta.T)) * W
+    sigma = np.sqrt((resid ** 2).sum(0) / np.maximum(n - k, 1))
+    beta[~ok] = np.nan
+    return beta, sigma, Ainv, n
+
+
+def _mann_kendall(t: np.ndarray, Y: np.ndarray):
+    """Mann–Kendall trend test for every column: S (positive for a rising trend) and the two-sided p-value."""
+    from math import sqrt
+    from scipy.special import erfc
+    n_t = len(t)
+    order = np.argsort(t)
+    Ys = Y[order]
+    S = np.zeros(Y.shape[1])
+    for i in range(n_t - 1):
+        d = Ys[i + 1:] - Ys[i]
+        S += np.nansum(np.sign(d), 0)
+    n = np.isfinite(Y).sum(0).astype(float)
+    var = n * (n - 1) * (2 * n + 5) / 18
+    z = np.where(S > 0, (S - 1), np.where(S < 0, S + 1, 0)) / np.sqrt(np.maximum(var, 1e-9))
+    pval = erfc(np.abs(z) / sqrt(2))
+    return S, np.where(n >= 4, pval, np.nan)
+
+
+def _theil_sen(t: np.ndarray, Y: np.ndarray):
+    pairs = [(i, j) for i in range(len(t)) for j in range(i + 1, len(t)) if t[j] != t[i]]
+    if len(pairs) * Y.shape[1] > 300_000_000:
+        raise bad("Too many images for the Theil–Sen method on this many cells: use the linear method or fewer images.")
+    sl = np.stack([(Y[j] - Y[i]) / (t[j] - t[i]) for i, j in pairs])
+    with np.errstate(all="ignore"):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            slope = np.nanmedian(sl, 0)
+            icpt = np.nanmedian(Y - slope[None] * t[:, None], 0)
+    return slope, icpt
+
+
+def raster_forecast(p: dict, inp: Inputs) -> Out:
+    from .raster_style import RAMPS
+    series = [x for x in _list(p, "series") if isinstance(x, dict) and x.get("layer")]
+    if len(series) < 3:
+        raise bad("Add at least three rasters, each with its date, to forecast from.")
+    if len(series) > 120:
+        raise bad("Use at most 120 rasters.")
+    t = np.array([decimal_year(x.get("date")) for x in series])
+    if len(set(t.tolist())) < 3:
+        raise bad("The rasters need at least three different dates.")
+    targets = [decimal_year(x) for x in (_list(p, "targets") if isinstance(p.get("targets"), list) else
+                                          [y for y in str(p.get("targets") or "").replace(";", ",").split(",") if y.strip()])]
+    if not targets:
+        raise bad("Give the years (or dates) to forecast.")
+    if len(targets) > 12:
+        raise bad("Forecast at most 12 dates.")
+    g = inp.grid(str(series[0]["layer"]), int(series[0].get("band") or 1))
+    Y = np.stack([np.ma.filled(inp.aligned(str(x["layer"]), g, int(x.get("band") or 1)), np.nan) for x in series])
+    H, W = g.shape
+    Y = Y.reshape(len(series), -1)
+    t0 = float(t.mean())
+    tc = t - t0
+    method = p.get("method", "linear")
+    if method not in ("linear", "theil_sen", "seasonal"):
+        raise bad("Choose a forecasting method.")
+    if method == "theil_sen":
+        slope, icpt = _theil_sen(tc, Y)
+        fc = [icpt + slope * (decimal_year(x) - t0) for x in targets]
+        sigma = np.nanstd(Y - (icpt[None] + slope[None] * tc[:, None]), 0)
+        lohi = [(f - 1.96 * sigma, f + 1.96 * sigma) for f in fc]
+    else:
+        seasonal = method == "seasonal"
+        X = _design(tc, seasonal)
+        beta, sigma, Ainv, n = _batched_ls(X, Y)
+        slope = beta[:, 1]
+        fc, lohi = [], []
+        for x in targets:
+            x0 = _design(np.array([decimal_year(x) - t0]), seasonal)[0]
+            f = beta @ x0
+            se = sigma * np.sqrt(1 + np.einsum("j,cjk,k->c", x0, Ainv, x0))
+            fc.append(f)
+            lohi.append((f - 1.96 * se, f + 1.96 * se))
+    S, pval = _mann_kendall(t, Y)
+    alpha = _num(p, "significance", 0.001, 0.5, "Significance level", 0.05)
+    lo_v, hi_v = p.get("min"), p.get("max")                     # physical limits, e.g. NDVI between −1 and 1
+    clip = lambda a: np.clip(a, float(lo_v) if lo_v not in (None, "") else -np.inf, float(hi_v) if hi_v not in (None, "") else np.inf)  # noqa: E731
+    valid = np.isfinite(slope)
+    up = valid & (pval < alpha) & (slope > 0)
+    down = valid & (pval < alpha) & (slope < 0)
+    bands, labels, steps = [], [], []
+    for x, f, (lo, hi) in zip(targets, fc, lohi):
+        f = clip(np.where(valid, f, np.nan))
+        bands.append(f.reshape(H, W))
+        lab = str(x) if isinstance(x, str) else f"{x:g}"
+        labels.append(lab)
+        steps.append({"label": lab, "mean": round(float(np.nanmean(f)), 4) if valid.any() else None,
+                      "low_95": round(float(np.nanmean(clip(lo[valid]))), 4) if valid.any() else None,
+                      "high_95": round(float(np.nanmean(clip(hi[valid]))), 4) if valid.any() else None})
+    last_obs = np.nanmean(Y[np.argmax(t)])
+    summary = {"method": method, "observations": len(series), "from": f"{t.min():.2f}", "to": f"{t.max():.2f}",
+               "mean_now": round(float(last_obs), 4), "trend_per_year": round(float(np.nanmean(slope)), 5),
+               "rising_ha": _ha(int(up.sum()), g), "falling_ha": _ha(int(down.sum()), g), "no_clear_trend_ha": _ha(int((valid & ~up & ~down).sum()), g),
+               "significance": alpha, "steps": steps}
+    vals = np.concatenate([b[np.isfinite(b)] for b in bands]) if any(np.isfinite(b).any() for b in bands) else np.array([0.0, 1.0])
+    style = {"type": "raster", "mode": "ramp", "band": 1, "min": round(float(np.percentile(vals, 2)), 4), "max": round(float(np.percentile(vals, 98)), 4),
+             "ramp": p.get("ramp") if p.get("ramp") in RAMPS else "Greens", "opacity": 0.9}
+    return _bands_out("Forecast", bands, labels, g, style, summary=summary)
+
+
+def _year_of(name: str) -> float | None:
+    import re
+    m = re.findall(r"(1[89]\d\d|2[0-2]\d\d)", name)
+    return float(m[-1]) if m else None
+
+
+def value_forecast(p: dict, inp: Inputs) -> Out:
+    if not p.get("layer"):
+        raise bad("Choose the layer whose values to forecast.")
+    lid = str(p["layer"])
+    lay = inp.layers[lid]
+    cols = []
+    for x in _list(p, "fields"):
+        f = x.get("field") if isinstance(x, dict) else x
+        y = (x.get("year") if isinstance(x, dict) else None) or _year_of(str(f))
+        if f:
+            if y in (None, ""):
+                raise bad(f"Give the year of the field {f}.")
+            cols.append((str(f), decimal_year(y)))
+    known = {f["name"] for f in lay["fields"]}
+    missing = [f for f, _ in cols if f not in known]
+    if missing:
+        raise bad(f"{lay['name']} has no field called {missing[0]}.")
+    if len({y for _, y in cols}) < 2:
+        raise bad("Choose at least two fields from different years.")
+    cols.sort(key=lambda c: c[1])
+    t = np.array([y for _, y in cols])
+    targets = _numbers(p, "targets", "Years to forecast", 1800, 2300)
+    method = p.get("method", "linear")
+    if method not in ("linear", "exponential", "theil_sen", "average_growth"):
+        raise bad("Choose a forecasting method.")
+    prefix = (str(p.get("prefix") or "forecast").strip() or "forecast")[:30]
+    feats = inp.vector(lid)
+    Y = np.array([[_float(f["props"].get(c)) for c, _ in cols] for f in feats], dtype=float).T   # times × features
+    tc = t - t.mean()
+    if method == "exponential" or method == "average_growth":
+        bad_vals = np.nanmin(np.where(np.isfinite(Y), Y, np.inf), 0) <= 0
+        if bad_vals.all():
+            raise bad("Growth methods need values above 0.")
+    preds, growth, r2 = [], np.full(Y.shape[1], np.nan), np.full(Y.shape[1], np.nan)
+    if method == "linear":
+        beta, *_ = _batched_ls(_design(tc, False), Y)
+        for y in targets:
+            preds.append(beta[:, 0] + beta[:, 1] * (y - t.mean()))
+        base = np.nanmean(Y, 0)
+        growth = np.where(np.abs(base) > 0, beta[:, 1] / np.where(base == 0, 1, base) * 100, np.nan)
+        fit = (_design(tc, False) @ beta.T)
+    elif method == "theil_sen":
+        slope, icpt = _theil_sen(tc, Y)
+        for y in targets:
+            preds.append(icpt + slope * (y - t.mean()))
+        base = np.nanmean(Y, 0)
+        growth = np.where(np.abs(base) > 0, slope / np.where(base == 0, 1, base) * 100, np.nan)
+        fit = icpt[None] + slope[None] * tc[:, None]
+    elif method == "exponential":
+        L = np.where(Y > 0, np.log(np.where(Y > 0, Y, 1)), np.nan)
+        beta, *_ = _batched_ls(_design(tc, False), L)
+        for y in targets:
+            preds.append(np.exp(beta[:, 0] + beta[:, 1] * (y - t.mean())))
+        growth = (np.exp(beta[:, 1]) - 1) * 100
+        fit = np.exp(_design(tc, False) @ beta.T)
+    else:  # average yearly growth between each feature's first and last known values
+        first_i = np.argmax(np.isfinite(Y), 0)
+        last_i = Y.shape[0] - 1 - np.argmax(np.isfinite(Y[::-1]), 0)
+        idx = np.arange(Y.shape[1])
+        y0, y1 = Y[first_i, idx], Y[last_i, idx]
+        span = t[last_i] - t[first_i]
+        with np.errstate(all="ignore"):
+            rate = np.where((y0 > 0) & (y1 > 0) & (span > 0), (y1 / y0) ** (1 / np.where(span > 0, span, 1)) - 1, np.nan)
+        for y in targets:
+            preds.append(y1 * (1 + rate) ** (y - t[last_i]))
+        growth = rate * 100
+        fit = np.full_like(Y, np.nan)
+    with np.errstate(all="ignore"):
+        ss_res = np.nansum((Y - fit) ** 2, 0)
+        ss_tot = np.nansum((Y - np.nanmean(Y, 0)) ** 2, 0)
+        r2 = np.where(ss_tot > 0, 1 - ss_res / np.where(ss_tot > 0, ss_tot, 1), np.nan) if method != "average_growth" else r2
+    if p.get("not_below_zero", True) in (True, "true", 1):
+        preds = [np.maximum(x, 0) for x in preds]
+    names = [f"{prefix}_{y:g}" for y in targets]
+    fields = list(lay["fields"]) + [{"name": n, "type": "number"} for n in names] + [{"name": "growth_pct_per_year", "type": "number"},
+                                                                                     {"name": "fit_r2", "type": "number"}]
+    fields = list({f["name"]: f for f in fields}.values())
+    rows = []
+    for i, f in enumerate(feats):
+        props = dict(f["props"])
+        for n, pr in zip(names, preds):
+            props[n] = None if not np.isfinite(pr[i]) else round(float(pr[i]), 4)
+        props["growth_pct_per_year"] = None if not np.isfinite(growth[i]) else round(float(growth[i]), 3)
+        props["fit_r2"] = None if not np.isfinite(r2[i]) else round(float(r2[i]), 3)
+        rows.append((f["geom"], props))
+    last_known = np.nansum(Y[-1])
+    steps = []
+    for y, n, pr in zip(targets, names, preds):
+        v = pr[np.isfinite(pr)]
+        steps.append({"label": f"{y:g}", "field": n, "total": round(float(v.sum()), 2), "mean": round(float(v.mean()), 3) if v.size else None,
+                      "highest": round(float(v.max()), 3) if v.size else None, "change_pct": round(float((v.sum() / last_known - 1) * 100), 2) if last_known else None})
+    styles = [_graduated(lay, [pr for pr in preds][k], names[k]) for k in range(len(names))]
+    geom = lay["geometry_type"]
+    o = Out(name=f"{lay['name']} forecast", kind="vector", geometry_type=geom, fields=fields, rows=rows, style=styles[-1])
+    o.summary = {"method": method, "fields": [c for c, _ in cols], "years": [float(y) for y in t], "last_total": round(float(last_known), 2),
+                 "mean_growth_pct_per_year": round(float(np.nanmean(growth)), 3) if np.isfinite(growth).any() else None, "steps": steps,
+                 "step_styles": styles}
+    return o
+
+
+def _float(v) -> float:
+    try:
+        f = float(v)
+        return f if math.isfinite(f) else np.nan
+    except (TypeError, ValueError):
+        return np.nan
+
+
+def _graduated(lay: dict, values: np.ndarray, field: str) -> dict:
+    """Five classes of a forecast field (quantiles), coloured light to dark."""
+    from .raster_style import RAMPS
+    v = values[np.isfinite(values)]
+    cols = RAMPS["Blues"] if lay["geometry_type"] != "Point" else RAMPS["Reds"]
+    qs = np.unique(np.percentile(v, [0, 20, 40, 60, 80, 100])) if v.size else np.array([0.0, 1.0])
+    if len(qs) < 2:
+        qs = np.array([qs[0], qs[0] + 1])
+    classes = [{"min": round(float(a), 4), "max": round(float(b), 4), "color": cols[min(i, len(cols) - 1) if len(qs) - 1 <= len(cols) else i % len(cols)]}
+               for i, (a, b) in enumerate(zip(qs[:-1], qs[1:]))]
+    kind = lay["geometry_type"]
+    return {"type": "graduated", "field": field, "classes": classes, "method": "quantile", "ramp": "Blues", "color": cols[-1],
+            "stroke": "#ffffff" if kind != "LineString" else cols[-1], "width": 2 if kind == "LineString" else 1, "size": 7,
+            "opacity": 0.8 if kind == "Polygon" else 0.95}
+
+
+RUN = {"suitability": suitability, "flood": flood, "land_change": land_change, "spread": spread, "raster_forecast": raster_forecast,
+       "value_forecast": value_forecast}
 
 
 def layer_refs(kind: str, p: dict) -> list[str]:
     """Every layer id a scenario's settings point to (so they can be checked and loaded)."""
     refs = []
     one = {"suitability": ["area"], "flood": ["dem", "sources", "population"], "land_change": ["before", "after"],
-           "spread": ["sources", "friction", "area"]}[kind]
-    many = {"suitability": ["exclude"], "flood": ["assets"], "land_change": ["protect"], "spread": ["barriers", "assets"]}[kind]
+           "spread": ["sources", "friction", "area"], "raster_forecast": [], "value_forecast": ["layer"]}[kind]
+    many = {"suitability": ["exclude"], "flood": ["assets"], "land_change": ["protect"], "spread": ["barriers", "assets"],
+            "raster_forecast": [], "value_forecast": []}[kind]
     for k in one:
         if p.get(k):
             refs.append(str(p[k]))
     for k in many:
         refs += [str(x) for x in _list(p, k) if x]
-    for k in ("criteria", "drivers"):
+    for k in ("criteria", "drivers", "series"):
         refs += [str(c["layer"]) for c in _list(p, k) if isinstance(c, dict) and c.get("layer")]
     return list(dict.fromkeys(refs))

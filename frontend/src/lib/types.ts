@@ -88,7 +88,7 @@ export interface GeorefFit {
 }
 
 /** Scenarios: named what-if settings for a simulation, run into a raster layer (a band per time step or level). */
-export type ScenarioKind = "suitability" | "flood" | "land_change" | "spread";
+export type ScenarioKind = "suitability" | "flood" | "land_change" | "spread" | "raster_forecast" | "value_forecast";
 export interface ScenarioStep { label: string; [k: string]: unknown }
 export interface Scenario {
   id: string; project_id: string; kind: ScenarioKind; name: string; notes: string; params: Record<string, unknown>;

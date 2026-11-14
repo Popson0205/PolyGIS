@@ -2,7 +2,7 @@ import { ArrowLeft, BarChart3, Copy, Eye, FlaskConical, Play, Plus, Trash2, X } 
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ApiError, api } from "../lib/api";
 import { KINDS, compareRows, kindLabel, numberList } from "../lib/scenarios";
-import type { GeometryType, Layer, RasterStyle, Scenario, ScenarioKind } from "../lib/types";
+import type { GeometryType, Layer, RasterStyle, Scenario, ScenarioKind, Style } from "../lib/types";
 import { Button, ErrorText, IconButton, useToast } from "./ui";
 
 type Params = Record<string, unknown>;
@@ -13,6 +13,8 @@ const DEFAULTS: Record<ScenarioKind, Params> = {
   flood: { method: "level", levels: [1, 2, 3], assets: [] },
   land_change: { before_year: 2015, after_year: 2023, years: [2030, 2040], protect: [], drivers: [], neighbourhood: 5 },
   spread: { speed: 500, hours: [1, 3, 6], cell: 30, barriers: [], assets: [], wind_from: 0, wind_strength: 0 },
+  raster_forecast: { series: [], targets: [2030], method: "linear", significance: 0.05 },
+  value_forecast: { fields: [], targets: [2030, 2040], method: "linear", prefix: "forecast", not_below_zero: true },
 };
 
 /** What-if scenarios: made, run, varied and compared, each drawn as a layer with a band per step. */
@@ -113,6 +115,8 @@ function Editor({ s, layers, canEdit, busy, onSaved, onRun, onDuplicate, onDelet
     flood: <FloodForm p={p} set={set} layers={layers} />,
     land_change: <LandForm p={p} set={set} layers={layers} />,
     spread: <SpreadForm p={p} set={set} layers={layers} />,
+    raster_forecast: <RasterForecastForm p={p} set={set} layers={layers} />,
+    value_forecast: <ValueForecastForm p={p} set={set} layers={layers} />,
   };
   return (
     <div className="sc-edit">
@@ -132,11 +136,16 @@ function Editor({ s, layers, canEdit, busy, onSaved, onRun, onDuplicate, onDelet
 
 function Results({ s, layer, onLayer }: { s: Scenario; layer?: Layer; onLayer: (l: Layer, show: boolean) => void }) {
   const steps = s.summary?.steps ?? [];
-  const band = layer?.geometry_type === "Raster" ? Number((layer.style as unknown as { band?: number }).band ?? steps.length) : steps.length;
+  const styles = (s.summary?.step_styles as Style[] | undefined) ?? [];
+  const band = layer?.geometry_type === "Raster" ? Number((layer.style as unknown as { band?: number }).band ?? steps.length)
+    : Math.max(1, styles.findIndex((x) => x.field === layer?.style.field) + 1 || steps.length);
   const [err, setErr] = useState<unknown>(null);
   async function pick(b: number) {
     if (!layer) return;
-    try { onLayer(await api.rasterStyle(layer.id, { ...(layer.style as unknown as RasterStyle), band: b }), false); } catch (e) { setErr(e); }
+    try {
+      onLayer(layer.geometry_type === "Raster" ? await api.rasterStyle(layer.id, { ...(layer.style as unknown as RasterStyle), band: b })
+        : await api.updateLayer(layer.id, { style: styles[b - 1] }), false);
+    } catch (e) { setErr(e); }
   }
   const rows = compareRows([s], ((s.summary?.labels as Record<string, string>) ?? {}));
   return (
@@ -144,7 +153,7 @@ function Results({ s, layer, onLayer }: { s: Scenario; layer?: Layer; onLayer: (
       <h3>Results <span className="ws-muted">{s.ran_at ? new Date(s.ran_at).toLocaleString() : ""}</span></h3>
       {layer ? <div className="ws-row"><Button small variant="ghost" onClick={() => onLayer(layer, true)}><Eye size={14} aria-hidden="true" />Show on the map</Button></div>
         : <p className="ws-muted">Its layer was removed; run it again to redraw it.</p>}
-      {steps.length > 1 && layer && <label className="ws-f">Step on the map: <strong>{steps[band - 1]?.label}</strong>
+      {steps.length > 1 && layer && (layer.geometry_type === "Raster" || styles.length === steps.length) && <label className="ws-f">Step on the map: <strong>{steps[band - 1]?.label}</strong>
         <input type="range" min={1} max={steps.length} step={1} value={band} onChange={(e) => void pick(Number(e.target.value))} aria-valuetext={steps[band - 1]?.label} /></label>}
       <ErrorText error={err} />
       <table className="sc-table"><tbody>
@@ -354,5 +363,67 @@ function SpreadForm({ p, set, layers }: FormProps) {
     <LayerChecks label="Barriers" value={p.barriers} onChange={(v) => set("barriers", v)} layers={ofType(layers, ["LineString", "Polygon"])} help="Rivers, firebreaks, roads it cannot cross." />
     <LayerPick label="Study area" optional value={p.area} onChange={(v) => set("area", v)} layers={ofType(layers, ["Polygon"])} />
     <LayerChecks label="Count what is reached" value={p.assets} onChange={(v) => set("assets", v)} layers={ofType(layers, VECTORS)} />
+  </>;
+}
+
+type Obs = { layer?: string; date?: string; band?: number };
+
+function RasterForecastForm({ p, set, layers }: FormProps) {
+  const rasters = ofType(layers, ["Raster"]);
+  const list = (p.series as Obs[] | undefined) ?? [];
+  const edit = (i: number, x: Partial<Obs>) => set("series", list.map((o, j) => (j === i ? { ...o, ...x } : o)));
+  const guess = (l?: Layer) => (l?.name.match(/(19|20)\d\d(-\d\d(-\d\d)?)?/)?.[0] ?? "");
+  return <>
+    <fieldset className="ws-f ws-fieldset sc-crit"><legend>The series: one raster per date (at least three)</legend>
+      {list.map((o, i) => (
+        <div key={i} className="sc-crit-row">
+          <select aria-label={`Raster ${i + 1}`} value={o.layer ?? ""} onChange={(e) => { const l = rasters.find((x) => x.id === e.target.value); edit(i, { layer: e.target.value, date: o.date || guess(l) }); }}>
+            <option value="">Choose a raster…</option>{rasters.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>
+          <label className="sc-w">Date<input value={o.date ?? ""} placeholder="2021 or 2021-06-15" style={{ width: 120 }} onChange={(e) => edit(i, { date: e.target.value })} /></label>
+          <IconButton label={`Remove raster ${i + 1}`} onClick={() => set("series", list.filter((_, j) => j !== i))}><Trash2 size={14} /></IconButton>
+        </div>
+      ))}
+      <div className="ws-row">
+        <Button small variant="ghost" onClick={() => set("series", [...list, {}])}><Plus size={14} aria-hidden="true" />Add a raster</Button>
+        {rasters.some((l) => guess(l) && !list.some((o) => o.layer === l.id)) && <Button small variant="ghost" onClick={() => set("series", [...list,
+          ...rasters.filter((l) => guess(l) && !list.some((o) => o.layer === l.id)).map((l) => ({ layer: l.id, date: guess(l) }))])}>Add all rasters with a year in their name</Button>}
+      </div>
+    </fieldset>
+    <label className="ws-f">Method<select value={String(p.method ?? "linear")} onChange={(e) => set("method", e.target.value)}>
+      <option value="linear">Straight-line trend</option><option value="theil_sen">Robust trend (Theil–Sen: ignores odd years, such as cloudy scenes)</option>
+      <option value="seasonal">Trend with a yearly season (needs dates through the year)</option></select></label>
+    <NumList label="Forecast for" value={p.targets} onChange={(v) => set("targets", v)} help="Years, or dates such as 2030-06-01 for a season." />
+    <div className="sc-pair"><Num label="Lowest possible value" value={p.min} onChange={(v) => set("min", v)} help="e.g. −1 for NDVI; empty for none" />
+      <Num label="Highest" value={p.max} onChange={(v) => set("max", v)} /></div>
+    <Num label="A trend is clear below this p-value" value={p.significance} onChange={(v) => set("significance", v)} step={0.01} help="Mann–Kendall test; 0.05 is usual." />
+  </>;
+}
+
+type FieldYear = { field: string; year?: number | string };
+
+function ValueForecastForm({ p, set, layers }: FormProps) {
+  const vectors = ofType(layers, VECTORS);
+  const lay = layers.find((l) => l.id === p.layer);
+  const numeric = (lay?.fields ?? []).filter((f) => f.type === "integer" || f.type === "number");
+  const chosen = ((p.fields as (string | FieldYear)[] | undefined) ?? []).map((x) => (typeof x === "string" ? { field: x } : x));
+  const yearOf = (n: string) => n.match(/(18|19|20|21|22)\d\d/g)?.slice(-1)[0] ?? "";
+  const toggle = (f: string, on: boolean) => set("fields", on ? [...chosen, { field: f, year: yearOf(f) }] : chosen.filter((c) => c.field !== f));
+  return <>
+    <LayerPick label="Layer" value={p.layer} onChange={(v) => { set("layer", v); set("fields", []); }} layers={vectors} />
+    {lay && <fieldset className="ws-f ws-fieldset"><legend>Its values over time: a field per year (at least two)</legend>
+      {!numeric.length && <span className="ws-muted">{lay.name} has no number fields.</span>}
+      {numeric.map((f) => {
+        const c = chosen.find((x) => x.field === f.name);
+        return <div key={f.name} className="sc-fy"><label className="ws-check"><input type="checkbox" checked={!!c} onChange={(e) => toggle(f.name, e.target.checked)} /> {f.name}</label>
+          {c && <input aria-label={`Year of ${f.name}`} value={String(c.year ?? "")} placeholder="Year" onChange={(e) => set("fields", chosen.map((x) => (x.field === f.name ? { ...x, year: e.target.value } : x)))} />}</div>;
+      })}
+      <span className="ws-help">Years are read from field names such as pop_2016; type them where they are not.</span></fieldset>}
+    <label className="ws-f">Method<select value={String(p.method ?? "linear")} onChange={(e) => set("method", e.target.value)}>
+      <option value="linear">Straight line (the same amount each year)</option><option value="exponential">Growth rate (the same percentage each year: population)</option>
+      <option value="average_growth">Average growth between the first and last year</option><option value="theil_sen">Robust straight line (Theil–Sen)</option></select></label>
+    <NumList label="Years to forecast" value={p.targets} onChange={(v) => set("targets", v)} />
+    <label className="ws-f">New fields are named<input value={String(p.prefix ?? "forecast")} maxLength={30} onChange={(e) => set("prefix", e.target.value)} />
+      <span className="ws-help">{String(p.prefix || "forecast")}_2030, {String(p.prefix || "forecast")}_2040…, with growth_pct_per_year and fit_r2.</span></label>
+    <label className="ws-check"><input type="checkbox" checked={p.not_below_zero !== false} onChange={(e) => set("not_below_zero", e.target.checked)} /> Never below zero</label>
   </>;
 }

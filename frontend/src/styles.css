@@ -750,3 +750,5 @@ h2.ct-heading, .ct-heading { margin: 0; color: var(--c-ink); padding: 10px 12px 
 .sc-val { display: block; }
 .sc-bar { display: flex; justify-content: flex-end; height: 4px; margin-top: 3px; border-radius: 2px; background: var(--c-line-2); overflow: hidden; }
 .sc-bar i { display: block; height: 100%; background: var(--c-violet); border-radius: 2px; }
+.sc-fy { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sc-fy input { width: 80px; height: 28px; }

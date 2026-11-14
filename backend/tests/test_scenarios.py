@@ -201,4 +201,4 @@ def test_varying_rerunning_and_comparing(pro, P):
     assert [x["name"] for x in listed] == ["Low", "High"]
     assert pro.delete(f"/scenarios/{s['id']}").status_code == 204
     assert first["layer"]["id"] in {x["id"] for x in pro.get(f"/projects/{P['id']}").json()["layers"]}   # its layer stays
-    assert [k["id"] for k in pro.get("/scenario-kinds").json()] == ["suitability", "flood", "land_change", "spread"]
+    assert [k["id"] for k in pro.get("/scenario-kinds").json()] == ["suitability", "flood", "land_change", "spread", "raster_forecast", "value_forecast"]

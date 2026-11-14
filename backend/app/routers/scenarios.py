@@ -14,14 +14,15 @@ from ..audit import audit
 from ..db import get_conn
 from ..errors import Problem
 from ..identity import need
-from .layers import _touch, layer_of
+from ..config import settings
+from .layers import _copy_features, _next_position, _touch, default_style, layer_of
 from .projects import project_of
-from .rasters import _features, _insert
+from .rasters import _features, _insert, _plain
 
 router = APIRouter(tags=["scenarios"])
 EDIT = need("editor", write=True, feature="raster")
 VIEW = need(feature="raster")
-Kind = Literal["suitability", "flood", "land_change", "spread"]
+Kind = Literal["suitability", "flood", "land_change", "spread", "raster_forecast", "value_forecast"]
 
 
 class ScenarioIn(BaseModel):
@@ -118,6 +119,8 @@ async def run(sid: UUID, user=Depends(EDIT), conn=Depends(get_conn)):
 
     def work():
         out = simulations.RUN[r["kind"]](p, inp)
+        if out.kind != "raster":
+            return out, None
         meta = rasters.save(out.data, out.crs, out.transform, nodata=out.nodata, dtype=out.dtype, names=out.names, categorical=out.categorical)
         return out, meta
     try:
@@ -129,25 +132,47 @@ async def run(sid: UUID, user=Depends(EDIT), conn=Depends(get_conn)):
         await conn.commit()
         raise Problem(422, msg, code="scenario_failed") from None
     ms = int((time.monotonic() - started) * 1000)
-    style = out.style or rasters.default_style(meta)
-    source = {"tool": f"scenario:{r['kind']}", "tool_name": simulations.KINDS[r["kind"]], "scenario_id": str(sid), "crs": meta["crs_name"],
-              "summary": out.summary}
+    summary = _plain(out.summary)
+    source = {"tool": f"scenario:{r['kind']}", "tool_name": simulations.KINDS[r["kind"]], "scenario_id": str(sid), "summary": summary}
     name = r["name"][:200]
     old = None
     if r["layer_id"]:
-        cur = await conn.execute("SELECT id, raster FROM layers WHERE id = %s", (r["layer_id"],))
+        cur = await conn.execute("SELECT id, raster, geometry_type FROM layers WHERE id = %s", (r["layer_id"],))
         old = await cur.fetchone()
+        if old and (old["geometry_type"] == "Raster") != (meta is not None):
+            old = None                                   # the result changed between raster and features: a new layer
     async with conn.transaction():
-        if old:                                         # the same layer, redrawn: anything pointing at it keeps working
-            await conn.execute("UPDATE layers SET name = %s, raster = %s, style = %s, source = %s, updated_at = clock_timestamp() WHERE id = %s",
-                               (name, Jsonb(meta), Jsonb(style), Jsonb(source), old["id"]))
-            lid = old["id"]
+        if meta:
+            style = out.style or rasters.default_style(meta)
+            source["crs"] = meta["crs_name"]
+            if old:                                     # the same layer, redrawn: anything pointing at it keeps working
+                await conn.execute("UPDATE layers SET name = %s, raster = %s, style = %s, source = %s, updated_at = clock_timestamp() WHERE id = %s",
+                                   (name, Jsonb(meta), Jsonb(style), Jsonb(source), old["id"]))
+                lid = old["id"]
+            else:
+                lid = await _insert(conn, r["project_id"], user, name, meta, style, source)
         else:
-            lid = await _insert(conn, r["project_id"], user, name, meta, style, source)
+            if len(out.rows) > settings.max_features:
+                raise Problem(422, f"The result has {len(out.rows):,} features, more than a layer may hold.", code="too_many")
+            pos = await _next_position(conn, r["project_id"])
+            style = out.style or default_style(out.geometry_type, pos)
+            if old:
+                lid = old["id"]
+                await conn.execute("DELETE FROM features WHERE layer_id = %s", (lid,))
+                await conn.execute("UPDATE layers SET name = %s, fields = %s, style = %s, source = %s, updated_at = clock_timestamp() WHERE id = %s",
+                                   (name, Jsonb(out.fields), Jsonb(style), Jsonb(source), lid))
+            else:
+                cur = await conn.execute(
+                    "INSERT INTO layers (project_id, org_id, name, geometry_type, fields, style, position, source, created_by) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                    (r["project_id"], user["org_id"], name, out.geometry_type, Jsonb(out.fields), Jsonb(style), pos, Jsonb(source), user["id"]))
+                lid = (await cur.fetchone())["id"]
+            good = [(g, _plain(pp)) for g, pp in out.rows if g is not None and not g.is_empty]
+            await _copy_features(conn, lid, [g for g, _ in good], [pp for _, pp in good], user["id"])
         cur = await conn.execute("UPDATE scenarios SET status = 'ready', error = NULL, summary = %s, layer_id = %s, ran_at = now(), run_ms = %s, "
-                                 "updated_at = now() WHERE id = %s RETURNING *", (Jsonb(out.summary), lid, ms, sid))
+                                 "updated_at = now() WHERE id = %s RETURNING *", (Jsonb(summary), lid, ms, sid))
         row = await cur.fetchone()
-    if old and old["raster"] and old["raster"].get("key") != meta["key"]:
+    if meta and old and old["raster"] and old["raster"].get("key") != meta["key"]:
         rasters.remove(old["raster"].get("key"))
     await audit(conn, user, "scenario.run", "scenario", sid, name=name, kind=r["kind"], ms=ms)
     await _touch(conn, lid, r["project_id"])
