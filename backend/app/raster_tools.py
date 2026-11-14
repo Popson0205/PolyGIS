@@ -113,6 +113,7 @@ class Out:
     fields: list[dict] = field(default_factory=list)
     rows: list = field(default_factory=list)      # [(shapely geometry in WGS 84, props)]
     summary: dict = field(default_factory=dict)   # figures worth keeping with the layer (volumes, accuracy…)
+    nodata: float | None = None                   # raster: the no-data value, when the default for its type would clash with values
 
 
 class Inputs:
@@ -2021,3 +2022,6 @@ def change_detection_tool(p, inp):
 
 def catalog() -> list[dict]:
     return [{"id": k, **v} for k, v in RTOOLS.items()]
+
+
+from . import imagery_tools  # noqa: E402,F401  (registers image correction and enhancement; builds on the helpers above)

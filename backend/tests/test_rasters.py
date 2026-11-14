@@ -138,6 +138,10 @@ EVERY = {
     "unsupervised_classification": dict(input="image", classes=2), "supervised_classification": dict(input="image", training="training", field="cls"),
     "principal_components": dict(input="image", components=2), "filter": dict(input="valley", kind="sobel"), "stretch": dict(input="image", method="equalize"),
     "change_detection": dict(input="plane", after="valley", threshold=5),
+    "to_reflectance": dict(input="image"), "dark_object_subtraction": dict(input="image"), "cloud_mask": dict(input="image"),
+    "topographic_correction": dict(input="image", dem="valley"), "pan_sharpen": dict(input="image", pan="plane"), "fill_nodata": dict(input="classes"),
+    "brightness_contrast": dict(input="image", gamma=1.5), "unsharp_mask": dict(input="image"), "clahe": dict(input="image"),
+    "dehaze": dict(input="image"), "histogram_match": dict(input="image", reference="image"), "denoise": dict(input="valley", method="lee"),
 }
 
 
