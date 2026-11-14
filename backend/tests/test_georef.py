@@ -213,3 +213,31 @@ def test_photos_are_kept_small_and_a_full_storage_says_so(pro, monkeypatch):
     assert r.status_code == 422 and "size limit" in r.json()["detail"]
     r = pro.post(f"/projects/{p['id']}/layers/import", files={"file": ("dem.tif", b2.getvalue())})
     assert r.status_code == 422 and "size limit" in r.json()["detail"]
+
+
+def test_palette_pictures_keep_their_colours_and_save_or_save_as_new(pro):
+    p = pro.post("/projects", json={"name": "Palette"}).json()
+    a = np.full((300, 400, 3), 240, "uint8")
+    a[100:200, 100:300] = [200, 20, 20]
+    b = io.BytesIO()
+    Image.fromarray(a).convert("P", palette=Image.ADAPTIVE, colors=8).save(b, "PNG")
+    g = pro.post(f"/projects/{p['id']}/georeference", files={"file": ("legend map.png", b.getvalue())}).json()
+    assert g["band_count"] == 3
+    px = np.asarray(Image.open(io.BytesIO(pro.get(f"/georeference/{g['id']}/image.png").content)).convert("RGB")).astype(int)
+    assert tuple(px[150, 200]) == pytest.approx((200, 20, 20), abs=6) and tuple(px[10, 10]) == pytest.approx((240, 240, 240), abs=6)
+    # an ordinary raster: Save updates it in place, Save as new adds one
+    arr = np.zeros((1, 50, 80), "float32")
+    m = io.BytesIO()
+    with rasterio.MemoryFile() as mf:
+        with mf.open(driver="GTiff", width=80, height=50, count=1, dtype="float32", crs="EPSG:32631",
+                     transform=rasterio.transform.from_origin(100_000, 500_000, 10, 10)) as d:
+            d.write(arr)
+        m.write(mf.read())
+    lay = pro.post(f"/projects/{p['id']}/layers/import", files={"file": ("wrong.tif", m.getvalue())}).json()[0]
+    g2 = pro.post(f"/projects/{p['id']}/georeference/from-layer", json={"layer_id": lay["id"]}).json()
+    pts = [{"id": str(i), "col": c, "row": r, "lng": LL.transform(X0 + c * 10, Y0 - r * 10)[0], "lat": LL.transform(X0 + c * 10, Y0 - r * 10)[1]}
+           for i, (c, r) in enumerate([(0, 0), (80, 0), (80, 50), (0, 50)])]
+    new = pro.post(f"/georeference/{g2['id']}/save", json={"points": pts, "method": "affine", "replace": False}).json()["layer"]
+    assert new["id"] != lay["id"]
+    same = pro.post(f"/georeference/{g2['id']}/save", json={"points": pts, "method": "affine", "replace": True}).json()["layer"]
+    assert same["id"] == lay["id"] and same["raster"]["epsg"] == 32631 and same["raster"]["bbox"][0] == pytest.approx(LL.transform(X0, Y0 - 500)[0], abs=1e-3)

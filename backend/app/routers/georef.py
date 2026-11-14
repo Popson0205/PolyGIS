@@ -55,6 +55,8 @@ class FitIn(WorkIn):
 
 class SaveIn(WorkIn):
     name: str | None = Field(None, max_length=200)
+    replace: bool | None = Field(None, description="True: update the layer being placed itself (Save); False: a new layer (Save as new). "
+                                                    "Unset: a picture added without coordinates is updated, anything else is new.")
     epsg: int | None = None
     resampling: Literal["bilinear", "nearest"] = "bilinear"
     cell: float | None = Field(None, gt=0)
@@ -112,13 +114,25 @@ async def start(project_id: UUID, file: UploadFile = File(...), user=Depends(EDI
                 if n > 16:
                     raise rasters.RasterError(f"The image has {n} bands; the most for georeferencing is 16.")
                 plain = d / "plain.tif"
+                try:
+                    palette = src.colormap(1) if n == 1 else None      # a palette picture (many PNG and GIF maps): its real colours
+                except ValueError:
+                    palette = None
+                if palette:
+                    n = 3
                 small = {"compress": "JPEG", "jpeg_quality": 92, "photometric": "YCBCR"} if rasters.photo(src.dtypes[0], n, src.nodata) \
                     else {"compress": "DEFLATE", "predictor": 2 if src.dtypes[0] != "float32" and src.dtypes[0] != "float64" else 3}
                 prof = {"driver": "GTiff", "width": w, "height": h, "count": n, "dtype": src.dtypes[0], "tiled": True, "nodata": src.nodata,
                         "BIGTIFF": "IF_SAFER", **small}
+                if palette:
+                    lut = np.zeros((256, 3), "uint8")
+                    for k, c in palette.items():
+                        if 0 <= k < 256:
+                            lut[k] = c[:3]
                 with rasterio.open(plain, "w", **prof) as dst:         # pixels only: any coordinates the file had are not used
                     for _, win in src.block_windows(1):
-                        dst.write(src.read(window=win), window=win)
+                        a = src.read(window=win)
+                        dst.write(np.moveaxis(lut[a[0]], -1, 0) if palette else a, window=win)
             return rasters._keep(plain), w, h, n
         try:
             key, w, h, n = await anyio.to_thread.run_sync(keep)
@@ -233,7 +247,8 @@ async def save(gid: UUID, body: SaveIn, user=Depends(EDIT), conn=Depends(get_con
     if r["layer_id"]:
         cur = await conn.execute("SELECT id, name, source, raster FROM layers WHERE id = %s", (r["layer_id"],))
         target = await cur.fetchone()
-        if not (target and (target["raster"] or {}).get("unplaced")):
+        wanted = body.replace if body.replace is not None else bool(target and (target["raster"] or {}).get("unplaced"))
+        if not (target and wanted):
             target = None
     name = ((body.name or "").strip() or (target["name"] if target else f"{r['name']} (georeferenced)"))[:200]
     source = {"tool": "georeference", "tool_name": "Georeference", "crs": meta["crs_name"],

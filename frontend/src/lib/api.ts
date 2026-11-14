@@ -103,7 +103,7 @@ export const api = {
   georefList: (projectId: string) => req<GeorefSource[]>("GET", `/projects/${projectId}/georeference`),
   georefSave: (id: string, b: { points: GeorefPoint[]; method: GeorefMethod }) => req<GeorefSource>("PUT", `/georeference/${id}`, b),
   georefFit: (id: string, b: { points: GeorefPoint[]; method: GeorefMethod; epsg?: number | null; preview?: boolean }) => req<GeorefFit>("POST", `/georeference/${id}/fit`, b),
-  georefWarp: (id: string, b: { points: GeorefPoint[]; method: GeorefMethod; epsg?: number | null; name?: string; resampling?: "bilinear" | "nearest" }) =>
+  georefWarp: (id: string, b: { points: GeorefPoint[]; method: GeorefMethod; epsg?: number | null; name?: string; resampling?: "bilinear" | "nearest"; replace?: boolean }) =>
     req<{ layer: Layer; fit: GeorefFit }>("POST", `/georeference/${id}/save`, b),
   georefDiscard: (id: string) => req<void>("DELETE", `/georeference/${id}`),
   imageryProviders: () => req<ImageryProvider[]>("GET", "/imagery/providers"),
