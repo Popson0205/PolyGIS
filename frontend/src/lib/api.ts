@@ -1,6 +1,6 @@
 import type { LayoutSettings } from "./layout";
 import type { LayoutDoc } from "./layoutDoc";
-import type { Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
+import type { Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
@@ -34,6 +34,7 @@ export const signInUrl = (next = window.location.pathname + window.location.sear
 export const tileUrl = (layer: Layer) => `${window.location.origin}${BASE}/layers/${layer.id}/tiles/{z}/{x}/{y}.pbf?v=${layer.version}`;
 export const rasterTileUrl = (layer: Layer) => `${window.location.origin}${BASE}/layers/${layer.id}/raster/{z}/{x}/{y}.png?v=${layer.version}`;
 export const terrainTileUrl = (layer: Layer) => `${window.location.origin}${BASE}/layers/${layer.id}/raster/terrain/{z}/{x}/{y}.png?v=${layer.version}`;
+export const georefImageUrl = (g: GeorefSource, size = 2048) => `${BASE}/georeference/${g.id}/image.png?size=${size}`;
 export const rasterDownloadUrl = (layerId: string) => `${BASE}/layers/${layerId}/raster/download`;
 export const exportUrl = (layerId: string, format: string, epsg = 4326, ids?: number[]) =>
   `${BASE}/layers/${layerId}/export?format=${format}&epsg=${epsg}${ids?.length ? `&ids=${ids.join(",")}` : ""}`;
@@ -77,6 +78,24 @@ export const api = {
     }
     return handle<Layer[]>(res, "/import");
   },
+  georefStart: async (projectId: string, file: File): Promise<GeorefSource> => {
+    const form = new FormData();
+    form.append("file", file);
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/projects/${projectId}/georeference`, { method: "POST", credentials: "same-origin", headers: { "X-GeoEstate": "1" }, body: form });
+    } catch {
+      throw new ApiError(0, "Can't reach PolyGIS. Check your connection.");
+    }
+    return handle<GeorefSource>(res, "/georeference");
+  },
+  georefFromLayer: (projectId: string, layerId: string) => req<GeorefSource>("POST", `/projects/${projectId}/georeference/from-layer`, { layer_id: layerId }),
+  georefList: (projectId: string) => req<GeorefSource[]>("GET", `/projects/${projectId}/georeference`),
+  georefSave: (id: string, b: { points: GeorefPoint[]; method: GeorefMethod }) => req<GeorefSource>("PUT", `/georeference/${id}`, b),
+  georefFit: (id: string, b: { points: GeorefPoint[]; method: GeorefMethod; epsg?: number | null; preview?: boolean }) => req<GeorefFit>("POST", `/georeference/${id}/fit`, b),
+  georefWarp: (id: string, b: { points: GeorefPoint[]; method: GeorefMethod; epsg?: number | null; name?: string; resampling?: "bilinear" | "nearest" }) =>
+    req<{ layer: Layer; fit: GeorefFit }>("POST", `/georeference/${id}/save`, b),
+  georefDiscard: (id: string) => req<void>("DELETE", `/georeference/${id}`),
   imageryProviders: () => req<ImageryProvider[]>("GET", "/imagery/providers"),
   searchImagery: (b: ImageryRequest) => req<{ count: number; scenes: ImageryScene[] }>("POST", "/imagery/search", b),
   fetchImagery: (projectId: string, b: ImageryRequest & { scene_ids: string[]; name?: string }) => req<Layer>("POST", `/projects/${projectId}/imagery`, b),

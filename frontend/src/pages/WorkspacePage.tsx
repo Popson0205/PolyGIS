@@ -1,7 +1,7 @@
 import maplibregl, { type Map as MapLibre, type MapGeoJSONFeature } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
-  ArrowLeftRight, Box, BarChart3, ChevronDown, CloudSun, Earth, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
+  ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
   PanelRightClose, PanelRightOpen, Printer, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
 } from "lucide-react";
@@ -15,6 +15,7 @@ import Geoprocessing from "../components/Geoprocessing";
 import PolyEarth, { useEarthJobs } from "../components/PolyEarth";
 import LayerPanel from "../components/LayerPanel";
 import LayoutView from "../components/LayoutView";
+import Georeference from "../components/Georeference";
 import ModelBuilder from "../components/ModelBuilder";
 import { Group, Tb } from "../components/Ribbon";
 import ShareDialog from "../components/ShareDialog";
@@ -29,7 +30,7 @@ import { Editor } from "../lib/editor";
 import { BASEMAPS, GLOBAL_TERRAIN, GLYPHS, allIds, basemapStyle, ids as layerIds, labelSrc, mapLayers, src } from "../lib/mapstyle";
 import type { CrsDef, Layer, Me, Project, Selection, VectorType } from "../lib/types";
 
-type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "earth" | "share";
+type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "imagery" | "earth" | "share";
 type Tool = "explore" | "select" | "select-area" | "measure-line" | "measure-area" | "create" | "reshape" | "pick-reshape";
 type DialogName = "add" | "imagery" | "new" | "attr" | "loc" | "export" | "crs" | "plan" | "share" | "publish" | "linked" | null;
 const DRAW = { Point: "point", LineString: "linestring", Polygon: "polygon" } as const;
@@ -63,6 +64,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [panelTab, setPanelTab] = useState<{ tab: PanelTab; n: number }>({ tab: "symbology", n: 0 });
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
+  const [georefOpen, setGeorefOpen] = useState(false);
   // the 3D view: tilted, on terrain from an elevation model in the project or the open global one
   const [view3d, setView3d] = useStored<{ on: boolean; terrain: string; exaggeration: number }>(`view3d-${id}`, { on: false, terrain: "global", exaggeration: 1.5 });
   const earthJobs = useEarthJobs((j) => {
@@ -586,7 +588,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       <div className="ws-empty-state"><SlidersHorizontal size={22} aria-hidden="true" />Choose a layer in Contents to style it, label it and see its fields.</div>
     </aside>
   );
-  const tabs: [Tab, string][] = [["map", "Map"], ["insert", "Insert"], ["select", "Select"], ["edit", "Edit"], ["analysis", "Analysis"], ["earth", "Poly Earth"], ["share", "Share"]];
+  const tabs: [Tab, string][] = [["map", "Map"], ["insert", "Insert"], ["select", "Select"], ["edit", "Edit"], ["analysis", "Analysis"], ...(me.features.includes("raster") ? [["imagery", "Imagery"] as [Tab, string]] : []), ["earth", "Poly Earth"], ["share", "Share"]];
   const layoutsAllowed = me.features.includes("layouts");
   const openLayout = () => { if (!layoutsAllowed) { setDialog("plan"); return; } if (map.current) setLayoutOpen(true); };
 
@@ -754,6 +756,33 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => openTool("zonal_statistics")} icon={<Grid3x3 />} label="Zonal statistics" />
             </Group>}
           </>}
+          {tab === "imagery" && <>
+            <Group name="Place">
+              <Tb onClick={() => setGeorefOpen(true)} icon={<MapPinned />} label="Georeference" disabled={!canEdit} />
+            </Group>
+            <Group name="Correct">
+              <Tb onClick={() => openTool("to_reflectance")} icon={<Gauge />} label="To reflectance" />
+              <Tb onClick={() => openTool("dark_object_subtraction")} icon={<CloudFog />} label="Atmospheric" />
+              <Tb onClick={() => openTool("cloud_mask")} icon={<CloudOff />} label="Cloud mask" />
+              <Tb onClick={() => openTool("topographic_correction")} icon={<Mountain />} label="Topographic" />
+              <Tb onClick={() => openTool("pan_sharpen")} icon={<Focus />} label="Pan-sharpen" />
+              <Tb onClick={() => openTool("fill_nodata")} icon={<PaintBucket />} label="Fill gaps" />
+            </Group>
+            <Group name="Enhance">
+              <Tb onClick={() => openTool("brightness_contrast")} icon={<SunMedium />} label="Brightness" />
+              <Tb onClick={() => openTool("stretch")} icon={<SlidersHorizontal />} label="Stretch" />
+              <Tb onClick={() => openTool("clahe")} icon={<Contrast />} label="Local contrast" />
+              <Tb onClick={() => openTool("unsharp_mask")} icon={<Sparkles />} label="Sharpen" />
+              <Tb onClick={() => openTool("dehaze")} icon={<Haze />} label="Haze removal" />
+              <Tb onClick={() => openTool("denoise")} icon={<Eraser />} label="Noise removal" />
+              <Tb onClick={() => openTool("histogram_match")} icon={<Palette />} label="Match colours" />
+            </Group>
+            <Group name="Analyse">
+              <Tb onClick={() => openTool("normalized_difference")} icon={<Leaf />} label="NDVI" />
+              <Tb onClick={() => openTool("supervised_classification")} icon={<MapIcon />} label="Classify" />
+              <Tb onClick={() => openTool("change_detection")} icon={<ArrowLeftRight />} label="Change" />
+            </Group>
+          </>}
           {tab === "earth" && <>
             <Group name="Poly Earth">
               <Tb on={earth.open && !earth.start && rightOpen} onClick={() => (earth.open && !earth.start ? setEarth({ open: false, start: null }) : openEarth(null))} icon={<Earth />} label="All tools" />
@@ -842,6 +871,10 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       {dialog === "export" && active && <Export layer={active} selected={sel(active.id)} epsg={project.display_epsg} onClose={() => setDialog(null)} />}
       {modelsOpen && <ModelBuilder projectId={id} layers={layers} canEdit={canEdit} rasterAllowed={me.features.includes("raster")} onClose={() => setModelsOpen(false)}
         onDone={(ls) => { if (!ls.length) return; setLayers((cur) => [...cur, ...ls]); setActiveId(ls[ls.length - 1].id); if (ls[ls.length - 1].bbox) zoomTo(ls[ls.length - 1].bbox!); toast(ls.length === 1 ? `${ls[0].name} added to the map.` : `${ls.length} layers added to the map.`, "success"); }} />}
+      {georefOpen && <Georeference projectId={id} layers={layers} canEdit={canEdit}
+        view={map.current ? { center: map.current.getCenter().toArray() as [number, number], zoom: map.current.getZoom() } : null}
+        onClose={() => setGeorefOpen(false)}
+        onDone={(l) => { setGeorefOpen(false); setLayers((cur) => [...cur, l]); setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); }} />}
       {layoutOpen && map.current && <LayoutView project={project} layers={layers} crs={crs} me={me} map={map.current} canSave={canEdit && layoutsAllowed} onClose={() => setLayoutOpen(false)} />}
       {dialog === "plan" && <Dialog title="Print layouts" onClose={() => setDialog(null)}>
         <div className="ws-form"><p>Print layouts (map sheets with a title, legend, scale bar, north arrow and grid, exported as PDF) are in PolyGIS Advanced.

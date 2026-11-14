@@ -293,7 +293,7 @@ async def run(project_id: UUID, tool: str, body: RunIn, user=Depends(need("edito
         out = raster_tools.RBUILD[tool](params, inp)
         meta = None
         if out.kind == "raster":
-            meta = rasters.save(out.data, out.crs, out.transform, dtype=out.dtype, names=out.names, categorical=out.categorical)
+            meta = rasters.save(out.data, out.crs, out.transform, nodata=out.nodata, dtype=out.dtype, names=out.names, categorical=out.categorical)
         return out, meta
     try:
         out, meta = await anyio.to_thread.run_sync(work)

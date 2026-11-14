@@ -193,7 +193,7 @@ function StepEditor({ m, i, tools, tool, onChange, onMove, onDelete }: {
     }
     set({ tool: t.id, kind: t.kind === "raster" ? "raster" : "vector", params }); setQ("");
   };
-  const shown = (p: ToolParam) => !p.when || Object.entries(p.when).every(([k, x]) => s.params[k] === x);
+  const shown = (p: ToolParam) => !p.when || Object.entries(p.when).every(([k, x]) => (Array.isArray(x) ? x.includes(s.params[k] as never) : s.params[k] === x));
   const value = (p: ToolParam) => s.params[p.name];
   const setP = (name: string, v: unknown) => set({ params: { ...s.params, [name]: v } });
   return (

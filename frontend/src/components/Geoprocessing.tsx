@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import type { Layer, Run, Tool, ToolParam } from "../lib/types";
 import { Button, ErrorText, IconButton, useStored } from "./ui";
 
-const WORD: Record<string, string> = { Point: "points", LineString: "lines", Polygon: "polygons" };
+const WORD: Record<string, string> = { Point: "points", LineString: "lines", Polygon: "polygons", Raster: "rasters" };
 const when = (d: string) => new Date(d).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 /** The geoprocessing pane: find a tool, fill in its form, run it; the result arrives as a new layer. */
@@ -113,7 +113,7 @@ function ToolForm({ tool, projectId, layers, selection, activeId, canEdit, starr
   const [error, setError] = useState<unknown>(null);
   const [done, setDone] = useState<string | null>(null);
   const layerOf = (key?: string) => layers.find((l) => l.id === v[key ?? "input"]);
-  const shown = (p: ToolParam) => !p.when || Object.entries(p.when).every(([k, x]) => v[k] === x);
+  const shown = (p: ToolParam) => !p.when || Object.entries(p.when).every(([k, x]) => (Array.isArray(x) ? x.includes(v[k] as never) : v[k] === x));
 
   async function go() {
     setBusy(true); setError(null); setDone(null);

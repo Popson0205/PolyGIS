@@ -147,7 +147,7 @@ async def _run(jid: str, project_id: UUID, tool: str, spec: dict, params: dict, 
         finally:
             polyearth.set_clip(None)
         say("Saving the results", 0.97)
-        metas = [rasters.save(o.data, o.crs, o.transform, dtype=o.dtype, names=o.names, categorical=o.categorical) if o.kind == "raster" else None
+        metas = [rasters.save(o.data, o.crs, o.transform, nodata=o.nodata, dtype=o.dtype, names=o.names, categorical=o.categorical) if o.kind == "raster" else None
                  for o in res.outs]
         return res, metas
 

@@ -73,3 +73,16 @@ export interface Run {
   id: number; tool: string; params: Record<string, unknown>; output_layer_id: string | null; output_name: string | null;
   status: "done" | "failed"; message: string | null; feature_count: number | null; ms: number | null; actor_name: string; at: string;
 }
+
+/** Georeferencing: a control point matches an image pixel (col, row from the top-left corner) to a place on the map. */
+export interface GeorefPoint { id: string; col: number; row: number; lng: number; lat: number; on: boolean }
+export type GeorefMethod = "similarity" | "affine" | "poly2" | "poly3" | "tps";
+export interface GeorefSource {
+  id: string; project_id: string; name: string; width: number; height: number; band_count: number; layer_id: string | null; had_crs: string | null;
+  points: GeorefPoint[]; method: GeorefMethod; methods: { id: GeorefMethod; label: string; min_points: number }[]; updated_at: string;
+}
+export interface GeorefFit {
+  method: GeorefMethod; crs: string; rmse_m: number | null; rmse_px: number | null; cell_m: number; exact: boolean;
+  points: { id: string; dx_m: number; dy_m: number; error_m: number; error_px: number }[];
+  preview?: { url: string; coordinates: [number, number][] };
+}
