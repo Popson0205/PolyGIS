@@ -100,8 +100,7 @@ async def _upload(request: Request, layer: dict, body: dict) -> dict:
         path = await anyio.to_thread.run_sync(rasters.local, key)
         return await anyio.to_thread.run_sync(lambda: identity.client().upload(token, "rasters", {**body, "filename": f"{name}.tif"}, str(path)))
     except GeoEstateIDError as e:
-        status = e.status if e.status in (401, 403, 404, 409, 413, 422) else 502
-        raise Problem(status, f"Geohub: {e}", code=e.code or "geohub") from None
+        raise _refused(e, "rasters", (401, 403, 404, 409, 413, 422)) from None
     except Problem:
         raise
     except Exception:  # noqa: BLE001  (Geohub or its storage could not be reached)
@@ -113,6 +112,14 @@ def _raster_out(out: dict) -> dict:
     d = out.get("dataset") or {}
     return {**d, "url": _hub_url(d["slug"]) if d.get("slug") else None, "upload": out["id"], "status": out["status"],
             "version": out.get("version"), "feature_count": 0, "error": out.get("error")}
+
+
+def _refused(e: GeoEstateIDError, what: str, codes: tuple[int, ...]) -> Problem:
+    """Geohub's refusal in its own words; or, when the address itself is missing (Geohub's own refusals always carry a
+    code), that this Geohub has not been updated to take it yet."""
+    if e.status in (404, 405) and e.code in ("error", None):
+        return Problem(502, f"Geohub has not been updated to take {what} from PolyGIS yet. Once it is, publish again.", code="geohub_outdated")
+    return Problem(e.status if e.status in codes else 502, f"Geohub: {e}", code=e.code or "geohub")
 
 
 def _vector(layer: dict) -> str:
@@ -127,8 +134,7 @@ async def _send(request: Request, path: str, body: dict):
     try:
         return await anyio.to_thread.run_sync(lambda: identity.client().send(token, path, body))
     except GeoEstateIDError as e:
-        status = e.status if e.status in (401, 403, 404, 409, 422) else 502
-        raise Problem(status, f"Geohub: {e}", code=e.code or "geohub") from None
+        raise _refused(e, "layers", (401, 403, 404, 409, 422)) from None
     except Exception:  # noqa: BLE001  (Geohub could not be reached)
         raise Problem(502, "Geohub could not be reached to publish. Try again in a moment.", code="geohub_unreachable") from None
 
@@ -187,7 +193,7 @@ async def raster_status(layer_id: UUID, upload_id: UUID, request: Request, user=
     try:
         out = await anyio.to_thread.run_sync(lambda: identity.client().data(token, f"rasters/{upload_id}"))
     except GeoEstateIDError as e:
-        raise Problem(e.status if e.status in (401, 403, 404) else 502, f"Geohub: {e}", code=e.code or "geohub") from None
+        raise _refused(e, "rasters", (401, 403, 404)) from None
     except Exception:  # noqa: BLE001
         raise Problem(502, "Geohub could not be reached. Try again in a moment.", code="geohub_unreachable") from None
     return _raster_out(out)
