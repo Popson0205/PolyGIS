@@ -752,3 +752,5 @@ h2.ct-heading, .ct-heading { margin: 0; color: var(--c-ink); padding: 10px 12px 
 .sc-bar i { display: block; height: 100%; background: var(--c-violet); border-radius: 2px; }
 .sc-fy { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .sc-fy input { width: 80px; height: 28px; }
+.ws-callout { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r-m); background: var(--ge-navy-50); font-size: 13px; flex-wrap: wrap; }
+.ws-callout > span { flex: 1; min-width: 200px; }

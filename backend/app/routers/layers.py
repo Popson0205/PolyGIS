@@ -1,6 +1,9 @@
 """Layers: importing files, empty layers to draw in, styling and labels, fields, the attribute table, selection,
 vector tiles for the map, and export."""
 import re
+import shutil
+import tempfile
+from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
@@ -82,31 +85,69 @@ async def _touch(conn, layer_id, project_id=None) -> None:
 
 
 # ---------- adding layers ----------
+VECTOR_MAIN = (".shp", ".mif", ".tab", ".gpkg", ".fgb", ".gdb")
+
+
+async def _save_all(files: list[UploadFile], most_mb: int) -> tuple[Path, Path, str]:
+    """Every file chosen, saved side by side (a Shapefile's .shp, .shx, .dbf and .prj; a picture and its world file), and
+    which one to open: a zip, then a main data file, then the first."""
+    d = Path(tempfile.mkdtemp(prefix="polygis-up-"))
+    size, most = 0, most_mb * 1024 * 1024
+    saved = []
+    for f in files:
+        name = Path(f.filename or "upload").name or "upload"
+        p = d / name
+        with open(p, "wb") as out:
+            while chunk := await f.read(4 * 1024 * 1024):
+                size += len(chunk)
+                if size > most:
+                    shutil.rmtree(d, ignore_errors=True)
+                    raise Problem(413, f"The files come to more than {most_mb} MB.", code="too_large")
+                out.write(chunk)
+        saved.append(p)
+    if not size:
+        shutil.rmtree(d, ignore_errors=True)
+        raise Problem(422, "The file is empty.", code="validation")
+    from . import rasters as rr
+    low = lambda p: p.name.lower()  # noqa: E731
+    main = (next((p for p in saved if low(p).endswith(".zip")), None)
+            or next((p for p in saved if low(p).endswith(VECTOR_MAIN)), None)
+            or next((p for p in saved if rr.is_raster(p.name) and not low(p).endswith(rr.SIDECARS)), None)
+            or next((p for p in saved if low(p).endswith(gisdata.EXTENSIONS) and not low(p).endswith((".shx", ".dbf", ".prj", ".cpg"))), None)
+            or saved[0])
+    return d, main, main.name
+
+
 @router.post("/projects/{project_id}/layers/import", status_code=201,
-             summary="Add the layers in a file: GeoJSON, zipped Shapefile, GeoPackage, KML/KMZ, CSV, DXF, GPX; or a raster "
-                     "(GeoTIFF, IMG, ASCII grid, JPEG 2000, SRTM .hgt)")
-async def import_layers(project_id: UUID, file: UploadFile = File(...), epsg: int | None = Form(None),
+             summary="Add the layers in a file, or in several files chosen together (a Shapefile's parts, a picture and its world "
+                     "file): any vector or raster format GDAL reads")
+async def import_layers(project_id: UUID, file: UploadFile = File(...), extra: list[UploadFile] = File(default=[]), epsg: int | None = Form(None),
                         user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     await project_of(conn, project_id, user)
     from . import rasters as rasters_router
-    if rasters_router.is_raster(file.filename or ""):
-        return [await rasters_router.import_raster(conn, project_id, file, epsg, user)]
-    data = await file.read(settings.max_upload_mb * 1024 * 1024 + 1)
-    if len(data) > settings.max_upload_mb * 1024 * 1024:
-        raise Problem(413, f"The file is larger than {settings.max_upload_mb} MB.", code="too_large")
-    if not data:
-        raise Problem(422, "The file is empty.", code="validation")
     if epsg is not None:
         from .projects import _epsg_ok
         _epsg_ok(epsg)
-    name = file.filename or "upload"
-    path = gisdata.save_upload(data, name)
+    raster_ish = rasters_router.is_raster(file.filename or "") or any(rasters_router.is_raster(x.filename or "") for x in extra)
+    d, path, name = await _save_all([file, *extra], settings.max_raster_mb if raster_ish else settings.max_upload_mb)
     try:
-        read = await anyio.to_thread.run_sync(lambda: gisdata.read_file(path, name, epsg, settings.max_features))
-    except gisdata.ReadError as e:
-        raise Problem(422, str(e), code="unreadable") from None
+        low = name.lower()
+        as_raster = (rasters_router.is_raster(name) and not low.endswith((".kml", ".kmz", ".xml", ".gpkg", ".sqlite", ".vrt")) or
+                     low.endswith(".zip") and rasters_router.raster_zip(path))
+        if as_raster:
+            return [await rasters_router.import_raster(conn, project_id, path, name, epsg, user)]
+        try:
+            read = await anyio.to_thread.run_sync(lambda: gisdata.read_file(path, name, epsg, settings.max_features))
+        except gisdata.ReadError as e:
+            # a GeoPackage, MBTiles, KMZ or VRT may hold a raster instead of features
+            if low.endswith((".gpkg", ".mbtiles", ".vrt", ".sqlite", ".kmz", ".xml")):
+                try:
+                    return [await rasters_router.import_raster(conn, project_id, path, name, epsg, user)]
+                except Problem:
+                    pass
+            raise Problem(422, str(e), code="unreadable") from None
     finally:
-        gisdata.remove_upload(path)
+        shutil.rmtree(d, ignore_errors=True)
     pos = await _next_position(conn, project_id)
     made = []
     for i, lay in enumerate(read):
