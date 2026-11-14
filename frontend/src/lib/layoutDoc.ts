@@ -10,7 +10,7 @@ import {
 export type ElKind = "map" | "legend" | "north" | "scalebar" | "text" | "rect";
 export interface Stroke { color: string; width: number }
 interface Base { id: string; kind: ElKind; name: string; x: number; y: number; w: number; h: number; visible: boolean; locked: boolean }
-export interface MapEl extends Base { kind: "map"; center: XY; scale: number; border: Stroke | null; grid: { on: boolean; interval: number | null; labels: boolean } }
+export interface MapEl extends Base { kind: "map"; mapId?: string | null; center: XY; scale: number; border: Stroke | null; grid: { on: boolean; interval: number | null; labels: boolean } }
 export interface LegendEl extends Base { kind: "legend"; map: string | null; title: string; size: number; fill: string | null; border: Stroke | null }
 export interface NorthEl extends Base { kind: "north"; color: string }
 export interface ScaleBarEl extends Base { kind: "scalebar"; map: string | null; size: number; showScale: boolean; color: string }
@@ -46,13 +46,13 @@ export function freshName(d: LayoutDoc, kind: ElKind) {
 }
 
 /** A new element of this kind in `box`, set up the way it is most often wanted. */
-export function makeElement(d: LayoutDoc, kind: ElKind, box: Rect, view?: { center: XY; scale: number }, text?: string): El {
+export function makeElement(d: LayoutDoc, kind: ElKind, box: Rect, view?: { center: XY; scale: number; mapId?: string | null }, text?: string): El {
   const [pw, ph] = docSize(d);
   const f = growth(pw, ph);
   const base = { id: newId(), name: freshName(d, kind), ...box, visible: true, locked: false };
   const firstMap = mapsOf(d)[0];
   switch (kind) {
-    case "map": return { ...base, kind, center: view?.center ?? firstMap?.center ?? [0, 0], scale: view?.scale ?? firstMap?.scale ?? 10000,
+    case "map": return { ...base, kind, ...(view?.mapId ? { mapId: view.mapId } : {}), center: view?.center ?? firstMap?.center ?? [0, 0], scale: view?.scale ?? firstMap?.scale ?? 10000,
       border: { color: "#1f2937", width: 0.3 * f }, grid: { on: false, interval: null, labels: true } };
     case "legend": return { ...base, kind, map: null, title: "Legend", size: 7 * f, fill: "#ffffff", border: null };
     case "north": return { ...base, kind, color: "#1f2937" };
@@ -126,7 +126,7 @@ export function elementOps(e: El, d: LayoutDoc, ctx: LayoutContext): Op[] {
     }
     case "legend": {
       const k = e.size / 7, pad = 2.5 * k;
-      return [...frameOps(e), ...legendOps(ctx.layers, { x: e.x + pad, y: e.y + pad, w: e.w - 2 * pad, h: e.h - 2 * pad }, k, measure, e.title.trim() || false).ops];
+      return [...frameOps(e), ...legendOps(ctx.layersOf?.(e.map) ?? ctx.layers, { x: e.x + pad, y: e.y + pad, w: e.w - 2 * pad, h: e.h - 2 * pad }, k, measure, e.title.trim() || false).ops];
     }
     case "north": {
       const k = Math.min(e.h / 15.5, e.w / 8);

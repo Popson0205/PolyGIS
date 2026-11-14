@@ -41,6 +41,7 @@ const PT = 0.3528;                       // millimetres in a point
 
 export interface LayoutContext {
   layers: Layer[];                       // the project's layers; visible ones are drawn and listed
+  layersOf?: (frame: string | null) => Layer[];   // the layers of the map a frame shows (a legend lists those)
   crs?: CrsDef;                          // the project's system, for the grid and the footer
   toCrs?: (lng: number, lat: number) => XY;
   author?: string; org?: string; date?: string; credits?: string;

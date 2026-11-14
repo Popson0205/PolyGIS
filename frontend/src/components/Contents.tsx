@@ -44,13 +44,15 @@ export function Swatch({ layer }: { layer: Layer }) {
 /** The Contents pane, laid out like a desktop GIS's: the map's layers in drawing order with their legends, or listed by data
  * source, by selection or by labelling; a right-click (or the ⋯ button) opens each layer's menu. */
 export default function Contents({ projectName, layers, activeId, editingId, canEdit, canExport, selection, onActivate, onToggle, onReorder, onZoom, onTable, onRemove,
-  onPanel, onExport, onEdit, onAdd, onCollapse, onSelection, onLabels, onRename, onPaste, onSourceResolution, onRefresh }: {
+  onPanel, onExport, onEdit, onAdd, onCollapse, onSelection, onLabels, onRename, onPaste, onSourceResolution, onRefresh, mapName = "Map", otherMaps = [], onAddToMap }: {
   projectName: string; layers: Layer[]; activeId: string | null; editingId: string | null; canEdit: boolean; canExport: boolean; selection: Record<string, number[]>;
   onActivate: (id: string) => void; onToggle: (l: Layer) => void; onReorder: (bottomToTop: string[]) => void;
   onZoom: (l: Layer) => void; onTable: (l: Layer) => void; onRemove: (l: Layer) => void; onPanel: (l: Layer, tab: PanelTab) => void; onExport: (l: Layer) => void;
   onEdit: (l: Layer) => void; onAdd: () => void; onCollapse: () => void; onSelection: (l: Layer, op: SelectionOp) => void;
   onLabels: (l: Layer, on: boolean) => void; onRename: (l: Layer, name: string) => void; onPaste: (target: Layer, from: Layer) => void; onSourceResolution: (l: Layer) => void;
   onRefresh: (l: Layer) => void;
+  /** The open map's name, the project's other maps, and putting a layer into one of them (its data shared, or copied). */
+  mapName?: string; otherMaps?: { id: string; name: string }[]; onAddToMap?: (l: Layer, mapId: string, how: "share" | "copy") => void;
 }) {
   const [view, setView] = useStored<View>("contents-view", "order");
   const [show, setShow] = useStored<Show>("contents-show", "all");
@@ -116,6 +118,10 @@ export default function Contents({ projectName, layers, activeId, editingId, can
       { label: "Symbology", icon: <SlidersHorizontal size={15} />, onSelect: () => onPanel(l, "symbology") },
       ...(!raster && canEdit && l.id !== editingId && !l.source.linked ? [{ label: "Edit features", icon: <PenLine size={15} />, onSelect: () => onEdit(l) }] : []),
       ...(l.source.linked && canEdit ? [{ label: `Refresh from ${l.source.linked.app_name}`, icon: <RefreshCw size={15} />, onSelect: () => onRefresh(l) }] : []),
+      ...(canEdit && onAddToMap && otherMaps.length ? [{ label: "Add to another map", icon: <MapIcon size={15} />, items: [
+        ...otherMaps.map((m) => ({ label: m.name, onSelect: () => onAddToMap(l, m.id, "share") })),
+        ...(!raster ? [{ label: "", divider: true }, ...otherMaps.map((m) => ({ label: `Copy the data to ${m.name}`, icon: <Copy size={15} />, onSelect: () => onAddToMap(l, m.id, "copy") }))] : []),
+      ] }] : []),
       { label: "", divider: true },
       { label: "Data", icon: <Database size={15} />, items: [
         raster ? { label: "Download GeoTIFF", icon: <Download size={15} />, disabled: !canExport, onSelect: () => onExport(l) }
@@ -190,7 +196,7 @@ export default function Contents({ projectName, layers, activeId, editingId, can
             <h2 className="ct-heading">Drawing Order</h2>
             <div className="ct-map">
               <button type="button" className="ct-tw" aria-expanded={mapOpen} aria-label={mapOpen ? "Fold the map" : "Unfold the map"} onClick={() => setMapOpen(!mapOpen)}><Tri open={mapOpen} /></button>
-              <MapIcon size={16} className="ct-map-icon" aria-hidden="true" /><span title={projectName}>Map</span>
+              <MapIcon size={16} className="ct-map-icon" aria-hidden="true" /><span title={`${mapName} (${projectName})`}>{mapName}</span>
             </div>
             {mapOpen && (
               <ul className="ct-layers" role="tree" aria-label="Layers, top to bottom" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); drop(); }}>

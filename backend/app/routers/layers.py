@@ -29,7 +29,7 @@ FIELD_NAME = re.compile(r"^[^\x00-\x1f\"\\]{1,64}$")
 LAYER_SQL = ("SELECT l.*, s.feature_count, CASE WHEN s.e IS NOT NULL THEN "
              "  ARRAY[ST_XMin(s.e), ST_YMin(s.e), ST_XMax(s.e), ST_YMax(s.e)] END AS bbox FROM layers l "
              "LEFT JOIN LATERAL (SELECT count(*) AS feature_count, ST_Extent(f.geom) AS e FROM features f "
-             "WHERE f.layer_id = l.id) s ON true ")
+             "WHERE f.layer_id = coalesce(l.data_id, l.id)) s ON true ")
 
 
 def default_style(kind: str, n: int) -> dict:
@@ -79,7 +79,8 @@ async def _next_position(conn, project_id) -> int:
 
 
 async def _touch(conn, layer_id, project_id=None) -> None:
-    await conn.execute("UPDATE layers SET updated_at = clock_timestamp() WHERE id = %s", (layer_id,))
+    # every layer showing the same data (in other maps) draws it again too
+    await conn.execute("UPDATE layers SET updated_at = clock_timestamp() WHERE coalesce(data_id, id) = layer_data(%s)", (layer_id,))
     if project_id:
         await conn.execute("UPDATE projects SET updated_at = now() WHERE id = %s", (project_id,))
 
@@ -339,9 +340,11 @@ class OrderIn(BaseModel):
 @router.put("/projects/{project_id}/layer-order", summary="Set the drawing order, bottom to top")
 async def set_order(project_id: UUID, body: OrderIn, user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     await project_of(conn, project_id, user)
-    have = {str(r["id"]) for r in await (await conn.execute("SELECT id FROM layers WHERE project_id = %s", (project_id,))).fetchall()}
-    if {str(x) for x in body.layer_ids} != have or len(body.layer_ids) != len(have):
-        raise Problem(422, "Give every layer of the project once.", code="validation", fields={"layer_ids": ["mismatch"]})
+    rows = await (await conn.execute("SELECT id, map_id FROM layers WHERE project_id = %s", (project_id,))).fetchall()
+    given = {str(x) for x in body.layer_ids}
+    groups = [{str(r["id"]) for r in rows}] + [{str(r["id"]) for r in rows if r["map_id"] == m} for m in {r["map_id"] for r in rows}]
+    if given not in groups or len(body.layer_ids) != len(given):     # every layer of the project, or of one of its maps, once
+        raise Problem(422, "Give every layer of the map once.", code="validation", fields={"layer_ids": ["mismatch"]})
     for i, lid in enumerate(body.layer_ids):
         await conn.execute("UPDATE layers SET position = %s WHERE id = %s", (i, lid))
     return await layers_of(conn, project_id)
@@ -370,17 +373,19 @@ async def change_fields(layer_id: UUID, body: FieldOp, user=Depends(need("editor
                 raise Problem(422, "Give the new name.", code="validation", fields={"to": ["missing"]})
             fields = _fields_ok([{**f, "name": body.to.strip()} if f["name"] == body.name else f for f in fields])
             await conn.execute("UPDATE features SET props = (props - %s) || jsonb_build_object(%s::text, props->%s) "
-                               "WHERE layer_id = %s AND props ? %s", (body.name, body.to.strip(), body.name, layer_id, body.name))
+                               "WHERE layer_id = layer_data(%s) AND props ? %s", (body.name, body.to.strip(), body.name, layer_id, body.name))
         else:
             fields = [f for f in fields if f["name"] != body.name]
-            await conn.execute("UPDATE features SET props = props - %s WHERE layer_id = %s", (body.name, layer_id))
-        # styles and labels on a field that changed follow it, or fall back
-        st, lb = dict(layer["style"]), layer["labels"]
-        if st.get("field") == body.name:
-            st = {**st, "field": body.to.strip()} if body.op == "rename" else {**st, "type": "single", "field": None}
-        if lb and lb.get("field") == body.name:
-            lb = {**lb, "field": body.to.strip()} if body.op == "rename" else None
-        await conn.execute("UPDATE layers SET style = %s, labels = %s WHERE id = %s", (Jsonb(st), Jsonb(lb) if lb else None, layer_id))
+            await conn.execute("UPDATE features SET props = props - %s WHERE layer_id = layer_data(%s)", (body.name, layer_id))
+        # styles and labels on a field that changed follow it, or fall back: in every map showing this data
+        cur = await conn.execute("SELECT id, style, labels FROM layers WHERE coalesce(data_id, id) = layer_data(%s)", (layer_id,))
+        for row in await cur.fetchall():
+            st, lb = dict(row["style"]), row["labels"]
+            if st.get("field") == body.name:
+                st = {**st, "field": body.to.strip()} if body.op == "rename" else {**st, "type": "single", "field": None}
+            if lb and lb.get("field") == body.name:
+                lb = {**lb, "field": body.to.strip()} if body.op == "rename" else None
+            await conn.execute("UPDATE layers SET style = %s, labels = %s WHERE id = %s", (Jsonb(st), Jsonb(lb) if lb else None, row["id"]))
     await conn.execute("UPDATE layers SET fields = %s, updated_at = clock_timestamp() WHERE id = %s", (Jsonb(fields), layer_id))
     await audit(conn, user, f"field.{body.op}", "layer", layer_id, field=body.name, to=body.to)
     return await layer_of(conn, layer_id, user)
@@ -389,12 +394,36 @@ async def change_fields(layer_id: UUID, body: FieldOp, user=Depends(need("editor
 @router.delete("/layers/{layer_id}", status_code=204, summary="Remove a layer and its features")
 async def delete_layer(layer_id: UUID, user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     layer = await layer_of(conn, layer_id, user)
-    await conn.execute("DELETE FROM layers WHERE id = %s", (layer_id,))
-    if layer.get("raster"):
-        from .. import rasters
-        await anyio.to_thread.run_sync(rasters.remove, layer["raster"].get("key"))
+    async with conn.transaction():
+        await hand_on(conn, layer_id)
+        await conn.execute("DELETE FROM layers WHERE id = %s", (layer_id,))
+    await drop_file(conn, layer)
     await audit(conn, user, "layer.delete", "layer", layer_id, name=layer["name"], features=layer["feature_count"])
     return Response(status_code=204)
+
+
+async def hand_on(conn, layer_id) -> None:
+    """Before a layer goes: when other maps show its data, the first of them keeps the features, and the rest
+    share with it instead."""
+    cur = await conn.execute("SELECT id FROM layers WHERE data_id = %s ORDER BY created_at, id", (layer_id,))
+    rest = [r["id"] for r in await cur.fetchall()]
+    if not rest:
+        return
+    heir = rest[0]
+    await conn.execute("UPDATE features SET layer_id = %s WHERE layer_id = %s", (heir, layer_id))
+    await conn.execute("UPDATE layers SET data_id = NULL WHERE id = %s", (heir,))
+    await conn.execute("UPDATE layers SET data_id = %s WHERE data_id = %s", (heir, layer_id))
+
+
+async def drop_file(conn, layer: dict) -> None:
+    """A deleted raster's file goes too, unless another layer (in another map) still shows it."""
+    key = (layer.get("raster") or {}).get("key")
+    if not key:
+        return
+    cur = await conn.execute("SELECT 1 FROM layers WHERE raster->>'key' = %s LIMIT 1", (key,))
+    if not await cur.fetchone():
+        from .. import rasters
+        await anyio.to_thread.run_sync(rasters.remove, key)
 
 
 # ---------- reading features: tiles, the table, statistics ----------
@@ -414,7 +443,7 @@ async def mvt(conn, layer_id, z: int, x: int, y: int) -> bytes:
         "WITH b AS (SELECT ST_TileEnvelope(%s, %s, %s) AS env) "
         "SELECT ST_AsMVT(t, 'features', 4096, 'geom', 'id') AS tile FROM ("
         "  SELECT f.id, ST_AsMVTGeom(ST_Transform(f.geom, 3857), b.env, 4096, 64, true) AS geom, f.props "
-        "  FROM features f, b WHERE f.layer_id = %s AND f.geom && ST_Transform(b.env, 4326)) t WHERE t.geom IS NOT NULL",
+        "  FROM features f, b WHERE f.layer_id = layer_data(%s) AND f.geom && ST_Transform(b.env, 4326)) t WHERE t.geom IS NOT NULL",
         (z, x, y, layer_id))
     return bytes((await cur.fetchone())["tile"] or b"")
 
@@ -484,9 +513,9 @@ async def rows(layer_id: UUID, body: RowsIn, user=Depends(need()), conn=Depends(
     else:
         sort_vals = []
         order += " DESC" if body.desc else ""
-    cur = await conn.execute(f"SELECT count(*) AS n FROM features WHERE layer_id = %s AND {where}", (layer_id, *vals))
+    cur = await conn.execute(f"SELECT count(*) AS n FROM features WHERE layer_id = layer_data(%s) AND {where}", (layer_id, *vals))
     total = (await cur.fetchone())["n"]
-    cur = await conn.execute(f"SELECT id, props FROM features WHERE layer_id = %s AND {where} ORDER BY {order} OFFSET %s LIMIT %s",
+    cur = await conn.execute(f"SELECT id, props FROM features WHERE layer_id = layer_data(%s) AND {where} ORDER BY {order} OFFSET %s LIMIT %s",
                              (layer_id, *vals, *sort_vals, body.offset, body.limit))
     return {"total": total, "rows": await cur.fetchall()}
 
@@ -501,15 +530,15 @@ async def stats(layer_id: UUID, field: str, classes: int = Query(5, ge=2, le=12)
         n = f"({NUMERIC})"
         cur = await conn.execute(
             f"SELECT min({n}) AS min, max({n}) AS max, count({n}) AS count, avg({n}) AS mean, "
-            f"percentile_cont(%s::float8[]) WITHIN GROUP (ORDER BY {n}) AS quantiles FROM features WHERE layer_id = %s",
+            f"percentile_cont(%s::float8[]) WITHIN GROUP (ORDER BY {n}) AS quantiles FROM features WHERE layer_id = layer_data(%s)",
             (*[field] * 16, [i / classes for i in range(classes + 1)], *[field] * 4, layer_id))
         r = await cur.fetchone()
         out |= {k: (float(r[k]) if r[k] is not None else None) for k in ("min", "max", "mean")} | {"count": r["count"],
                 "quantiles": [float(x) for x in r["quantiles"]] if r["quantiles"] and r["quantiles"][0] is not None else []}
-    cur = await conn.execute("SELECT props->>%s AS value, count(*) AS count FROM features WHERE layer_id = %s "
+    cur = await conn.execute("SELECT props->>%s AS value, count(*) AS count FROM features WHERE layer_id = layer_data(%s) "
                              "GROUP BY 1 ORDER BY count(*) DESC, 1 LIMIT 100", (field, layer_id))
     out["values"] = await cur.fetchall()
-    cur = await conn.execute("SELECT count(DISTINCT props->>%s) AS n FROM features WHERE layer_id = %s", (field, layer_id))
+    cur = await conn.execute("SELECT count(DISTINCT props->>%s) AS n FROM features WHERE layer_id = layer_data(%s)", (field, layer_id))
     out["distinct"] = (await cur.fetchone())["n"]
     return out
 
@@ -537,12 +566,12 @@ async def select(layer_id: UUID, body: SelectIn, user=Depends(need()), conn=Depe
         svals = [shapely.to_wkb(shapely.set_srid(g, 4326), include_srid=True)] + ([body.distance_m] if body.relation == "distance" else [])
     elif body.other_layer_id is not None:
         other = await layer_of(conn, body.other_layer_id, user)
-        spatial = (f" AND EXISTS (SELECT 1 FROM (SELECT geom AS g FROM features o WHERE o.layer_id = %s"
+        spatial = (f" AND EXISTS (SELECT 1 FROM (SELECT geom AS g FROM features o WHERE o.layer_id = layer_data(%s)"
                    f"{' AND o.id = ANY(%s)' if body.other_ids is not None else ''}) g WHERE {rel})")
         svals = [other["id"]] + ([body.other_ids] if body.other_ids is not None else []) + ([body.distance_m] if body.relation == "distance" else [])
     cur = await conn.execute(
         f"SELECT array_agg(f.id ORDER BY f.id) AS ids, ST_Extent(f.geom) AS ext FROM features f "
-        f"WHERE f.layer_id = %s AND {where.replace('props', 'f.props')}{spatial}", (layer_id, *vals, *svals))
+        f"WHERE f.layer_id = layer_data(%s) AND {where.replace('props', 'f.props')}{spatial}", (layer_id, *vals, *svals))
     r = await cur.fetchone()
     ids = r["ids"] or []
     bbox = None
@@ -582,7 +611,7 @@ async def export_file(conn, layer: dict, format: str, epsg: int = 4326, ids: str
     if epsg != 4326:
         from .projects import _epsg_ok
         _epsg_ok(epsg)
-    q, vals = "SELECT id, ST_AsBinary(geom) AS g, props FROM features WHERE layer_id = %s", [layer_id]
+    q, vals = "SELECT id, ST_AsBinary(geom) AS g, props FROM features WHERE layer_id = layer_data(%s)", [layer_id]
     if ids:
         try:
             want = [int(x) for x in ids.split(",") if x.strip()]

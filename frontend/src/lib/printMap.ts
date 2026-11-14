@@ -1,7 +1,10 @@
 /** The map picture for a print layout: the live map's style (basemap and layers as they are drawn now, without the
  *  selection and the drawing tools) rendered off screen at the layout's scale and resolution. */
 import maplibregl, { type LayerSpecification, type StyleSpecification } from "maplibre-gl";
+import { rasterTileUrl, tileUrl } from "./api";
 import { zoomForScale } from "./layout";
+import { GLYPHS, labelSrc, mapLayers, src } from "./mapstyle";
+import type { Layer } from "./types";
 
 /** The live map's style, ready to print: no selection highlight, no drawing or measuring layers. */
 export function printableStyle(style: StyleSpecification): StyleSpecification {
@@ -45,4 +48,20 @@ export async function renderMap(r: PrintRequest, signal?: AbortSignal): Promise<
     map.remove();
     holder.remove();
   }
+}
+
+/** The style of a map that is not the one open: its basemap with its layers on top, as the live map would draw them
+ *  (for a layout's map frame that shows another map of the project). */
+export async function styleOfMap(basemap: string | StyleSpecification, layers: Layer[]): Promise<StyleSpecification> {
+  const base: StyleSpecification = typeof basemap === "string" ? await fetch(basemap).then((r) => r.json()) : structuredClone(basemap);
+  const style: StyleSpecification = { ...base, glyphs: base.glyphs ?? GLYPHS, sources: { ...base.sources }, layers: [...base.layers] };
+  for (const l of [...layers].sort((a, b) => a.position - b.position)) {
+    if (l.geometry_type === "Raster" && (l.raster?.missing || !l.raster)) continue;
+    style.sources[src(l)] = l.geometry_type === "Raster"
+      ? { type: "raster", tiles: [rasterTileUrl(l)], tileSize: 256, minzoom: 0, maxzoom: 22, ...(l.bbox ? { bounds: l.bbox } : {}) }
+      : { type: "vector", tiles: [tileUrl(l)], minzoom: 0, maxzoom: 16 };
+    if (l.geometry_type !== "Raster" && l.labels) style.sources[labelSrc(l)] = { type: "vector", tiles: [tileUrl(l)], minzoom: 0, maxzoom: 16 };
+    style.layers.push(...mapLayers(l, [], [], true));
+  }
+  return printableStyle(style);
 }

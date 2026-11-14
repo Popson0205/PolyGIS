@@ -54,7 +54,7 @@ def _hub_url(slug: str) -> str:
 
 
 async def _features(conn, layer: dict, ids: list[int] | None) -> list[dict]:
-    q, vals = "SELECT ST_AsGeoJSON(geom, 7) AS g, props FROM features WHERE layer_id = %s", [layer["id"]]
+    q, vals = "SELECT ST_AsGeoJSON(geom, 7) AS g, props FROM features WHERE layer_id = layer_data(%s)", [layer["id"]]
     if ids:
         q += " AND id = ANY(%s)"; vals.append(ids)
     cur = await conn.execute(q + " ORDER BY id LIMIT %s", (*vals, MAX + 1))

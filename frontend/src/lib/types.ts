@@ -41,6 +41,8 @@ export interface Labels {
 export interface Layer {
   id: string; project_id: string; name: string; geometry_type: GeometryType; fields: Field[]; style: Style; labels: Labels | null;
   visible: boolean; position: number;
+  map_id?: string | null;              // the map the layer is in
+  data_id?: string | null;             // the layer whose data this one shows (the same data in another map)
   source: { filename?: string; crs?: string | null; dropped?: number; drawn?: boolean; tool?: string; tool_name?: string; summary?: Record<string, unknown>;
     linked?: { app: "land" | "farm" | "hub"; app_name: string; kind: string; label: string; form_id?: string; status?: string; refreshed_at?: string };
     imagery?: { provider: ImageryProviderId; dataset: ImageryDatasetId; bands: string[]; start: string | null; end: string | null; max_cloud: number | null; scenes: string[]; cell_m: number } };
@@ -57,7 +59,10 @@ export interface View { center?: [number, number]; zoom?: number; bearing?: numb
 export interface Project {
   id: string; name: string; description: string; view: View; display_epsg: number; created_by: string | null; created_by_name: string;
   created_at: string; updated_at: string; layer_count: number; layers?: Layer[];
+  maps?: GisMap[]; active_map_id?: string | null;
 }
+/** One map of a project, as in ArcGIS Pro: its own layers, view and basemap. */
+export interface GisMap { id: string; project_id: string; name: string; position: number; view: View; layer_count: number; created_at: string; updated_at: string }
 export interface Row { id: number; props: Record<string, unknown> }
 export interface Filter { field: string; op: "=" | "!=" | "<" | "<=" | ">" | ">=" | "contains" | "starts" | "empty" | "not_empty"; value?: string | number | boolean | null }
 export interface Stats { field: string; type: FieldType; min?: number | null; max?: number | null; mean?: number | null; count?: number; quantiles?: number[]; values: { value: string | null; count: number }[]; distinct: number }

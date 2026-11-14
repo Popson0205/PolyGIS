@@ -36,12 +36,15 @@ def _ok(c: str) -> str:
             responses={200: {"content": {"image/svg+xml": {}}}})
 async def thumbnail(project_id: UUID, v: str | None = None, user=Depends(need()), conn=Depends(get_conn)):
     await project_of(conn, project_id, user)
-    cur = await conn.execute("SELECT id, geometry_type, style, raster, visible FROM layers WHERE project_id = %s ORDER BY position, created_at", (project_id,))
+    # the map the project has open (its first map otherwise)
+    cur = await conn.execute("SELECT l.id, l.geometry_type, l.style, l.raster, l.visible FROM layers l JOIN projects p ON p.id = l.project_id "
+                             "WHERE l.project_id = %s AND l.map_id = coalesce(p.active_map_id, l.map_id) ORDER BY l.position, l.created_at", (project_id,))
     layers = [r for r in await cur.fetchall() if r["visible"]]
     # the extent of everything, in Web Mercator
     cur = await conn.execute(
         "SELECT ST_XMin(e) AS x1, ST_YMin(e) AS y1, ST_XMax(e) AS x2, ST_YMax(e) AS y2 FROM (SELECT ST_Extent(ST_Transform(geom, 3857)) AS e "
-        "FROM features f JOIN layers l ON l.id = f.layer_id WHERE l.project_id = %s AND l.visible) q", (project_id,))
+        "FROM features f JOIN layers l ON f.layer_id = coalesce(l.data_id, l.id) JOIN projects p ON p.id = l.project_id "
+        "WHERE l.project_id = %s AND l.visible AND l.map_id = coalesce(p.active_map_id, l.map_id)) q", (project_id,))
     e = await cur.fetchone()
     box = [e["x1"], e["y1"], e["x2"], e["y2"]] if e and e["x1"] is not None else None
     for lay in layers:
@@ -81,13 +84,13 @@ async def thumbnail(project_id: UUID, v: str | None = None, user=Depends(need())
         op = min(1.0, max(0.15, float(st.get("opacity", 0.8))))
         if lay["geometry_type"] == "Point":
             cur = await conn.execute("SELECT ST_X(p) AS x, ST_Y(p) AS y FROM (SELECT (ST_DumpPoints(ST_Transform(geom, 3857))).geom AS p "
-                                     "FROM features WHERE layer_id = %s ORDER BY id LIMIT %s) q", (lay["id"], MOST))
+                                     "FROM features WHERE layer_id = layer_data(%s) ORDER BY id LIMIT %s) q", (lay["id"], MOST))
             rr = px * 2.6
             dots = "".join(f'<circle cx="{r["x"]:.1f}" cy="{-r["y"]:.1f}" r="{rr:.1f}"/>' for r in await cur.fetchall())
             parts.append(f'<g fill="{fill}" stroke="#ffffff" stroke-width="{px * 0.8:.1f}">{dots}</g>')
             continue
         cur = await conn.execute(
-            "SELECT ST_AsSVG(ST_SimplifyPreserveTopology(ST_Transform(geom, 3857), %s), 0, 1) AS d FROM features WHERE layer_id = %s "
+            "SELECT ST_AsSVG(ST_SimplifyPreserveTopology(ST_Transform(geom, 3857), %s), 0, 1) AS d FROM features WHERE layer_id = layer_data(%s) "
             "ORDER BY id LIMIT %s", (px * 0.7, lay["id"], MOST))
         rows = [r["d"] for r in await cur.fetchall() if r["d"]]
         if lay["geometry_type"] == "LineString":
