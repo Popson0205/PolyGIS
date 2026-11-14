@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, rasterDownloadUrl } from "../lib/api";
 import { CATEGORY_COLOURS } from "../lib/mapstyle";
 import type { Layer, RasterStyle } from "../lib/types";
-import { Button, ErrorText, useAction } from "./ui";
+import { AutoApplyBar, useAutoApply } from "./AutoApply";
+import { Button, ErrorText } from "./ui";
 
 /** The colour ramps the server draws rasters with (the same list as app/raster_style.py). */
 export const RASTER_RAMPS: Record<string, string[]> = {
@@ -52,8 +53,19 @@ function Symbology({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
   const [s, setS] = useState<RasterStyle>(() => ({ mode: "ramp", bands: [1, Math.min(2, m.count), Math.min(3, m.count)], mins: [0, 0, 0], maxs: [255, 255, 255], categories: [],
     ramp: "Terrain", band: 1, opacity: 1, ...(rasterStyle(layer) as Partial<RasterStyle>), type: "raster" } as RasterStyle));
   const [error, setError] = useState<unknown>(null);
-  const { busy, run } = useAction();
   useEffect(() => setS((cur) => ({ ...cur, ...rasterStyle(layer) })), [layer.style]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // Auto Apply: opacity is drawn by the map itself, so it shows while dragging and saving it reloads nothing; other
+  // changes are drawn by the server into new tiles, shown once saved
+  const savedStyle = rasterStyle(layer);
+  const sameButOpacity = (v: RasterStyle) => JSON.stringify({ ...v, opacity: 0 }) === JSON.stringify({ ...savedStyle, opacity: 0 });
+  const live = useAutoApply<RasterStyle>({ layer, canEdit, onChange, preview: (v) => (sameButOpacity(v) ? { ...layer, style: v as never } : layer),
+    save: (v) => api.rasterStyle(layer.id, v), keepVersion: sameButOpacity });
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    if (JSON.stringify(s) !== JSON.stringify({ ...s, ...savedStyle })) live.change(s);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s]);
   const band = m.bands[(s.band ?? 1) - 1] ?? m.bands[0];
   const bandOpts = m.bands.map((b) => <option key={b.band} value={b.band}>{b.band}: {b.name}</option>);
   const r6 = (v?: number) => (v == null ? v : Number(v.toPrecision(6)));
@@ -64,10 +76,9 @@ function Symbology({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
     setError(null);
     setS({ ...s, mode: "classes", categories: vals.map((v, k) => ({ value: v, label: String(v), color: CATEGORY_COLOURS[k % CATEGORY_COLOURS.length] })) });
   };
-  const save = () => void run("rstyle", () => api.rasterStyle(layer.id, s), "Style saved.").then((l) => l && onChange(l));
   const dis = !canEdit;
   return (
-    <form className="ws-form" onSubmit={(e) => { e.preventDefault(); save(); }}>
+    <form className="ws-form" onSubmit={(e) => { e.preventDefault(); live.apply(s); }}>
       <label className="ws-f">Show as
         <select value={s.mode} disabled={dis} onChange={(e) => { const mode = e.target.value as RasterStyle["mode"]; if (mode === "classes" && !s.categories.length) classify(); else setS({ ...s, mode }); }}>
           <option value="ramp">A colour ramp (one band)</option>
@@ -114,10 +125,10 @@ function Symbology({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
         </ul>
         <Button small variant="ghost" disabled={dis} onClick={classify}>Colour every value again</Button>
       </>}
-      <label className="ws-f">Opacity {Math.round(s.opacity * 100)} %
-        <input type="range" min={0} max={1} step={0.05} value={s.opacity} disabled={dis} onChange={(e) => setS({ ...s, opacity: Number(e.target.value) })} /></label>
+      <label className="ws-f">Transparency {Math.round((1 - s.opacity) * 100)} %
+        <input type="range" min={0} max={1} step={0.01} value={1 - s.opacity} disabled={dis} onChange={(e) => setS({ ...s, opacity: Math.round((1 - Number(e.target.value)) * 100) / 100 })} /></label>
       <ErrorText error={error} />
-      {canEdit && <Button type="submit" variant="primary" busy={busy === "rstyle"}>Save style</Button>}
+      <AutoApplyBar canEdit={canEdit} auto={live.auto} setAuto={live.setAuto} busy={live.busy} dirty={live.dirty} error={live.error} onApply={() => live.apply(s)} />
     </form>
   );
 }

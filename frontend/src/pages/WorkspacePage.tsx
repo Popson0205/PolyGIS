@@ -498,7 +498,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       else {
         const fieldOk = (f?: string | null) => !f || target.fields.some((x) => x.name === f);
         if (!fieldOk(from.style.field)) { toast(`${target.name} has no field ${from.style.field}, which ${from.name}'s symbology uses.`, "error"); return; }
-        replaceLayer(await api.updateLayer(target.id, { style: from.style, ...(from.labels && fieldOk(from.labels.field) ? { labels: from.labels } : {}) }));
+        const lbFields = from.labels ? [from.labels.field, from.labels.rotation_field, ...Array.from((from.labels.expression ?? "").matchAll(/\{([^{}]+)\}/g), (m) => m[1].trim())].filter(Boolean) as string[] : [];
+        replaceLayer(await api.updateLayer(target.id, { style: from.style, ...(from.labels && lbFields.every(fieldOk) ? { labels: from.labels } : {}) }));
       }
       toast(`${from.name}'s symbology pasted onto ${target.name}.`, "success");
     } catch (e) { toast(e instanceof ApiError ? e.message : "Could not paste the properties.", "error"); }

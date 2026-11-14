@@ -328,7 +328,7 @@ export function Legend({ layer: l }: { layer: Layer }) {
   );
   if (s.type === "graduated" && s.classes?.length) return (
     <ul className="ct-legend">{s.field && <li className="ct-field">{s.field}</li>}
-      {s.classes.map((c) => <li key={`${c.min}${c.color}`}><Symbol layer={l} fill={c.color} />{fmt(c.min)} – {fmt(c.max)}</li>)}</ul>
+      {s.classes.map((c) => <li key={`${c.min}${c.color}`}><Symbol layer={l} fill={c.color} />{c.label || `${fmt(c.min)} – ${fmt(c.max)}`}</li>)}</ul>
   );
   return <ul className="ct-legend"><li><Symbol layer={l} big /></li></ul>;
 }

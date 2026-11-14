@@ -1,5 +1,5 @@
 import type { ExpressionSpecification, LayerSpecification, StyleSpecification } from "maplibre-gl";
-import type { Layer, RasterStyle } from "./types";
+import type { Labels, Layer, RasterStyle } from "./types";
 
 /** Basemaps that may be used in a paid product without a key: OpenFreeMap (OpenStreetMap data) and Sentinel-2
  *  cloudless 2016 by EOX (CC BY 4.0). VITE_IMAGERY_URL can add licensed high-resolution imagery. */
@@ -91,15 +91,67 @@ export function mapLayers(l: Layer, selected: number[], hidden: number[] = [], f
     out.push({ id: i.selCircle, type: "circle", ...base, filter: sel,
       paint: { "circle-color": "rgba(0,0,0,0)", "circle-radius": s.size / 2 + 4, "circle-stroke-color": SELECT, "circle-stroke-width": 2.5 } } as LayerSpecification);
   }
-  if (l.labels) {
-    const lb = l.labels;
-    out.push({ id: i.label, type: "symbol", ...base, source: labelSrc(l),
-      layout: { visibility: vis, "text-field": ["to-string", ["coalesce", ["get", lb.field], ""]], "text-font": FONT, "text-size": lb.size,
-        "symbol-placement": l.geometry_type === "LineString" ? "line" : "point", "text-offset": l.geometry_type === "Point" ? [0, 1.1] : [0, 0],
-        "text-anchor": l.geometry_type === "Point" ? "top" : "center", "text-max-width": 10 },
-      paint: { "text-color": lb.color, "text-halo-color": lb.halo, "text-halo-width": 1.4 } } as LayerSpecification);
-  }
+  if (l.labels) out.push({ id: i.label, ...base, ...labelLayer(l, l.labels), source: labelSrc(l) } as LayerSpecification);   // the label layout replaces base's
   return out;
+}
+
+/** The fonts the glyph server has, by font style. */
+export const FONTS: Record<NonNullable<Labels["font"]>, string> = { regular: "Noto Sans Regular", bold: "Noto Sans Bold", italic: "Noto Sans Italic" };
+
+/** A label's text: the field, or an expression like "{name} ({population})", in the chosen case. */
+export function labelText(lb: Labels): ExpressionSpecification {
+  const val = (f: string): ExpressionSpecification => ["to-string", ["coalesce", ["get", f.trim()], ""]];
+  let expr: ExpressionSpecification;
+  const t = (lb.expression ?? "").trim();
+  if (!t) expr = val(lb.field);
+  else {
+    const parts: (string | ExpressionSpecification)[] = [];
+    let last = 0;
+    for (const m of t.matchAll(/\{([^{}]+)\}/g)) {
+      if (m.index! > last) parts.push(t.slice(last, m.index));
+      parts.push(val(m[1]));
+      last = m.index! + m[0].length;
+    }
+    if (last < t.length) parts.push(t.slice(last));
+    expr = parts.length === 1 && typeof parts[0] !== "string" ? parts[0] : ["concat", ...parts] as unknown as ExpressionSpecification;
+  }
+  return lb.case === "upper" ? ["upcase", expr] : lb.case === "lower" ? ["downcase", expr] : expr;
+}
+
+/** The MapLibre symbol layer (all but its id and source) for a layer's label class. */
+export function labelLayer(l: Pick<Layer, "geometry_type" | "visible">, lb: Labels) {
+  const point = l.geometry_type === "Point", line = l.geometry_type === "LineString";
+  const size = lb.size || 12;
+  const em = (px: number) => px / size;
+  const anchor = lb.anchor ?? "auto";
+  const offsetEm = em(lb.offset ?? 4) + (point ? 0.4 : 0);
+  const at: Record<string, [number, number]> = { center: [0, 0], top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0],
+    "top-left": [-0.7, -0.7], "top-right": [0.7, -0.7], "bottom-left": [-0.7, 0.7], "bottom-right": [0.7, 0.7] };
+  // ArcGIS's "top" means the label sits above the point: MapLibre names the anchor on the label (its bottom)
+  const flip: Record<string, string> = { center: "center", top: "bottom", bottom: "top", left: "right", right: "left",
+    "top-left": "bottom-right", "top-right": "bottom-left", "bottom-left": "top-right", "bottom-right": "top-left" };
+  const layout: Record<string, unknown> = {
+    visibility: l.visible ? "visible" : "none", "text-field": labelText(lb), "text-font": [FONTS[lb.font ?? "regular"] ?? FONT[0]], "text-size": size,
+    "text-max-width": lb.wrap === 0 ? 1000 : (lb.wrap ?? 10), "text-letter-spacing": lb.letter_spacing ?? 0,
+    "text-allow-overlap": !!lb.allow_overlap, "text-ignore-placement": !!lb.allow_overlap,
+    "text-rotate": lb.rotation_field ? ["+", ["to-number", ["coalesce", ["get", lb.rotation_field], 0], 0], lb.rotation ?? 0] : (lb.rotation ?? 0),
+  };
+  if (line && (lb.line_placement ?? "along") === "along") {
+    Object.assign(layout, { "symbol-placement": "line", "symbol-spacing": lb.line_spacing ?? 250, "text-rotation-alignment": "map", "text-keep-upright": true });
+  } else if (line) {
+    Object.assign(layout, { "symbol-placement": "line-center", "text-rotation-alignment": "viewport" });
+  } else if (point && anchor === "auto") {
+    Object.assign(layout, { "symbol-placement": "point", "text-variable-anchor": ["top", "bottom", "right", "left"], "text-radial-offset": offsetEm, "text-justify": "auto" });
+  } else if (point) {
+    const [dx, dy] = at[anchor];
+    Object.assign(layout, { "symbol-placement": "point", "text-anchor": flip[anchor], "text-offset": [dx * offsetEm, dy * offsetEm] });
+  } else {
+    Object.assign(layout, { "symbol-placement": "point", "text-anchor": anchor === "auto" ? "center" : flip[anchor] });
+  }
+  return {
+    type: "symbol" as const, minzoom: lb.min_zoom ?? 0, maxzoom: lb.max_zoom ?? 24, layout,
+    paint: { "text-color": lb.color, "text-opacity": lb.opacity ?? 1, "text-halo-color": lb.halo, "text-halo-width": lb.halo_width ?? 1.4, "text-halo-blur": lb.halo_blur ?? 0 },
+  };
 }
 
 /** Ten colours for categories, and ramps for graduated classes (ColorBrewer). */

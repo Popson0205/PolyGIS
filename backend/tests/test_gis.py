@@ -277,3 +277,20 @@ def test_many_requests_with_an_expired_access_token_all_refresh_with_the_one_ref
         who.cookies[identity.RT] = rt
         results.append(who.get("/me").status_code)
     assert results == [200, 200, 200, 200]
+
+
+def test_label_classes_keep_old_labels_working_and_check_their_fields(client, editor):
+    """A label class with an expression, font, halo, placement and zoom range; and labels saved the old way still work."""
+    pid = editor.post("/projects", json={"name": "Labels"}).json()["id"]
+    fc = {"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [7.4, 9.0]},
+                                                     "properties": {"name": "Minna", "pop": 300000, "heading": 45}}]}
+    lay = editor.post(f"/projects/{pid}/layers/import", files={"file": ("towns.geojson", json.dumps(fc).encode())}).json()[0]
+    old = editor.patch(f"/layers/{lay['id']}", json={"labels": {"field": "name", "size": 14, "color": "#112233", "halo": "#ffffff"}})
+    assert old.status_code == 200 and old.json()["labels"]["font"] == "regular" and old.json()["labels"]["anchor"] == "auto"
+    full = {"field": "name", "expression": "{name} ({pop})", "font": "bold", "size": 11, "halo_width": 2, "case": "upper",
+            "rotation_field": "heading", "anchor": "top-right", "offset": 6, "min_zoom": 8, "max_zoom": 18, "allow_overlap": True}
+    r = editor.patch(f"/layers/{lay['id']}", json={"labels": full})
+    assert r.status_code == 200 and r.json()["labels"]["expression"] == "{name} ({pop})" and r.json()["labels"]["case"] == "upper"
+    bad = editor.patch(f"/layers/{lay['id']}", json={"labels": {**full, "expression": "{name} ({people})"}})
+    assert bad.status_code == 422 and "people" in bad.json()["detail"]
+    assert editor.patch(f"/layers/{lay['id']}", json={"labels": {**full, "min_zoom": 12, "max_zoom": 10}}).status_code == 422
