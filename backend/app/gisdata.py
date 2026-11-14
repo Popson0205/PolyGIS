@@ -92,6 +92,14 @@ def _value(v, kind: str):
     return s if s != "" else None
 
 
+# every vector format GDAL reads that people keep spatial data in
+EXTENSIONS = (".geojson", ".json", ".geojsonl", ".geojsons", ".ndjson", ".topojson", ".zip", ".shp", ".gpkg", ".kml", ".kmz", ".csv", ".txt",
+              ".tsv", ".dxf", ".dgn", ".gpx", ".gml", ".xml", ".fgb", ".tab", ".mif", ".sqlite", ".spatialite", ".db", ".osm", ".pbf",
+              ".e00", ".gdb", ".gmt", ".vrt", ".jml", ".georss", ".rss", ".sxf", ".s57", ".000", ".mvt", ".pmtiles", ".gtfs")
+IN_ZIP = (".shp", ".gpkg", ".fgb", ".geojson", ".json", ".geojsonl", ".kml", ".gml", ".gpx", ".tab", ".mif", ".sqlite", ".dgn", ".csv", ".dxf",
+          ".osm", ".pbf", ".e00", ".topojson")
+
+
 def _open_path(path: Path) -> tuple[str, dict]:
     """The path GDAL should open, and open options. A .zip is opened inside (Shapefiles come zipped); CSV columns
     named like longitude/latitude or WKT become the geometry."""
@@ -99,16 +107,21 @@ def _open_path(path: Path) -> tuple[str, dict]:
     if name.endswith(".zip"):
         with zipfile.ZipFile(path) as z:
             inner = [n for n in z.namelist() if not n.startswith("__MACOSX") and not n.endswith("/")]
-        for ext in (".shp", ".gpkg", ".geojson", ".json", ".kml", ".gml", ".tab", ".csv", ".dxf"):
+        gdb = next((n.split(".gdb/")[0] + ".gdb" for n in inner if ".gdb/" in n.lower()), None)
+        if gdb:                                                    # an Esri file geodatabase is a folder: zipped whole
+            return f"/vsizip/{path}/{gdb}", {}
+        for ext in IN_ZIP:
             hit = next((n for n in inner if n.lower().endswith(ext)), None)
             if hit:
                 return f"/vsizip/{path}/{hit}", ({} if ext != ".csv" else CSV_OPTIONS)
-        raise ReadError("The zip holds no file PolyGIS can read (a Shapefile's .shp, .shx and .dbf, or a GeoPackage, "
-                        "GeoJSON, KML, CSV or DXF).")
+        raise ReadError("The zip holds no file PolyGIS can read (a Shapefile's .shp, .shx and .dbf, a file geodatabase (.gdb "
+                        "folder), GeoPackage, FlatGeobuf, GeoJSON, KML, GPX, MapInfo, CSV or DXF).")
     if name.endswith(".kmz"):
         return f"/vsizip/{path}", {}
-    if name.endswith((".csv", ".txt")):
+    if name.endswith((".csv", ".txt", ".tsv")):
         return str(path), CSV_OPTIONS
+    if name.endswith((".mif", ".tab", ".shp")) or name.endswith(".gdb"):
+        return str(path), {}                                       # its companion files sit beside it
     return str(path), {}
 
 

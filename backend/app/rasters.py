@@ -26,7 +26,14 @@ from rasterio.warp import transform_bounds
 from .config import settings
 
 log = logging.getLogger("rasters")
-EXTENSIONS = (".tif", ".tiff", ".geotiff", ".img", ".asc", ".jp2", ".hgt", ".dem", ".bil", ".nc", ".vrt", ".ecw", ".sid", ".ter", ".xyz")
+# every raster format GDAL reads that people keep spatial data in (pictures count when a world file or embedded coordinates
+# place them; without, they are sent to georeferencing)
+EXTENSIONS = (".tif", ".tiff", ".geotiff", ".gtiff", ".cog", ".img", ".asc", ".jp2", ".j2k", ".hgt", ".dem", ".bil", ".bip", ".bsq", ".nc", ".vrt",
+              ".ecw", ".sid", ".ter", ".xyz", ".grd", ".dt0", ".dt1", ".dt2", ".ers", ".rst", ".sdat", ".grb", ".grb2", ".grib", ".grib2",
+              ".ntf", ".nitf", ".bt", ".hf2", ".rsw", ".mrf", ".bag", ".kea", ".hdf", ".h5", ".he5", ".pix", ".lcp", ".sigdem", ".gtx",
+              ".byn", ".gsb", ".map", ".hdr", ".envi", ".dat", ".flt", ".adf", ".rda", ".mbtiles",
+              ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".pgm", ".ppm", ".pnm")
+PICTURES = (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".pgm", ".ppm", ".pnm")
 MERC = CRS.from_epsg(3857)
 HALF = 20037508.342789244
 TILE = 256
@@ -34,6 +41,10 @@ TILE = 256
 
 class RasterError(Exception):
     """The raster cannot be used, in words for the person who supplied it."""
+
+    def __init__(self, message: str, code: str = "unreadable"):
+        super().__init__(message)
+        self.code = code
 
 
 # =====================================================================================================================
@@ -221,12 +232,24 @@ def _overview_kind(src) -> str:
     return "NEAREST" if "values" in st else "AVERAGE"
 
 
+def _sidecar_crs(path: Path) -> CRS | None:
+    """The system in a .prj file beside the raster (pictures with world files often come with one, which GDAL does not read)."""
+    for f in path.parent.iterdir() if path.parent.exists() else []:
+        if f.suffix.lower() == ".prj" and f.stem.lower() == path.stem.lower():
+            try:
+                from pyproj import CRS as PCRS
+                return CRS.from_wkt(PCRS.from_wkt(f.read_text(errors="ignore")).to_wkt())
+            except Exception:  # noqa: BLE001  (an unreadable .prj is treated as none)
+                return None
+    return None
+
+
 def ingest(path: Path, epsg: int | None = None) -> dict:
     """A raster file brought in: checked, made into a COG in storage, and described."""
     try:
         src = rasterio.open(path)
     except rasterio.errors.RasterioIOError:
-        raise RasterError("PolyGIS could not read that raster. GeoTIFF works best; ASCII grids, Erdas IMG, JPEG 2000 and "
+        raise RasterError("PolyGIS could not read that raster. GeoTIFF works best; ASCII grids, Erdas IMG, JPEG 2000, ENVI, NetCDF and "
                           "SRTM .hgt tiles are read too.") from None
     work = workdir()
     try:
@@ -235,16 +258,24 @@ def ingest(path: Path, epsg: int | None = None) -> dict:
                 raise RasterError(f"The raster has {src.count} bands; the most is 64.")
             if src.width * src.height > 2_000_000_000:
                 raise RasterError("The raster has more than 2 billion cells: clip it first.")
-            crs = src.crs or (CRS.from_epsg(epsg) if epsg else None)
+            if src.transform.is_identity and not src.gcps[0]:
+                raise RasterError("This image has no coordinates (no world file such as .jgw or .pgw, and none inside it), so it cannot "
+                                  "be placed on the map by itself. Georeference it: match points on it to the map.", "no_georeference")
+            gcps, gcp_crs = src.gcps
+            crs = src.crs or _sidecar_crs(path) or (gcp_crs if src.transform.is_identity and gcps else None) or (CRS.from_epsg(epsg) if epsg else None)
             if epsg and src.crs and _epsg(src.crs) != epsg:
                 crs = CRS.from_epsg(epsg)                 # the person says the file's own system is wrong
             if crs is None:
                 raise RasterError("The raster does not say its coordinate system: choose it under “Its coordinate system”.")
-            if src.transform.is_identity:
-                raise RasterError("The raster has no georeferencing (no world file or coordinates): it cannot be placed on the map.")
             resampling = _overview_kind(src)
             source = path
-            if crs != src.crs:
+            if src.transform.is_identity:
+                # placed by control points inside the file (some scans, NITF, HDF): warped onto a grid with them
+                from rasterio.vrt import WarpedVRT
+                source = work / "from-gcps.tif"
+                with WarpedVRT(src, src_crs=crs, crs=crs) as vrt:
+                    rasterio.shutil.copy(vrt, str(source), driver="GTiff", tiled=True, compress="DEFLATE", BIGTIFF="IF_SAFER")
+            elif crs != src.crs:
                 source = work / "with-crs.tif"
                 rasterio.shutil.copy(str(path), str(source), driver="GTiff")
                 with rasterio.open(source, "r+") as d:
