@@ -210,14 +210,14 @@ async def _run(jid: str, project_id: UUID, tool: str, spec: dict, params: dict, 
             if m:
                 rasters.remove(m["key"])
         ms = int((time.monotonic() - started) * 1000)
-        j.update(status="failed", message="Did not finish", error=why, ms=ms)
-        try:
+        try:                                                     # in the history first, so a finished run is always listed
             async with pool.connection() as conn:
                 await conn.execute("INSERT INTO runs (project_id, org_id, tool, params, output_name, status, message, ms, actor_id, actor_name) "
                                    "VALUES (%s, %s, %s, %s, %s, 'failed', %s, %s, %s, %s)",
                                    (project_id, user["org_id"], f"earth:{tool}", Jsonb(_plain(params)), output_name or spec["name"], why, ms, user["id"], user["name"]))
         except psycopg.Error:
             log.exception("could not record the failed run")
+        j.update(status="failed", message="Did not finish", error=why, ms=ms)
 
 
 def _words(s: int) -> str:
@@ -225,7 +225,6 @@ def _words(s: int) -> str:
 
 
 async def _stopped(j: dict, project_id, tool, spec, params, output_name, user, ms: int) -> None:
-    j.update(status="stopped", message="Stopped", error=None, ms=ms)
     try:
         async with pool.connection() as conn:
             await conn.execute("INSERT INTO runs (project_id, org_id, tool, params, output_name, status, message, ms, actor_id, actor_name) "
@@ -234,6 +233,7 @@ async def _stopped(j: dict, project_id, tool, spec, params, output_name, user, m
                                 f"Stopped by {user['name']}.", ms, user["id"], user["name"]))
     except psycopg.Error:
         log.exception("could not record the stopped run")
+    j.update(status="stopped", message="Stopped", error=None, ms=ms)
 
 
 @router.post("/poly-earth/jobs/{job_id}/stop", summary="Stop a Poly Earth run; nothing it made is kept")
