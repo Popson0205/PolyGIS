@@ -112,8 +112,10 @@ async def start(project_id: UUID, file: UploadFile = File(...), user=Depends(EDI
                 if n > 16:
                     raise rasters.RasterError(f"The image has {n} bands; the most for georeferencing is 16.")
                 plain = d / "plain.tif"
-                prof = {"driver": "GTiff", "width": w, "height": h, "count": n, "dtype": src.dtypes[0], "tiled": True, "compress": "DEFLATE",
-                        "nodata": src.nodata}
+                small = {"compress": "JPEG", "jpeg_quality": 92, "photometric": "YCBCR"} if rasters.photo(src.dtypes[0], n, src.nodata) \
+                    else {"compress": "DEFLATE", "predictor": 2 if src.dtypes[0] != "float32" and src.dtypes[0] != "float64" else 3}
+                prof = {"driver": "GTiff", "width": w, "height": h, "count": n, "dtype": src.dtypes[0], "tiled": True, "nodata": src.nodata,
+                        "BIGTIFF": "IF_SAFER", **small}
                 with rasterio.open(plain, "w", **prof) as dst:         # pixels only: any coordinates the file had are not used
                     for _, win in src.block_windows(1):
                         dst.write(src.read(window=win), window=win)
@@ -226,14 +228,28 @@ async def save(gid: UUID, body: SaveIn, user=Depends(EDIT), conn=Depends(get_con
         meta, res = await anyio.to_thread.run_sync(work)
     except (georef.GeorefError, rasters.RasterError) as e:
         raise _problem(e) from None
-    name = ((body.name or "").strip() or f"{r['name']} (georeferenced)")[:200]
+    # a picture added without coordinates is the same layer, now moved into place
+    target = None
+    if r["layer_id"]:
+        cur = await conn.execute("SELECT id, name, source, raster FROM layers WHERE id = %s", (r["layer_id"],))
+        target = await cur.fetchone()
+        if not (target and (target["raster"] or {}).get("unplaced")):
+            target = None
+    name = ((body.name or "").strip() or (target["name"] if target else f"{r['name']} (georeferenced)"))[:200]
     source = {"tool": "georeference", "tool_name": "Georeference", "crs": meta["crs_name"],
               "summary": {"method": georef.METHODS[body.method][0], "points": len(res["points"]), "rmse_m": res["rmse_m"], "cell_m": meta["res_m"][0]}}
     style = rasters.default_style(meta)
     if meta["dtype"] == "uint8" and style.get("mode") == "rgb":         # a scan or photo keeps its own colours, not a stretch
         style = {**style, "mins": [0, 0, 0], "maxs": [255, 255, 255]}
     async with conn.transaction():
-        lid = await _insert(conn, r["project_id"], user, name, meta, style, source)
+        if target:
+            lid = target["id"]
+            await conn.execute("UPDATE layers SET name = %s, raster = %s, style = %s, source = %s, updated_at = clock_timestamp() WHERE id = %s",
+                               (name, Jsonb(meta), Jsonb(style), Jsonb({**(target["source"] or {}), **source}), lid))
+            # the old placed copy is now only this work's own image, removed with it
+            await conn.execute("UPDATE georef_sources SET owns_key = true WHERE id = %s", (gid,))
+        else:
+            lid = await _insert(conn, r["project_id"], user, name, meta, style, source)
         await conn.execute("UPDATE georef_sources SET points = %s, method = %s, updated_at = now() WHERE id = %s",
                            (Jsonb(pts), body.method, gid))
     await audit(conn, user, "layer.georeference", "layer", lid, name=name, method=body.method, points=len(res["points"]), rmse_m=res["rmse_m"])

@@ -113,8 +113,23 @@ def _keep(path: Path) -> str:
     shutil.move(str(path), dst)
     b = _bucket()
     if b:
-        b.upload_file(str(dst), settings.s3_bucket, settings.s3_prefix + key, ExtraArgs={"ContentType": "image/tiff"})
+        try:
+            b.upload_file(str(dst), settings.s3_bucket, settings.s3_prefix + key, ExtraArgs={"ContentType": "image/tiff"})
+        except Exception as e:  # noqa: BLE001  (boto3's upload errors wrap the storage's own)
+            mb = dst.stat().st_size / 1024 / 1024
+            dst.unlink(missing_ok=True)
+            if "EntityTooLarge" in str(e) or "maximum allowed size" in str(e):
+                raise RasterError(f"The file storage refused the raster: at {mb:,.0f} MB it is over the storage's size limit for one file. "
+                                  "Clip or shrink it first, or raise the limit (in Supabase: Storage › Settings › Upload file size limit).",
+                                  "too_large") from None
+            log.warning("raster upload to storage failed: %s", e)
+            raise RasterError("The file storage did not accept the raster. Try again in a moment.", "storage") from None
     return key
+
+
+def photo(dtype: str, count: int, nodata) -> bool:
+    """A photo or scan (three 8-bit bands, no no-data value): kept JPEG-compressed, about ten times smaller than lossless."""
+    return dtype == "uint8" and count == 3 and nodata is None
 
 
 def remove(key: str | None) -> None:
@@ -221,8 +236,10 @@ def default_style(meta: dict) -> dict:
 # Making COGs
 # =====================================================================================================================
 def _cog(src_path: Path, dst: Path, resampling: str) -> None:
-    rasterio.shutil.copy(str(src_path), str(dst), driver="COG", compress="DEFLATE", predictor="YES", bigtiff="IF_SAFER",
-                         overview_resampling=resampling, num_threads="ALL_CPUS")
+    with rasterio.open(src_path) as s:
+        pic = photo(s.dtypes[0], s.count, s.nodata) and not any(m for m in s.mask_flag_enums[0] if m.name in ("per_dataset", "alpha"))
+    opts = {"compress": "JPEG", "quality": 90} if pic else {"compress": "DEFLATE", "predictor": "YES"}
+    rasterio.shutil.copy(str(src_path), str(dst), driver="COG", bigtiff="IF_SAFER", overview_resampling=resampling, num_threads="ALL_CPUS", **opts)
 
 
 def _overview_kind(src) -> str:
@@ -230,6 +247,36 @@ def _overview_kind(src) -> str:
         return "AVERAGE"
     st = band_stats(src)[0]
     return "NEAREST" if "values" in st else "AVERAGE"
+
+
+def _ingest_unplaced(src, view: tuple[float, float, float, float]) -> dict:
+    """A picture without coordinates, put in the middle of the map view (half its size, keeping its shape) so it can be
+    seen and then georeferenced. Marked as unplaced."""
+    from pyproj import Transformer
+    w, s_, e, n = view
+    t = Transformer.from_crs(4326, 3857, always_xy=True)
+    (x0, x1), (y0, y1) = t.transform([w, e], [max(s_, -85), min(n, 85)])
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    cell = min((x1 - x0) / src.width, (y1 - y0) / src.height) * 0.5            # fits inside the view, at half its size
+    if not math.isfinite(cell) or cell <= 0:
+        raise RasterError("The map view to place the picture in is not valid.")
+    transform = rasterio.transform.from_origin(cx - src.width * cell / 2, cy + src.height * cell / 2, cell, cell)
+    work = workdir()
+    try:
+        tmp = work / "placed.tif"
+        prof = {"driver": "GTiff", "width": src.width, "height": src.height, "count": src.count, "dtype": src.dtypes[0], "crs": MERC,
+                "transform": transform, "nodata": src.nodata, "tiled": True, "compress": "DEFLATE", "BIGTIFF": "IF_SAFER"}
+        with rasterio.open(tmp, "w", **prof) as d:
+            for _, win in src.block_windows(1):
+                d.write(src.read(window=win), window=win)
+        cog = work / "cog.tif"
+        _cog(tmp, cog, "AVERAGE")
+        key = _keep(cog)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    meta = describe(_dir() / key, key)
+    meta["unplaced"] = True
+    return meta
 
 
 def _sidecar_crs(path: Path) -> CRS | None:
@@ -244,7 +291,7 @@ def _sidecar_crs(path: Path) -> CRS | None:
     return None
 
 
-def ingest(path: Path, epsg: int | None = None) -> dict:
+def ingest(path: Path, epsg: int | None = None, place: tuple[float, float, float, float] | None = None) -> dict:
     """A raster file brought in: checked, made into a COG in storage, and described."""
     try:
         src = rasterio.open(path)
@@ -258,6 +305,8 @@ def ingest(path: Path, epsg: int | None = None) -> dict:
                 raise RasterError(f"The raster has {src.count} bands; the most is 64.")
             if src.width * src.height > 2_000_000_000:
                 raise RasterError("The raster has more than 2 billion cells: clip it first.")
+            if src.transform.is_identity and not src.gcps[0] and place:
+                return _ingest_unplaced(src, place)
             if src.transform.is_identity and not src.gcps[0]:
                 raise RasterError("This image has no coordinates (no world file such as .jgw or .pgw, and none inside it), so it cannot "
                                   "be placed on the map by itself. Georeference it: match points on it to the map.", "no_georeference")

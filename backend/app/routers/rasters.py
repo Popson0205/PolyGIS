@@ -69,12 +69,12 @@ def raster_zip(path: Path) -> bool:
     return any(Path(n).name == "hdr.adf" or (n.endswith(rasters.EXTENSIONS) and not n.endswith(SIDECARS)) for n in names)
 
 
-async def import_raster(conn, project_id, path: Path, filename: str, epsg, user) -> dict:
+async def import_raster(conn, project_id, path: Path, filename: str, epsg, user, place=None) -> dict:
     """A raster file (already saved, with any companion files beside it) added as a layer."""
     try:
         if path.suffix.lower() == ".zip":
             path = _unzip_raster(path)
-        meta = await anyio.to_thread.run_sync(lambda: rasters.ingest(path, epsg))
+        meta = await anyio.to_thread.run_sync(lambda: rasters.ingest(path, epsg, place))
     except (rasters.RasterError, zipfile.BadZipFile) as e:
         raise Problem(422, str(e) if isinstance(e, rasters.RasterError) else "The zip file is damaged.",
                       code=getattr(e, "code", "unreadable")) from None
@@ -82,7 +82,11 @@ async def import_raster(conn, project_id, path: Path, filename: str, epsg, user)
     for ext in (".zip", *rasters.EXTENSIONS):
         if name.lower().endswith(ext):
             name = name[: -len(ext)]
-    lid = await _insert(conn, project_id, user, name or "Raster", meta, rasters.default_style(meta), {"filename": filename, "crs": meta["crs_name"]})
+    style = rasters.default_style(meta)
+    if meta["dtype"] == "uint8" and style.get("mode") == "rgb":               # a photo or scan keeps its own colours
+        style = {**style, "mins": [0, 0, 0], "maxs": [255, 255, 255]}
+    lid = await _insert(conn, project_id, user, name or "Raster", meta, style,
+                        {"filename": filename, "crs": meta["crs_name"], **({"unplaced": True} if meta.get("unplaced") else {})})
     await audit(conn, user, "layer.import", "layer", lid, name=name, file=filename, raster=f"{meta['width']}x{meta['height']}x{meta['count']}")
     await _touch(conn, lid, project_id)
     return await layer_of(conn, lid, user)

@@ -42,8 +42,9 @@ export function CrsPicker({ value, onChange, label = "Coordinate system", allowN
   );
 }
 
-export function AddData({ projectId, onDone, onClose, onImagery, onGeoreference }: {
+export function AddData({ projectId, onDone, onClose, onImagery, onGeoreference, view }: {
   projectId: string; onDone: (l: Layer[]) => void; onClose: () => void; onImagery?: () => void; onGeoreference?: (f: File) => void;
+  view?: [number, number, number, number];
 }) {
   const [files, setFiles] = useState<File[]>([]);
   const [epsg, setEpsg] = useState<number | null>(null);
@@ -55,7 +56,7 @@ export function AddData({ projectId, onDone, onClose, onImagery, onGeoreference 
     e.preventDefault();
     if (!files.length) return;
     setBusy(true); setError(null);
-    try { onDone(await api.importFile(projectId, files, epsg ?? undefined)); } catch (x) { setError(x); } finally { setBusy(false); }
+    try { onDone(await api.importFile(projectId, files, epsg ?? undefined, view)); } catch (x) { setError(x); } finally { setBusy(false); }
   }
   const picture = files.find((f) => PICTURE.test(f.name));
   const unplaced = error instanceof ApiError && error.code === "no_georeference";
@@ -71,7 +72,8 @@ export function AddData({ projectId, onDone, onClose, onImagery, onGeoreference 
           <span>Vector: GeoJSON, Shapefile (choose its .shp, .shx, .dbf and .prj together, or zip them), GeoPackage, KML/KMZ, CSV with longitude/latitude
             or WKT, DXF, DGN, GPX, GML, FlatGeobuf, MapInfo TAB/MIF, file geodatabase (zipped .gdb), SpatiaLite, OpenStreetMap, TopoJSON.<br />
             Raster: GeoTIFF, Erdas IMG, ASCII and Surfer grids, JPEG 2000, ECW, MrSID, ENVI, NetCDF, HDF, GRIB, DTED, SRTM .hgt, Esri grid (zipped),
-            SAGA, Idrisi, MBTiles; JPEG, PNG and other pictures with their world file (.jgw, .pgw, .tfw…), or placed by Georeference.</span>
+            SAGA, Idrisi, MBTiles; JPEG, PNG and other pictures with their world file (.jgw, .pgw, .tfw…). A picture without one is put where
+            you are looking, ready to georeference.</span>
         </label>
         {shp && <p className="ws-muted">A Shapefile needs its .shx and .dbf too (and .prj for its coordinate system): choose them together.</p>}
         {onImagery && <p className="ws-muted">No imagery file? <button type="button" className="ws-link" onClick={onImagery}>Get data from an open source</button> (Sentinel-2, Landsat, radar, elevation, land cover, rainfall; Planetary Computer, Earth Search or Google Earth Engine) instead of downloading it yourself.</p>}
