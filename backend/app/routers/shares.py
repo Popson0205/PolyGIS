@@ -219,7 +219,7 @@ async def share_raster_value(token: str, layer_id: UUID, request: Request, respo
 async def share_feature(token: str, layer_id: UUID, fid: int, request: Request, response: Response, conn=Depends(get_conn)):
     s = await _open(conn, token, request, response)
     await _layer(conn, s, layer_id)
-    cur = await conn.execute("SELECT id, ST_AsGeoJSON(geom, 7)::json AS geometry, props FROM features WHERE layer_id = %s AND id = %s", (layer_id, fid))
+    cur = await conn.execute("SELECT id, ST_AsGeoJSON(geom, 7)::json AS geometry, props FROM features WHERE layer_id = layer_data(%s) AND id = %s", (layer_id, fid))
     r = await cur.fetchone()
     if not r:
         raise Problem(404, "Feature not found.", code="not_found")

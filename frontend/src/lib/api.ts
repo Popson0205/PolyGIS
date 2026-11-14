@@ -1,6 +1,6 @@
 import type { LayoutSettings } from "./layout";
 import type { LayoutDoc } from "./layoutDoc";
-import type { Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
+import type { Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
@@ -112,6 +112,12 @@ export const api = {
   newLayer: (projectId: string, b: { name: string; geometry_type: VectorType; fields: Field[] }) => req<Layer>("POST", `/projects/${projectId}/layers`, b),
   updateLayer: (id: string, b: { name?: string; visible?: boolean; style?: Style; labels?: Labels; clear_labels?: boolean }) => req<Layer>("PATCH", `/layers/${id}`, b),
   deleteLayer: (id: string) => req<void>("DELETE", `/layers/${id}`),
+  maps: (projectId: string) => req<GisMap[]>("GET", `/projects/${projectId}/maps`),
+  createMap: (projectId: string, name: string, copyOf?: string) => req<GisMap>("POST", `/projects/${projectId}/maps`, { name, copy_of: copyOf ?? null }),
+  updateMap: (id: string, b: { name?: string; view?: View; position?: number }) => req<GisMap>("PATCH", `/maps/${id}`, b),
+  openMap: (id: string) => req<GisMap>("POST", `/maps/${id}/open`),
+  deleteMap: (id: string) => req<void>("DELETE", `/maps/${id}`),
+  addToMap: (layerId: string, mapId: string, how: "share" | "copy" = "share") => req<Layer>("POST", `/layers/${layerId}/add-to-map`, { map_id: mapId, how }),
   order: (projectId: string, ids: string[]) => req<Layer[]>("PUT", `/projects/${projectId}/layer-order`, { layer_ids: ids }),
   fieldOp: (id: string, b: { op: "add" | "rename" | "delete"; name: string; to?: string; type?: FieldType }) => req<Layer>("POST", `/layers/${id}/fields`, b),
   rows: (id: string, b: { filters?: Filter[]; sort?: string | null; desc?: boolean; offset?: number; limit?: number; ids?: number[] | null }) =>

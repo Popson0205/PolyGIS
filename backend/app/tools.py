@@ -107,7 +107,7 @@ def catalog() -> list[dict]:
 # ---------- helpers ----------
 def src(key: str) -> str:
     """The features of the layer passed as `key`, or only its selected ones when `key_ids` is given."""
-    return (f"(SELECT id, geom, props FROM features WHERE layer_id = %({key})s "
+    return (f"(SELECT id, geom, props FROM features WHERE layer_id = layer_data(%({key})s) "
             f"AND (%({key}_ids)s::bigint[] IS NULL OR id = ANY(%({key}_ids)s::bigint[])))")
 
 

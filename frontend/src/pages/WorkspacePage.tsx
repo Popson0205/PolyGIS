@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -15,6 +15,7 @@ import Geoprocessing from "../components/Geoprocessing";
 import PolyEarth, { useEarthJobs } from "../components/PolyEarth";
 import LayerPanel from "../components/LayerPanel";
 import LayoutView from "../components/LayoutView";
+import Catalog, { ViewTabs, isNewLayout, viewKey, type ViewTab } from "../components/Catalog";
 import Georeference from "../components/Georeference";
 import ModelBuilder from "../components/ModelBuilder";
 import Scenarios from "../components/Scenarios";
@@ -25,11 +26,11 @@ import LinkedDialog from "../components/LinkedDialog";
 import { Apps, UserMenu, licenceNotice, useApps } from "../components/Bar";
 import { Button, ErrorText, IconButton, Resizer, useStored, useToast } from "../components/ui";
 import RasterPanel from "../components/RasterPanel";
-import { ApiError, BASE, api, rasterDownloadUrl, rasterTileUrl, terrainTileUrl, tileUrl } from "../lib/api";
+import { ApiError, BASE, api, type SavedLayout, rasterDownloadUrl, rasterTileUrl, terrainTileUrl, tileUrl } from "../lib/api";
 import { formatCoords, loadCrs, metres, squareMetres } from "../lib/coords";
 import { Editor } from "../lib/editor";
 import { BASEMAPS, GLOBAL_TERRAIN, GLYPHS, allIds, basemapStyle, ids as layerIds, labelSrc, mapLayers, src } from "../lib/mapstyle";
-import type { CrsDef, Layer, Me, Project, Selection, VectorType } from "../lib/types";
+import type { CrsDef, GisMap, Layer, Me, Project, Selection, VectorType, View } from "../lib/types";
 
 type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "imagery" | "earth" | "share";
 type Tool = "explore" | "select" | "select-area" | "measure-line" | "measure-area" | "create" | "reshape" | "pick-reshape";
@@ -41,8 +42,21 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const { id = "" } = useParams();
   const toast = useToast();
   const canEdit = me.role !== "viewer" && me.can_write;
+  const layoutsAllowed = me.features.includes("layouts");
   const [project, setProject] = useState<Project | null>(null);
-  const [layers, setLayers] = useState<Layer[]>([]);
+  // every layer of the project; `layers` are those of the map that is open
+  const [allLayers, setLayers] = useState<Layer[]>([]);
+  const [maps, setMaps] = useState<GisMap[]>([]);
+  const [mapId, setMapId] = useState<string | null>(null);
+  const layers = useMemo(() => (mapId ? allLayers.filter((l) => !l.map_id || l.map_id === mapId) : allLayers), [allLayers, mapId]);
+  const openMapDoc = maps.find((m) => m.id === mapId) ?? null;
+  // the open views, as ArcGIS Pro's tabs: maps and layouts
+  const [views, setViews] = useState<ViewTab[]>([]);
+  const [viewNow, setViewNow] = useState("");
+  const [savedLayouts, setSavedLayouts] = useState<SavedLayout[]>([]);
+  const [dirtyLayouts, setDirtyLayouts] = useState<Record<string, boolean>>({});
+  const layoutKeys = useRef<Record<string, string>>({});     // a saved layout's tab keeps the key it had before it was saved
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selection, setSelection] = useState<Record<string, number[]>>({});
@@ -63,7 +77,6 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [gp, setGp] = useState<{ open: boolean; start: string | null; query: string }>({ open: false, start: null, query: "" });
   const [earth, setEarth] = useState<{ open: boolean; start: string | null }>({ open: false, start: null });
   const [panelTab, setPanelTab] = useState<{ tab: PanelTab; n: number }>({ tab: "symbology", n: 0 });
-  const [layoutOpen, setLayoutOpen] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
   const [georefOpen, setGeorefOpen] = useState(false);
   const [scenariosOpen, setScenariosOpen] = useState(false);
@@ -98,6 +111,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [scale, setScale] = useState(0);
   const commandEl = useRef<HTMLInputElement>(null);
   const apps = useApps();
+  const mapIdRef = useRef<string | null>(null);
 
   const mapEl = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibre | null>(null);
@@ -120,12 +134,35 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const load = useCallback(async () => {
     try {
       const p = await api.project(id);
-      setProject(p); setLayers(p.layers ?? []); setBasemap(p.view.basemap ?? "streets");
-      setActiveId((a) => a ?? (p.layers?.length ? [...p.layers].sort((x, y) => y.position - x.position)[0].id : null));
+      const ms = p.maps ?? [];
+      const am = ms.find((m) => m.id === p.active_map_id) ?? ms[0];
+      const view: View = am?.view?.center ? am.view : p.view;
+      setProject((cur) => cur ?? { ...p, view }); setLayers(p.layers ?? []); setMaps(ms);
+      const mid = mapIdRef.current && ms.some((m) => m.id === mapIdRef.current) ? mapIdRef.current : am?.id ?? null;
+      setMapId(mid);
+      if (!mapIdRef.current) setBasemap(view.basemap ?? "streets");
+      mapIdRef.current = mid;
+      const mine = (p.layers ?? []).filter((l) => !mid || !l.map_id || l.map_id === mid);
+      setActiveId((a) => a ?? (mine.length ? [...mine].sort((x, y) => y.position - x.position)[0].id : null));
+      if (mid) setViews((vs) => {
+        if (vs.length) return vs;
+        let saved: { views: ViewTab[]; now: string } | null = null;
+        try { saved = JSON.parse(localStorage.getItem(`polygis-views-${id}`) ?? "null"); } catch { /* none kept */ }
+        const ok = (saved?.views ?? []).filter((v) => (v.kind === "map" ? ms.some((m) => m.id === v.id) : !isNewLayout(v.id)));
+        const list = ok.some((v) => v.kind === "map" && v.id === mid) ? ok : [{ kind: "map", id: mid } as ViewTab, ...ok];
+        const now = saved?.now && list.some((v) => viewKey(v) === saved!.now) && saved.now.startsWith("layout:") ? saved.now : `map:${mid}`;
+        setViewNow(now);
+        return list;
+      });
+      api.layouts(id).then(setSavedLayouts, () => undefined);
       setCrs(await loadCrs(p.display_epsg).catch(() => undefined));
     } catch (e) { setError(e); }
   }, [id]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!views.length) return;
+    try { localStorage.setItem(`polygis-views-${id}`, JSON.stringify({ views: views.filter((v) => v.kind === "map" || !isNewLayout(v.id)), now: viewNow })); } catch { /* not kept */ }
+  }, [views, viewNow, id]);
   const replaceLayer = (l: Layer) => setLayers((ls) => ls.map((x) => (x.id === l.id ? l : x)));
   const refreshLayer = async (lid: string) => {
     const p = await api.project(id);
@@ -521,15 +558,139 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     if (tableId === l.id) setTableId(null);
     setLayers((ls) => ls.filter((x) => x.id !== l.id));
     setActiveId(null);
+    if (l.data_id == null && allLayers.some((x) => x.data_id === l.id)) { const p = await api.project(id); setLayers(p.layers ?? []); }   // its data was handed on
   }
-  function switchBasemap(b: string) {
-    if (editId) { toast("Stop editing before changing the basemap.", "info"); return; }
+  function switchBasemap(b: string, save = true) {
+    if (editId && save) { toast("Stop editing before changing the basemap.", "info"); return; }
     setBasemap(b);
     editor.current?.stop();
     versions.current.clear();
     styleReady.current = false;
     map.current?.setStyle(basemapStyle(b) as maplibregl.StyleSpecification | string);
-    if (canEdit) void api.updateProject(id, { view: { ...(project?.view ?? {}), basemap: b } }).catch(() => undefined);
+    if (canEdit && save) void api.updateProject(id, { view: { ...(openMapDoc?.view ?? project?.view ?? {}), basemap: b } }).catch(() => undefined);
+    if (save) setMaps((ms) => ms.map((m) => (m.id === mapId ? { ...m, view: { ...m.view, basemap: b } } : m)));
+  }
+
+  // ---------- maps and layouts, in tabs ----------
+  const camera = (): View | null => {
+    const m = map.current;
+    if (!m) return null;
+    const c = m.getCenter();
+    return { center: [c.lng, c.lat], zoom: m.getZoom(), bearing: m.getBearing(), basemap };
+  };
+  const addView = (v: ViewTab) => setViews((vs) => (vs.some((x) => viewKey(x) === viewKey(v)) ? vs : [...vs, v]));
+  async function openMap(target: GisMap) {
+    addView({ kind: "map", id: target.id });
+    setViewNow(`map:${target.id}`);
+    requestAnimationFrame(() => map.current?.resize());
+    if (target.id === mapId) return;
+    if (editId) stopEditing();
+    const here = camera();
+    if (here && mapId) {                                    // where the map that is closing was left
+      setMaps((ms) => ms.map((m) => (m.id === mapId ? { ...m, view: here } : m)));
+      if (canEdit) void api.updateMap(mapId, { view: here }).catch(() => undefined);
+    }
+    setSelection({}); setIdentify(null); setTableId(null); setNewFeature(null);
+    mapIdRef.current = target.id;
+    setMapId(target.id);
+    await api.openMap(target.id).catch(() => undefined);   // what is added from now on goes into this map
+    const v = maps.find((m) => m.id === target.id)?.view ?? target.view;
+    const m = map.current;
+    if (m && v.center) m.jumpTo({ center: v.center, zoom: v.zoom ?? m.getZoom(), bearing: v.bearing ?? 0 });
+    else if (m && canEdit && here) void api.updateMap(target.id, { view: here }).catch(() => undefined);
+    if ((v.basemap ?? "streets") !== basemap) switchBasemap(v.basemap ?? "streets", false);
+    try {                                                    // the same data may have changed in the other map
+      const p = await api.project(id);
+      setLayers(p.layers ?? []); setMaps(p.maps ?? []);
+      const mine = (p.layers ?? []).filter((l) => l.map_id === target.id).sort((a, b) => b.position - a.position);
+      setActiveId(mine[0]?.id ?? null);
+    } catch { /* kept as it was */ }
+  }
+  const nextName = (base: string, taken: string[]) => {
+    if (!taken.includes(base)) return base;
+    for (let n = 1; ; n++) if (!taken.includes(`${base}${n}`)) return `${base}${n}`;
+  };
+  async function newMap(copyOf?: GisMap) {
+    try {
+      const name = copyOf ? nextName(`${copyOf.name} copy`, maps.map((m) => m.name)) : nextName("Map", maps.map((m) => m.name));
+      const m = await api.createMap(id, name, copyOf?.id);
+      setMaps((ms) => [...ms, m]);
+      if (copyOf) { const p = await api.project(id); setLayers(p.layers ?? []); }
+      await openMap(m);
+      toast(copyOf ? `${m.name}: a copy of ${copyOf.name}, its layers showing the same data.` : `${m.name} added. Add data to it, or add layers from another map.`, "success");
+    } catch (e) { toast(e instanceof ApiError ? e.message : "Could not add the map.", "error"); }
+  }
+  async function renameMap(m: GisMap, name: string) {
+    try { const u = await api.updateMap(m.id, { name }); setMaps((ms) => ms.map((x) => (x.id === m.id ? { ...x, name: u.name } : x))); }
+    catch (e) { toast(e instanceof ApiError ? e.message : "Could not rename the map.", "error"); }
+  }
+  async function deleteMap(m: GisMap) {
+    if (maps.length < 2) return;
+    if (!window.confirm(`Delete the map ${m.name} and its ${m.layer_count === 1 ? "layer" : `${m.layer_count} layers`}? Data that other maps show stays in them. This can't be undone.`)) return;
+    try {
+      if (m.id === mapId) await openMap(maps.find((x) => x.id !== m.id)!);
+      await api.deleteMap(m.id);
+      setViews((vs) => vs.filter((v) => !(v.kind === "map" && v.id === m.id)));
+      const p = await api.project(id);
+      setLayers(p.layers ?? []); setMaps(p.maps ?? []);
+      toast(`${m.name} deleted.`, "success");
+    } catch (e) { toast(e instanceof ApiError ? e.message : "Could not delete the map.", "error"); }
+  }
+  function newLayout() {
+    if (!layoutsAllowed) { setDialog("plan"); return; }
+    let n = 1;
+    while (views.some((v) => v.kind === "layout" && v.id === `new:${n}`)) n++;
+    const v: ViewTab = { kind: "layout", id: `new:${n}` };
+    addView(v); setViewNow(viewKey(v));
+  }
+  function openLayoutTab(l: SavedLayout) {
+    if (!layoutsAllowed) { setDialog("plan"); return; }
+    const v: ViewTab = { kind: "layout", id: l.id };
+    addView(v); setViewNow(viewKey(v));
+  }
+  function closeView(v: ViewTab, ask = true) {
+    const k = viewKey(v);
+    if (ask && v.kind === "layout" && dirtyLayouts[v.id] && !window.confirm("Close the layout without saving it?")) return;
+    const rest = views.filter((x) => viewKey(x) !== k);
+    if (v.kind === "map" && !rest.some((x) => x.kind === "map")) return;     // a map stays open
+    setViews(rest);
+    setDirtyLayouts((d) => { const { [v.id]: _, ...o } = d; return o; });
+    if (viewNow === k) {
+      const i = views.findIndex((x) => viewKey(x) === k);
+      const next = rest[Math.min(i, rest.length - 1)] ?? rest[0];
+      if (next.kind === "map") { const m = maps.find((x) => x.id === next.id); if (m) void openMap(m); }
+      else setViewNow(viewKey(next));
+    }
+    if (v.kind === "map" && v.id === mapId && viewNow !== k) {
+      const m = maps.find((x) => rest.some((r) => r.kind === "map" && r.id === x.id));
+      if (m) void openMap(m);
+    }
+  }
+  function pickView(v: ViewTab) {
+    if (v.kind === "map") { const m = maps.find((x) => x.id === v.id); if (m) void openMap(m); }
+    else setViewNow(viewKey(v));
+  }
+  async function renameLayout(l: SavedLayout, name: string) {
+    try { const u = await api.updateLayout(l.id, { name }); setSavedLayouts((ls) => ls.map((x) => (x.id === l.id ? u : x))); }
+    catch (e) { toast(e instanceof ApiError ? e.message : "Could not rename the layout.", "error"); }
+  }
+  async function deleteLayout(l: SavedLayout) {
+    if (!window.confirm(`Delete the layout ${l.name}? The maps and their layers are not touched.`)) return;
+    try {
+      await api.deleteLayout(l.id);
+      setSavedLayouts((ls) => ls.filter((x) => x.id !== l.id));
+      const v = views.find((x) => x.kind === "layout" && x.id === l.id);
+      if (v) closeView(v, false);
+    } catch (e) { toast(e instanceof ApiError ? e.message : "Could not delete the layout.", "error"); }
+  }
+  async function addToMap(l: Layer, target: string, how: "share" | "copy") {
+    try {
+      const made = await api.addToMap(l.id, target, how);
+      setLayers((cur) => [...cur, made]);
+      setMaps((ms) => ms.map((m) => (m.id === target ? { ...m, layer_count: m.layer_count + 1 } : m)));
+      const name = maps.find((m) => m.id === target)?.name ?? "the map";
+      toast(how === "share" ? `${l.name} added to ${name}, showing the same data: style it there as you like.` : `${l.name} copied to ${name}.`, "success");
+    } catch (e) { toast(e instanceof ApiError ? e.message : "Could not add it to that map.", "error"); }
   }
   function zoomAll() {
     const bs = layers.map((l) => l.bbox).filter(Boolean) as [number, number, number, number][];
@@ -559,7 +720,11 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     "pick-reshape": <>Click the feature of <strong>{editLayer?.name}</strong> to reshape.</>,
     reshape: <>Drag a vertex to move it, a midpoint to add one; right-click a vertex to remove it.</>,
   };
-  const right = scenariosOpen ? (
+  const right = catalogOpen ? (
+    <Catalog maps={maps} layouts={savedLayouts} mapId={mapId} current={viewNow} canEdit={canEdit} layoutsAllowed={layoutsAllowed}
+      onOpenMap={(m) => void openMap(m)} onNewMap={() => void newMap()} onCopyMap={(m) => void newMap(m)} onRenameMap={(m, n) => void renameMap(m, n)} onDeleteMap={(m) => void deleteMap(m)}
+      onOpenLayout={openLayoutTab} onNewLayout={newLayout} onRenameLayout={(l, n) => void renameLayout(l, n)} onDeleteLayout={(l) => void deleteLayout(l)} onClose={() => setCatalogOpen(false)} />
+  ) : scenariosOpen ? (
     <Scenarios projectId={id} layers={layers} canEdit={canEdit} onClose={() => setScenariosOpen(false)}
       onLayer={(l, show) => {
         setLayers((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? l : x)) : [...cur, l]));
@@ -601,11 +766,12 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     </aside>
   );
   const tabs: [Tab, string][] = [["map", "Map"], ["insert", "Insert"], ["select", "Select"], ["edit", "Edit"], ["analysis", "Analysis"], ...(me.features.includes("raster") ? [["imagery", "Imagery"] as [Tab, string]] : []), ["earth", "Poly Earth"], ["share", "Share"]];
-  const layoutsAllowed = me.features.includes("layouts");
-  const openLayout = () => { if (!layoutsAllowed) { setDialog("plan"); return; } if (map.current) setLayoutOpen(true); };
+  const openLayout = newLayout;
+  const viewing = views.find((v) => viewKey(v) === viewNow) ?? null;
+  const onLayout = viewing?.kind === "layout";
 
   return (
-    <div className="ws" style={{ "--left": `${leftW}px`, "--right": `${rightW}px`, "--table": `${tableH}px` } as React.CSSProperties}>
+    <div className={`ws${onLayout ? " is-layout" : ""}`} style={{ "--left": `${leftW}px`, "--right": `${rightW}px`, "--table": `${tableH}px` } as React.CSSProperties}>
       <div className="ws-top">
       <header className="ws-titlebar">
         <a className="ge-brand" href="/" aria-label="GeoEstate PolyGIS: all projects"><img src="/logo.png" alt="" /><span>Poly<strong>GIS</strong></span></a>
@@ -670,6 +836,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             <Group name="Layer">
               <Tb onClick={() => setDialog("add")} icon={<FilePlus2 />} label="Add data" disabled={!canEdit} />
             </Group>
+            <Group name="Project">
+              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) setCatalogOpen(false); else { setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Catalog" />
+            </Group>
             <Group name="Coordinates">
               <Tb onClick={() => setDialog("crs")} icon={<Globe2 />} label={crs ? shortCrs(crs.name) : `EPSG:${project.display_epsg}`} />
             </Group>
@@ -681,8 +850,10 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => setDialog("linked")} icon={<Link2 />} label="Linked layer" disabled={!canEdit} />
               <Tb onClick={() => setDialog("export")} icon={<Download />} label="Export layer" disabled={!active || active.geometry_type === "Raster"} />
             </Group>
-            <Group name="Layout">
-              <Tb onClick={openLayout} icon={<Printer />} label="New layout" />
+            <Group name="Project">
+              <Tb onClick={() => void newMap()} icon={<MapIcon />} label="New map" disabled={!canEdit} />
+              <Tb onClick={() => openMapDoc && void newMap(openMapDoc)} icon={<Layers3 />} label="Copy map" disabled={!canEdit || !openMapDoc} />
+              <Tb onClick={newLayout} icon={<Printer />} label="New layout" />
             </Group>
           </>}
           {tab === "share" && <>
@@ -830,6 +1001,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
         </div>
       </section>
 
+      <ViewTabs tabs={views} current={viewNow} maps={maps} layouts={savedLayouts} onPick={pickView} onClose={closeView}
+        onNewMap={() => void newMap()} onNewLayout={newLayout} canEdit={canEdit} layoutsAllowed={layoutsAllowed} />
+
       <main className={`ws-body${leftOpen ? "" : " no-left"}${rightOpen ? "" : " no-right"}`}>
         {leftOpen ? (
           <Contents projectName={project.name} layers={layers} activeId={activeId} editingId={editId} canEdit={canEdit} canExport={me.features.includes("export")}
@@ -838,6 +1012,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             onPanel={openPanel} onSelection={(l, op) => void selectionOp(l, op)} onLabels={(l, on) => void labelsOn(l, on)} onRename={(l, n) => void renameLayer(l, n)}
             onPaste={(t, f) => void pasteProperties(t, f)} onSourceResolution={sourceResolution}
             onExport={(l) => { setActiveId(l.id); if (l.geometry_type !== "Raster") setDialog("export"); else window.location.assign(rasterDownloadUrl(l.id)); }}
+            mapName={openMapDoc?.name ?? "Map"} otherMaps={maps.filter((m) => m.id !== mapId)} onAddToMap={(l, mid, how) => void addToMap(l, mid, how)}
             onEdit={(l) => startEditing(l.id)} onAdd={() => setDialog("add")} onCollapse={() => setLeftOpen(false)} onRefresh={(l) => void refreshLinked(l)} />
         ) : (
           <div className="ws-rail is-left"><IconButton label="Show Contents" onClick={() => setLeftOpen(true)}><PanelLeftOpen size={18} /></IconButton>
@@ -892,7 +1067,19 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
         view={map.current ? { center: map.current.getCenter().toArray() as [number, number], zoom: map.current.getZoom() } : null}
         onClose={() => { setGeorefOpen(false); setGeorefFile(null); setGeorefLayer(null); }}
         onDone={(l) => { setGeorefOpen(false); setGeorefFile(null); setGeorefLayer(null); setLayers((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? l : x)) : [...cur, l])); setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); }} />}
-      {layoutOpen && map.current && <LayoutView project={project} layers={layers} crs={crs} me={me} map={map.current} canSave={canEdit && layoutsAllowed} onClose={() => setLayoutOpen(false)} />}
+      {map.current && views.filter((v) => v.kind === "layout").map((v) => (
+        <LayoutView key={layoutKeys.current[v.id] ?? v.id} embedded hidden={viewNow !== viewKey(v)} layoutId={isNewLayout(v.id) ? null : v.id}
+          project={project} layers={layers} crs={crs} me={me} map={map.current!} canSave={canEdit && layoutsAllowed} gisMaps={maps} mapId={mapId} allLayers={allLayers}
+          onClose={() => closeView(v, false)} onDirty={(d) => setDirtyLayouts((x) => (!!x[v.id] === d ? x : { ...x, [v.id]: d }))}
+          onSaved={(l) => {
+            setSavedLayouts((ls) => [l, ...ls.filter((x) => x.id !== l.id)]);
+            if (l.id === v.id) return;
+            layoutKeys.current[l.id] = layoutKeys.current[v.id] ?? v.id;          // the same tab, now holding the saved layout
+            setViews((vs) => vs.map((x) => (x.kind === "layout" && x.id === v.id ? { kind: "layout", id: l.id } : x)));
+            setViewNow(`layout:${l.id}`);
+          }}
+          onDeleted={(lid) => { setSavedLayouts((ls) => ls.filter((x) => x.id !== lid)); closeView(v, false); }} />
+      ))}
       {dialog === "plan" && <Dialog title="Print layouts" onClose={() => setDialog(null)}>
         <div className="ws-form"><p>Print layouts (map sheets with a title, legend, scale bar, north arrow and grid, exported as PDF) are in PolyGIS Advanced.
           Ask GeoEstate NIG Limited to move your organization to Advanced.</p>

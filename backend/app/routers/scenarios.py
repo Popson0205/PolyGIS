@@ -15,7 +15,7 @@ from ..db import get_conn
 from ..errors import Problem
 from ..identity import need
 from ..config import settings
-from .layers import _copy_features, _next_position, _touch, default_style, layer_of
+from .layers import _copy_features, _next_position, _touch, default_style, drop_file, layer_of
 from .projects import project_of
 from .rasters import _features, _insert, _plain
 
@@ -158,7 +158,7 @@ async def run(sid: UUID, user=Depends(EDIT), conn=Depends(get_conn)):
             style = out.style or default_style(out.geometry_type, pos)
             if old:
                 lid = old["id"]
-                await conn.execute("DELETE FROM features WHERE layer_id = %s", (lid,))
+                await conn.execute("DELETE FROM features WHERE layer_id = layer_data(%s)", (lid,))
                 await conn.execute("UPDATE layers SET name = %s, fields = %s, style = %s, source = %s, updated_at = clock_timestamp() WHERE id = %s",
                                    (name, Jsonb(out.fields), Jsonb(style), Jsonb(source), lid))
             else:
@@ -173,7 +173,7 @@ async def run(sid: UUID, user=Depends(EDIT), conn=Depends(get_conn)):
                                  "updated_at = now() WHERE id = %s RETURNING *", (Jsonb(summary), lid, ms, sid))
         row = await cur.fetchone()
     if meta and old and old["raster"] and old["raster"].get("key") != meta["key"]:
-        rasters.remove(old["raster"].get("key"))
+        await drop_file(conn, {"raster": old["raster"]})          # unless a copy in another map still shows it
     await audit(conn, user, "scenario.run", "scenario", sid, name=name, kind=r["kind"], ms=ms)
     await _touch(conn, lid, r["project_id"])
     return {"scenario": _out(row), "layer": await layer_of(conn, lid, user)}

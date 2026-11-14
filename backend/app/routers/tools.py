@@ -100,7 +100,7 @@ async def run(project_id: UUID, tool: str, body: RunIn,
                             f"(SELECT ST_CollectionExtract(ST_MakeValid(ST_SetSRID(ST_GeomFromWKB(%s), 4326)), {tools.TYPE_NO[built.kind]}) AS g) q "
                             f"WHERE NOT ST_IsEmpty(q.g)",
                             [(lid, Jsonb(_plain(p)), user["id"], shapely.to_wkb(g)) for g, p in made if g is not None and not g.is_empty])
-                    cur = await conn.execute("SELECT count(*) AS n FROM features WHERE layer_id = %s", (lid,))
+                    cur = await conn.execute("SELECT count(*) AS n FROM features WHERE layer_id = layer_data(%s)", (lid,))
                     n = (await cur.fetchone())["n"]
             else:
                 cur = await conn.execute(
@@ -113,7 +113,7 @@ async def run(project_id: UUID, tool: str, body: RunIn,
                 raise Problem(422, f"The result has {n:,} features, more than the {settings.max_features:,} a layer may hold.",
                               code="too_many")
             # single parts stay single: ST_Multi above only keeps mixed parts storable; undo it where one part remains
-            await conn.execute("UPDATE features SET geom = ST_GeometryN(geom, 1) WHERE layer_id = %s AND ST_NumGeometries(geom) = 1", (lid,))
+            await conn.execute("UPDATE features SET geom = ST_GeometryN(geom, 1) WHERE layer_id = layer_data(%s) AND ST_NumGeometries(geom) = 1", (lid,))
             await conn.execute("SET LOCAL statement_timeout = 0")
     except (psycopg.Error, Problem) as e:
         ms = int((time.monotonic() - started) * 1000)

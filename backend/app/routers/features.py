@@ -77,7 +77,7 @@ def _wkb(g) -> bytes:
 
 
 async def _snapshot(conn, layer_id, fid) -> dict | None:
-    cur = await conn.execute("SELECT id, ST_AsGeoJSON(geom, 9)::jsonb AS geometry, props FROM features WHERE id = %s AND layer_id = %s",
+    cur = await conn.execute("SELECT id, ST_AsGeoJSON(geom, 9)::jsonb AS geometry, props FROM features WHERE id = %s AND layer_id = layer_data(%s)",
                              (fid, layer_id))
     r = await cur.fetchone()
     return {"type": "Feature", "id": r["id"], "geometry": r["geometry"], "properties": r["props"]} if r else None
@@ -114,7 +114,7 @@ async def get_features(layer_id: UUID, ids: list[int], user=Depends(need()), con
     if len(ids) > 2000:
         raise Problem(422, "Ask for at most 2,000 features at a time.", code="validation")
     cur = await conn.execute("SELECT id, ST_AsGeoJSON(geom, 9)::jsonb AS geometry, props FROM features "
-                             "WHERE layer_id = %s AND id = ANY(%s) ORDER BY id", (layer_id, ids))
+                             "WHERE layer_id = layer_data(%s) AND id = ANY(%s) ORDER BY id", (layer_id, ids))
     return {"type": "FeatureCollection", "features": [{"type": "Feature", "id": r["id"], "geometry": r["geometry"], "properties": r["props"]}
                                                       for r in await cur.fetchall()]}
 
@@ -127,7 +127,7 @@ async def features_in(layer_id: UUID, bbox: str, limit: int = 5000, user=Depends
     except ValueError:
         raise Problem(422, "bbox is west,south,east,north.", code="validation") from None
     limit = max(1, min(limit, 20000))
-    cur = await conn.execute("SELECT id, ST_AsGeoJSON(geom, 9)::jsonb AS geometry, props FROM features WHERE layer_id = %s "
+    cur = await conn.execute("SELECT id, ST_AsGeoJSON(geom, 9)::jsonb AS geometry, props FROM features WHERE layer_id = layer_data(%s) "
                              "AND geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326) ORDER BY id LIMIT %s", (layer_id, w, s_, e, n, limit + 1))
     rows = await cur.fetchall()
     return {"type": "FeatureCollection", "truncated": len(rows) > limit,
@@ -140,7 +140,7 @@ async def add_feature(layer_id: UUID, body: FeatureIn, user=Depends(need("editor
     not_linked(layer)
     geom = _geom_ok(layer, body.geometry)
     props = _props_ok(layer, body.properties)
-    cur = await conn.execute("INSERT INTO features (layer_id, geom, props, updated_by) VALUES (%s, ST_GeomFromEWKB(%s), %s, %s) RETURNING id",
+    cur = await conn.execute("INSERT INTO features (layer_id, geom, props, updated_by) VALUES (layer_data(%s), ST_GeomFromEWKB(%s), %s, %s) RETURNING id",
                              (layer_id, _wkb(geom), Jsonb(props), user["id"]))
     fid = (await cur.fetchone())["id"]
     after = await _snapshot(conn, layer_id, fid)
@@ -202,7 +202,7 @@ async def calculate(layer_id: UUID, body: CalcIn, user=Depends(need("editor", wr
     names = {f["name"] for f in layer["fields"]}
     if body.field not in names or (body.from_field and body.from_field not in names):
         raise Problem(422, f"{layer['name']} has no such field.", code="validation", fields={"field": ["unknown"]})
-    where, vals = "layer_id = %s", [layer_id]
+    where, vals = "layer_id = layer_data(%s)", [layer_id]
     if body.ids is not None:
         where += " AND id = ANY(%s)"; vals.append(body.ids)
     if body.from_field:
@@ -234,15 +234,15 @@ async def undo(layer_id: UUID, user=Depends(need("editor", write=True)), conn=De
         raise Problem(409, "There is nothing of yours to undo on this layer.", code="nothing_to_undo")
     fid, before = e["feature_id"], e["before"]
     if e["action"] == "add":
-        await conn.execute("DELETE FROM features WHERE id = %s AND layer_id = %s", (fid, layer_id))
+        await conn.execute("DELETE FROM features WHERE id = %s AND layer_id = layer_data(%s)", (fid, layer_id))
     else:
         geom = _geom_in(before["geometry"])
         if e["action"] == "delete":
-            await conn.execute("INSERT INTO features (id, layer_id, geom, props, updated_by) VALUES (%s, %s, ST_GeomFromEWKB(%s), %s, %s) "
+            await conn.execute("INSERT INTO features (id, layer_id, geom, props, updated_by) VALUES (%s, layer_data(%s), ST_GeomFromEWKB(%s), %s, %s) "
                                "ON CONFLICT (id) DO NOTHING", (fid, layer_id, _wkb(geom), Jsonb(before["properties"]), user["id"]))
         else:
             await conn.execute("UPDATE features SET geom = ST_GeomFromEWKB(%s), props = %s, updated_by = %s, updated_at = now() "
-                               "WHERE id = %s AND layer_id = %s", (_wkb(geom), Jsonb(before["properties"]), user["id"], fid, layer_id))
+                               "WHERE id = %s AND layer_id = layer_data(%s)", (_wkb(geom), Jsonb(before["properties"]), user["id"], fid, layer_id))
     await conn.execute("UPDATE edits SET undone_at = now() WHERE id = %s", (e["id"],))
     await _touch(conn, layer_id, layer["project_id"])
     return {"undone": e["action"], "feature_id": fid, "feature": await _snapshot(conn, layer_id, fid)}

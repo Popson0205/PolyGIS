@@ -82,8 +82,10 @@ async def create_project(body: ProjectIn, user=Depends(need("editor", write=True
 @router.get("/projects/{project_id}", summary="A project and its layers, bottom to top")
 async def get_project(project_id: UUID, user=Depends(need()), conn=Depends(get_conn)):
     from .layers import layers_of
+    from .maps import maps_of
     p = await project_of(conn, project_id, user)
     p["layers"] = await layers_of(conn, project_id)
+    p["maps"] = await maps_of(conn, project_id)
     return p
 
 
@@ -100,6 +102,9 @@ async def update_project(project_id: UUID, body: ProjectPatch, user=Depends(need
         sets.append("display_epsg = %s"); vals.append(body.display_epsg)
     if body.view is not None:
         sets.append("view = %s"); vals.append(Jsonb(_view_ok(body.view)))
+        # the view belongs to the map that is open (older clients keep the project's)
+        await conn.execute("UPDATE maps SET view = %s, updated_at = now() WHERE id = (SELECT active_map_id FROM projects WHERE id = %s)",
+                           (Jsonb(_view_ok(body.view)), project_id))
     if sets:
         await conn.execute(f"UPDATE projects SET {', '.join(sets)}, updated_at = now() WHERE id = %s", (*vals, project_id))
     return await get_project(project_id, user, conn)

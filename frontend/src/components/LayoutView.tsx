@@ -12,8 +12,9 @@ import {
   type El, type ElKind, type Handle, type LayoutDoc, type MapEl, type Stroke,
 } from "../lib/layoutDoc";
 import { canvasMeasure, drawCanvas, drawPdf, type MapPictures } from "../lib/layoutRender";
-import { printableStyle, renderMap } from "../lib/printMap";
-import type { CrsDef, Layer, Me, Project } from "../lib/types";
+import { basemapStyle } from "../lib/mapstyle";
+import { printableStyle, renderMap, styleOfMap } from "../lib/printMap";
+import type { CrsDef, GisMap, Layer, Me, Project } from "../lib/types";
 import { Group, Tb } from "./Ribbon";
 import { Button, ErrorText, IconButton, Menu, useToast } from "./ui";
 
@@ -59,11 +60,22 @@ const firstLayout = (map: MapLibre, title: string, t: Partial<LayoutSettings> = 
  *  on the page, listed in drawing order in Contents and set in the Element pane. Double-click a map frame to move and
  *  scale the map inside it. Export the page as a PDF (vector text and lines, maps as pictures) or a PNG; save
  *  layouts with the project. */
-export default function LayoutView({ project, layers, crs, me, map, canSave, onClose }: {
+export default function LayoutView({ project, layers, crs, me, map, canSave, onClose, embedded, layoutId, gisMaps = [], mapId = null, allLayers, onSaved, onDeleted, hidden, onDirty }: {
   project: Project; layers: Layer[]; crs?: CrsDef; me: Me; map: MapLibre; canSave: boolean; onClose: () => void;
+  /** In a view tab of the workspace, rather than over it. */
+  embedded?: boolean;
+  /** The saved layout to open. */
+  layoutId?: string | null;
+  /** The project's maps, the one open in the workspace, and the layers of every map: a frame can show any map. */
+  gisMaps?: GisMap[]; mapId?: string | null; allLayers?: Layer[];
+  onSaved?: (l: SavedLayout) => void; onDeleted?: (id: string) => void;
+  /** Another view tab is in front: keys are left alone. */
+  hidden?: boolean; onDirty?: (dirty: boolean) => void;
 }) {
   const toast = useToast();
-  const [doc, setDocState] = useState<LayoutDoc>(() => firstLayout(map, project.name));
+  // a new layout's frames show the map that is open now, and keep showing it when another map is opened
+  const bind = (d: LayoutDoc): LayoutDoc => (mapId ? { ...d, elements: d.elements.map((e) => (e.kind === "map" && !e.mapId ? { ...e, mapId } : e)) } : d);
+  const [doc, setDocState] = useState<LayoutDoc>(() => bind(firstLayout(map, project.name)));
   const undo = useRef<LayoutDoc[]>([]);
   const redo = useRef<LayoutDoc[]>([]);
   const [, bump] = useState(0);
@@ -104,7 +116,25 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
   const byId = (id: string | null | undefined) => doc.elements.find((e) => e.id === id) ?? null;
   const one = sel.length === 1 ? byId(sel[0]) : null;
 
-  useEffect(() => { api.layouts(project.id).then(setSaved, () => undefined); }, [project.id]);
+  useEffect(() => {
+    api.layouts(project.id).then((ls) => {
+      setSaved(ls);
+      const l = layoutId ? ls.find((x) => x.id === layoutId) : null;
+      if (l) {
+        const c = map.getCenter();
+        setCurrent(l); setDocState(docFrom(l.settings, { center: [c.lng, c.lat], scale: 10000, title: project.name }));
+      }
+    }, () => undefined);
+  }, [project.id, layoutId]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // which map a frame shows (the one open in the workspace unless it names another) and that map's layers
+  const every = allLayers ?? layers;
+  const frameMap = (m: MapEl | null | undefined) => (m?.mapId && gisMaps.some((g) => g.id === m.mapId) ? m.mapId : mapId);
+  const layersIn = (mid: string | null) => (mid && mid !== mapId ? every.filter((l) => l.map_id === mid) : layers);
+  const styleFor = (m: MapEl) => {
+    const mid = frameMap(m);
+    if (!mid || mid === mapId) return Promise.resolve(printableStyle(map.getStyle()));
+    return styleOfMap(basemapStyle(gisMaps.find((g) => g.id === mid)?.view.basemap), layersIn(mid));
+  };
   useEffect(() => {
     const el = stage.current;
     if (!el) return;
@@ -118,11 +148,13 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
     const credits = Array.from(new Set(Object.values(style.sources).map((x) => ("attribution" in x ? String(x.attribution ?? "") : ""))
       .map((a) => a.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()).filter(Boolean))).join("; ");
     return {
-      layers, crs, measure, author: me.name, org: me.org_name ?? undefined, credits: credits || undefined, project: project.name,
+      layers, layersOf: (frame: string | null) => layersIn(frameMap(mapFor(doc, frame))), crs, measure, author: me.name, org: me.org_name ?? undefined, credits: credits || undefined, project: project.name,
       date: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
       toCrs: crs && crs.epsg !== 4326 ? (lng: number, lat: number) => fromLngLat(crs.epsg, lng, lat) : undefined,
     };
-  }, [layers, crs, me, map, measure, project.name]);
+  }, [layers, every, gisMaps, mapId, doc, crs, me, map, measure, project.name]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { onDirty?.(dirty && canSave); }, [dirty, canSave]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- the page on screen ----------
   const [pw, ph] = docSize(doc);
@@ -136,9 +168,9 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
   const maps = mapsOf(doc);
 
   // each map frame's picture, drawn again a moment after its centre, scale or size changes
-  const layersKey = useMemo(() => layers.map((l) => `${l.id}:${l.version}:${l.visible}:${l.position}:${JSON.stringify(l.style).length}:${l.labels ? 1 : 0}`).join("|"), [layers]);
+  const layersKey = useMemo(() => every.map((l) => `${l.id}:${l.version}:${l.visible}:${l.position}:${JSON.stringify(l.style).length}:${l.labels ? 1 : 0}`).join("|"), [every]);
   const ratio = Math.max(0.35, Math.min(2, (k * dpr * 25.4) / 96));
-  const keyOf = (m: MapEl) => `${m.center[0].toFixed(7)},${m.center[1].toFixed(7)},${m.scale},${m.w.toFixed(1)}x${m.h.toFixed(1)},${ratio.toFixed(2)},${layersKey}`;
+  const keyOf = (m: MapEl) => `${frameMap(m)},${m.center[0].toFixed(7)},${m.center[1].toFixed(7)},${m.scale},${m.w.toFixed(1)}x${m.h.toFixed(1)},${ratio.toFixed(2)},${layersKey}`;
   const wanted = maps.filter((m) => m.visible && pics[m.id]?.key !== keyOf(m)).map((m) => m.id).join(",");
   useEffect(() => {
     if (!wanted || drag) { setDrawing(false); return; }
@@ -150,7 +182,7 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
         if (!m || ac.signal.aborted) continue;
         const px = mapPixels(m, 96 * ratio);
         try {
-          const r = await renderMap({ style: printableStyle(map.getStyle()), center: m.center, scale: m.scale, cssW: px.cssW, cssH: px.cssH, ratio: px.ratio, wait: 10000 }, ac.signal);     // a preview need not wait for every tile
+          const r = await renderMap({ style: await styleFor(m), center: m.center, scale: m.scale, cssW: px.cssW, cssH: px.cssH, ratio: px.ratio, wait: 10000 }, ac.signal);     // a preview need not wait for every tile
           if (!ac.signal.aborted) setPics((p) => ({ ...p, [m.id]: { canvas: r.canvas, key: keyOf(m), center: m.center, scale: m.scale, w: m.w, h: m.h } }));
         } catch { /* stopped, or the map could not be drawn: the frame stays grey */ }
       }
@@ -254,7 +286,7 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
       if (r.w * k < 8 || r.h * k < 8) { const [w, h] = defaultSize(doc, drag.tool); r = { x: a[0] - w / 2, y: a[1] - h / 2, w, h }; }       // a click: the usual size
       r = { x: r1(Math.max(0, Math.min(pw - r.w, r.x))), y: r1(Math.max(0, Math.min(ph - r.h, r.y))), w: r1(Math.min(r.w, pw)), h: r1(Math.min(r.h, ph)) };
       const c = map.getCenter();
-      const el = makeElement(doc, drag.tool, r, drag.tool === "map" ? { center: [c.lng, c.lat], scale: scaleToFit(map, r.w) } : undefined, drag.text);
+      const el = makeElement(doc, drag.tool, r, drag.tool === "map" ? { center: [c.lng, c.lat], scale: scaleToFit(map, r.w), ...(mapId ? { mapId } : {}) } : undefined, drag.text);
       setDoc((d) => ({ ...d, elements: [...d.elements, el] }));
       setSel([el.id]); setTool(null);
     } else if (drag.kind === "pan") {
@@ -331,13 +363,15 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
     const m = mapsOf(doc)[0];
     const d = templateDoc({ ...DEFAULTS, page: doc.page, orientation: doc.orientation, dpi: doc.dpi, title: project.name, center: m?.center ?? [map.getCenter().lng, map.getCenter().lat],
       scale: m?.scale ?? 10000, ...t });
-    setDoc(d); setSel([]); setActive(null);
+    const keep = m?.mapId ?? mapId;
+    setDoc(keep ? { ...d, elements: d.elements.map((e) => (e.kind === "map" ? { ...e, mapId: keep } : e)) } : d); setSel([]); setActive(null);
   };
   const useView = (id: string) => { const m = byId(id) as MapEl | null; if (!m) return; const c = map.getCenter(); change(id, { center: [c.lng, c.lat], scale: scaleToFit(map, m.w) }); };
 
   // keys: undo, delete, nudge, Escape
   useEffect(() => {
     const keys = (e: KeyboardEvent) => {
+      if (hidden) return;
       const t = e.target as HTMLElement;
       if (t?.closest?.("input, textarea, select, [role=dialog] [role=dialog]")) return;
       const mod = e.ctrlKey || e.metaKey;
@@ -368,7 +402,7 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
       const px = mapPixels(m, dpi);
       low = Math.min(low, px.dpi);
       setBusy(`Drawing ${shown.length > 1 ? `map ${i + 1} of ${shown.length}` : "the map"} at ${px.dpi} dpi…`);
-      const r = await renderMap({ style: printableStyle(map.getStyle()), center: m.center, scale: m.scale, cssW: px.cssW, cssH: px.cssH, ratio: px.ratio });
+      const r = await renderMap({ style: await styleFor(m), center: m.center, scale: m.scale, cssW: px.cssW, cssH: px.cssH, ratio: px.ratio });
       partial ||= !r.complete;
       out[m.id] = r;
     }
@@ -416,13 +450,13 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
     try {
       if (current && !asNew) {
         const u = await api.updateLayout(current.id, { settings: doc });
-        setCurrent(u); setSaved((x) => [u, ...x.filter((y) => y.id !== u.id)]);
+        setCurrent(u); setSaved((x) => [u, ...x.filter((y) => y.id !== u.id)]); onSaved?.(u);
         toast(`${u.name} saved.`, "success");
       } else {
         const name = window.prompt("Name for this layout", current ? `${current.name} (copy)` : `${project.name}, ${doc.page} ${doc.orientation}`);
         if (!name?.trim()) return;
         const c = await api.createLayout(project.id, name.trim(), doc);
-        setCurrent(c); setSaved((x) => [c, ...x]);
+        setCurrent(c); setSaved((x) => [c, ...x]); onSaved?.(c);
         toast(`${c.name} saved with the project.`, "success");
       }
       setDirty(false);
@@ -430,7 +464,7 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
   }
   async function remove() {
     if (!current || !window.confirm(`Delete the layout ${current.name}? The project and its layers are not touched.`)) return;
-    try { await api.deleteLayout(current.id); setSaved((x) => x.filter((y) => y.id !== current.id)); setCurrent(null); }
+    try { await api.deleteLayout(current.id); setSaved((x) => x.filter((y) => y.id !== current.id)); setCurrent(null); onDeleted?.(current.id); }
     catch (e) { setError(e); }
   }
   const open = (lid: string) => {
@@ -438,7 +472,7 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
     const l = saved.find((x) => x.id === lid) ?? null;
     const c = map.getCenter();
     setCurrent(l);
-    setDocState(l ? docFrom(l.settings, { center: [c.lng, c.lat], scale: 10000, title: project.name }) : firstLayout(map, project.name));
+    setDocState(l ? docFrom(l.settings, { center: [c.lng, c.lat], scale: 10000, title: project.name }) : bind(firstLayout(map, project.name)));
     undo.current = []; redo.current = []; setSel([]); setActive(null); setDirty(false); setPics({});
   };
   const close = () => { if (dirty && canSave && !window.confirm("Close the layout without saving it?")) return; onClose(); };
@@ -451,14 +485,15 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
   const insert = (kind: ElKind, text?: string) => { setActive(null); setTool(tool?.kind === kind && tool.text === text ? null : { kind, text }); };
 
   return (
-    <div className="lo lv" role="dialog" aria-modal="true" aria-label="Layout">
+    <div className={`lo lv${embedded ? " is-embedded" : ""}${hidden ? " is-hidden" : ""}`} {...(embedded ? { role: "region" } : { role: "dialog", "aria-modal": true })} aria-label="Layout">
       <div className="lo-bar">
         <Printer size={18} aria-hidden="true" />
         <strong>Layout</strong>
-        <select className="lo-pick" value={current?.id ?? ""} onChange={(e) => open(e.target.value)} aria-label="Saved layouts">
+        {!embedded && <select className="lo-pick" value={current?.id ?? ""} onChange={(e) => open(e.target.value)} aria-label="Saved layouts">
           <option value="">{saved.length ? "New layout" : "New layout (none saved yet)"}</option>
           {saved.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-        </select>
+        </select>}
+        {embedded && <span className="lo-name">{current?.name ?? "New layout (not saved yet)"}{dirty && canSave ? " •" : ""}</span>}
         {canSave && <>
           <Button small onClick={() => void save(false)}><Save size={14} aria-hidden="true" />{current ? (dirty ? "Save" : "Saved") : "Save layout"}</Button>
           {current && <Button small variant="ghost" onClick={() => void save(true)}>Save as new</Button>}
@@ -588,7 +623,7 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
           <div className="lv-props-body">
             <ErrorText error={error} />
             {tool && <p className="lv-tip">Draw a box on the page for the {KIND_NAMES[tool.kind].toLowerCase()}, or click to place it at its usual size. Esc cancels.</p>}
-            {one ? <ElementForm el={one} doc={doc} onChange={(p) => change(one.id, p)} onView={() => useView(one.id)} onNavigate={() => setActive(one.id)} />
+            {one ? <ElementForm el={one} doc={doc} gisMaps={gisMaps} mapId={mapId} onChange={(p) => change(one.id, p)} onView={() => useView(one.id)} onNavigate={() => setActive(one.id)} />
               : sel.length > 1 ? <p className="ws-muted">Drag them together, or use the arrow keys (Shift for 5 mm). Arrange changes their order.</p>
               : <PageForm doc={doc} onPage={setPage} onDpi={(dpi) => setDoc((d) => ({ ...d, dpi }))} />}
           </div>
@@ -660,7 +695,9 @@ function FillField({ label, value, onChange }: { label: string; value: string | 
   );
 }
 
-function ElementForm({ el, doc, onChange, onView, onNavigate }: { el: El; doc: LayoutDoc; onChange: (p: Partial<El>) => void; onView: () => void; onNavigate: () => void }) {
+function ElementForm({ el, doc, gisMaps, mapId, onChange, onView, onNavigate }: {
+  el: El; doc: LayoutDoc; gisMaps: GisMap[]; mapId: string | null; onChange: (p: Partial<El>) => void; onView: () => void; onNavigate: () => void;
+}) {
   const maps = mapsOf(doc);
   const mapPick = (value: string | null, set: (v: string | null) => void) => maps.length > 1 && (
     <label className="ws-f">Map frame<select value={value ?? ""} onChange={(e) => set(e.target.value || null)}>
@@ -682,6 +719,9 @@ function ElementForm({ el, doc, onChange, onView, onNavigate }: { el: El; doc: L
         </div>
       </fieldset>
       {el.kind === "map" && <fieldset className="lo-set"><legend>Map</legend>
+        {gisMaps.length > 1 && <label className="ws-f">Shows<select value={el.mapId && gisMaps.some((g) => g.id === el.mapId) ? el.mapId : ""} onChange={(e) => onChange({ mapId: e.target.value || null } as Partial<El>)}>
+          <option value="">The open map ({gisMaps.find((g) => g.id === mapId)?.name ?? "Map"})</option>
+          {gisMaps.filter((g) => g.id !== mapId).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select></label>}
         <label className="ws-f">Scale<span className="lo-scale">1 :
           <input type="number" min={100} step={100} value={el.scale} onChange={(e) => Number(e.target.value) >= 50 && onChange({ scale: Math.round(Number(e.target.value)) })} aria-label="Scale denominator" />
           <select value={SCALES.includes(el.scale) ? el.scale : ""} onChange={(e) => e.target.value && onChange({ scale: Number(e.target.value) })} aria-label="A standard scale">
@@ -697,7 +737,7 @@ function ElementForm({ el, doc, onChange, onView, onNavigate }: { el: El; doc: L
             onChange={(e) => onChange({ grid: { ...el.grid, interval: e.target.value === "" ? null : Number(e.target.value) } })} /></label>
           <label className="lo-check"><input type="checkbox" checked={el.grid.labels} onChange={(e) => onChange({ grid: { ...el.grid, labels: e.target.checked } })} />Coordinates</label>
         </div>}
-        <p className="ws-muted">Layers print as they are shown in the map now.</p>
+        <p className="ws-muted">Layers print as they are shown in {el.mapId && el.mapId !== mapId ? "that map" : "the map"} now.</p>
       </fieldset>}
       {el.kind === "legend" && <fieldset className="lo-set"><legend>Legend</legend>
         <label className="ws-f">Title<input value={el.title} maxLength={80} onChange={(e) => onChange({ title: e.target.value })} placeholder="No title" /></label>

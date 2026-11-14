@@ -156,7 +156,7 @@ def _flat(v):
 
 async def _fill(conn, request: Request, layer_id, link: dict, actor) -> dict:
     geoms, props, _ = await _read(request, link)
-    await conn.execute("DELETE FROM features WHERE layer_id = %s", (layer_id,))
+    await conn.execute("DELETE FROM features WHERE layer_id = layer_data(%s)", (layer_id,))
     await _copy_features(conn, layer_id, geoms, props, actor)
     now = datetime.now(timezone.utc).isoformat()
     await conn.execute("UPDATE layers SET source = jsonb_set(source, '{linked,refreshed_at}', to_jsonb(%s::text)), updated_at = clock_timestamp() "
@@ -172,7 +172,7 @@ async def _first_style(conn, layer_id, app: str) -> dict:
     """How a new linked layer is first drawn: parcels coloured by land use, farms by their latest NDVI (red to green)."""
     base = {"color": "#2f6db5", "stroke": "#4b5563", "width": 0.8, "size": 6, "opacity": 0.7, "method": "manual", "ramp": "", "extrude": None}
     if app == "land":
-        cur = await conn.execute("SELECT DISTINCT coalesce(props->>'land_use', '') AS v FROM features WHERE layer_id = %s ORDER BY 1", (layer_id,))
+        cur = await conn.execute("SELECT DISTINCT coalesce(props->>'land_use', '') AS v FROM features WHERE layer_id = layer_data(%s) ORDER BY 1", (layer_id,))
         vals = [r["v"] for r in await cur.fetchall()]
         cats = [{"value": v, "label": v.capitalize() or "(not given)", "color": USE_COLOURS.get(v.lower(), ["#2f6db5", "#e07b1f", "#2f8a3b", "#c0392b"][i % 4])}
                 for i, v in enumerate(vals[:40])]

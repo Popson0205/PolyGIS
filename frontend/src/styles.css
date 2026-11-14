@@ -104,7 +104,7 @@ body.is-resizing { cursor: col-resize; user-select: none; } body.is-resizing .ma
 
 /* ---------- the workspace ---------- */
 .gis-app.is-workspace { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: var(--c-frame); }
-.ws { flex: 1; min-height: 0; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto auto; font-size: 13px; color: var(--c-ink); }
+.ws { flex: 1; min-height: 0; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr) auto auto; font-size: 13px; color: var(--c-ink); }
 
 /* title bar */
 .ws-titlebar { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 10px 0 12px; background: #fff; border-bottom: 1px solid var(--c-line); }
@@ -834,3 +834,41 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 .aa-row { display: flex; align-items: center; gap: 10px; }
 .aa-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
 .aa-state { flex: 1; font-size: 12px; color: var(--c-muted); }
+/* open views: maps and layouts in tabs, as ArcGIS Pro has them */
+.ws > .ws-top { grid-row: 1; } .ws > .ws-ribbon { grid-row: 2; } .ws > .vt { grid-row: 3; } .ws > .ws-body, .ws > .lo.is-embedded { grid-row: 4; grid-column: 1; }
+.ws > .ws-table { grid-row: 5; } .ws > .ws-status { grid-row: 6; }
+.ws.is-layout > .ws-ribbon, .ws.is-layout > .ws-table { display: none; }
+.ws.is-layout > .ws-body { visibility: hidden; }
+.lo.is-embedded { position: relative; inset: auto; z-index: 2; min-height: 0; min-width: 0; }
+.lo.is-embedded.is-hidden { display: none; }
+.lo-name { font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40ch; }
+.vt { display: flex; align-items: flex-end; gap: 2px; height: 30px; padding: 0 8px; background: var(--c-frame); border-bottom: 1px solid var(--c-line); overflow-x: auto; scrollbar-width: none; }
+.vt-tab { position: relative; display: flex; align-items: center; height: 26px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; color: var(--c-muted); flex: none; }
+.vt-tab:hover { background: rgba(255, 255, 255, .6); color: var(--c-ink); }
+.vt-tab.is-on { background: #fff; border-color: var(--c-line); color: var(--c-ink); margin-bottom: -1px; height: 27px; }
+.vt-tab.is-on::before { content: ""; position: absolute; left: -1px; right: -1px; top: -1px; height: 2px; border-radius: 6px 6px 0 0; background: var(--c-navy); }
+.vt-tab [role=tab] { display: flex; align-items: center; gap: 6px; height: 100%; padding: 0 6px 0 10px; border: 0; background: none; color: inherit; font: 600 12.5px var(--ge-font); cursor: pointer; max-width: 22ch; }
+.vt-tab [role=tab] span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt-tab [role=tab]:only-child { padding-right: 12px; }
+.vt-x { display: grid; place-items: center; width: 18px; height: 18px; margin-right: 5px; border: 0; border-radius: 4px; background: none; color: var(--c-faint); cursor: pointer; }
+.vt-x:hover { background: var(--c-hover); color: var(--c-ink); }
+.vt .ge-menu, .vt > div:last-child { align-self: center; }
+.vt-add { display: grid; place-items: center; width: 24px; height: 22px; border-radius: 5px; color: var(--c-muted); }
+.vt-add:hover { background: rgba(255, 255, 255, .7); color: var(--c-ink); }
+.cat-body { padding: 6px 0 12px; overflow: auto; flex: 1; }
+.cat-body section + section { margin-top: 10px; border-top: 1px solid var(--c-line-2); padding-top: 6px; }
+.cat-head { display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 12px; color: var(--c-muted); }
+.cat-head h3 { margin: 0; font: 700 12px var(--ge-font); text-transform: uppercase; letter-spacing: .04em; color: var(--c-muted); }
+.cat-n { font-size: 11px; color: var(--c-faint); }
+.cat-list { list-style: none; margin: 0; padding: 0 6px; }
+.cat-item { display: flex; align-items: center; border-radius: 6px; }
+.cat-item:hover { background: var(--c-hover); }
+.cat-item.is-on { background: var(--c-violet-50); }
+.cat-item.is-open .cat-name { font-weight: 700; }
+.cat-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 6px; border: 0; background: none; color: var(--c-ink); font: 13px var(--ge-font); text-align: left; cursor: pointer; }
+.cat-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-meta { font-size: 11.5px; color: var(--c-faint); white-space: nowrap; }
+.cat-more { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 5px; color: var(--c-muted); }
+.cat-more:hover { background: #fff; color: var(--c-ink); }
+.cat-rename { flex: 1; min-width: 0; height: 26px; padding: 0 6px; border: 1px solid var(--c-select); border-radius: 4px; font: 13px var(--ge-font); }
+.cat-empty { padding: 4px 12px; margin: 0; font-size: 12px; }

@@ -277,5 +277,6 @@ async def discard(gid: UUID, user=Depends(EDIT), conn=Depends(get_conn)):
     r = await _source(conn, gid, user)
     await conn.execute("DELETE FROM georef_sources WHERE id = %s", (gid,))
     if r["owns_key"]:
-        rasters.remove(r["key"])
+        from .layers import drop_file
+        await drop_file(conn, {"raster": {"key": r["key"]}})      # unless a layer still shows it
     return Response(status_code=204)

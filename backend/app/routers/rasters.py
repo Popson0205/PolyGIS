@@ -246,7 +246,7 @@ async def list_tools(user=Depends(need())):
 
 
 async def _features(conn, lay: dict, ids) -> list[dict]:
-    cur = await conn.execute("SELECT id, ST_AsBinary(geom) AS wkb, props FROM features WHERE layer_id = %s "
+    cur = await conn.execute("SELECT id, ST_AsBinary(geom) AS wkb, props FROM features WHERE layer_id = layer_data(%s) "
                              "AND (%s::bigint[] IS NULL OR id = ANY(%s::bigint[])) ORDER BY id", (lay["id"], ids, ids))
     return [{"id": r["id"], "geom": shapely.from_wkb(bytes(r["wkb"])), "props": r["props"]} for r in await cur.fetchall()]
 
