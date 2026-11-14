@@ -130,3 +130,17 @@ def test_envi_and_other_rasters(pro, P, tmp_path):
         d.write(np.full((1, 10, 20), 5, "float32"))
     r = send(pro, P, ("surface.grd", grd.read_bytes()), epsg=4326)
     assert r.status_code == 201, r.text
+
+
+def test_geojson_lists_and_nested_attributes_are_kept_as_text(pro):
+    """GDAL reads a property holding a list as a list field and an object as JSON: both kept, as text."""
+    import json as _json
+    P = pro.post("/projects", json={"name": "Nested"}).json()
+    fc = {"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [3.4, 6.5]},
+          "properties": {"name": "A", "tags": ["a", "b"], "meta": {"x": 1}, "n": 2}}]}
+    r = pro.post(f"/projects/{P['id']}/layers/import", files={"file": ("n.geojson", _json.dumps(fc).encode())})
+    assert r.status_code == 201, r.text
+    lay = r.json()[0]
+    assert [f["name"] for f in lay["fields"]] == ["name", "tags", "meta", "n"]
+    row = pro.post(f"/layers/{lay['id']}/rows", json={}).json()["rows"][0]["props"]
+    assert row["name"] == "A" and row["n"] == 2 and _json.loads(row["tags"]) == ["a", "b"] and _json.loads(row["meta"]) == {"x": 1}

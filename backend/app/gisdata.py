@@ -6,6 +6,7 @@ one layer per kind. Geometries come back in WGS 84, two-dimensional, valid, with
 
 Writing: GeoJSON, GeoPackage, Shapefile (zipped), CSV with WKT, KML."""
 import io
+import json
 import math
 import os
 import tempfile
@@ -63,7 +64,10 @@ def _label(crs: CRS | None) -> str | None:
 
 
 def _field_type(dtype) -> str:
-    k = np.dtype(dtype).kind if not isinstance(dtype, str) else np.dtype(dtype).kind
+    try:
+        k = np.dtype(dtype).kind
+    except TypeError:                     # GDAL's list types ("list(str)", "list(int64)"…) are kept as text
+        return "string"
     return {"i": "integer", "u": "integer", "f": "number", "b": "boolean", "M": "date"}.get(k, "string")
 
 
@@ -88,6 +92,8 @@ def _value(v, kind: str):
         return v.isoformat()[:10]
     if isinstance(v, bytes):
         return v.hex()
+    if isinstance(v, (list, tuple, dict, np.ndarray)):           # lists and nested objects: kept as their JSON text
+        return json.dumps(v.tolist() if isinstance(v, np.ndarray) else v, default=str, ensure_ascii=False)
     s = str(v)
     return s if s != "" else None
 
