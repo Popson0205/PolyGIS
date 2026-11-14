@@ -57,6 +57,7 @@ export const api = {
   hubDatasets: (layerId: string) => req<HubDataset[]>("GET", `/layers/${layerId}/hub`),
   publishHub: (layerId: string, b: { title: string; description: string; license: string; tags: string[]; visibility: string; ids?: number[] }) => req<HubDataset & { version: number }>("POST", `/layers/${layerId}/hub`, b),
   publishHubVersion: (layerId: string, slug: string, ids?: number[]) => req<HubDataset & { version: number }>("POST", `/layers/${layerId}/hub/${slug}/versions`, { ids }),
+  hubUpload: (layerId: string, uploadId: string) => req<HubDataset & { version: number | null }>("GET", `/layers/${layerId}/hub/uploads/${uploadId}`),
   shares: (projectId: string) => req<Share[]>("GET", `/projects/${projectId}/shares`),
   createShare: (projectId: string, b: ShareIn) => req<Share>("POST", `/projects/${projectId}/shares`, b),
   updateShare: (id: string, b: Partial<ShareIn>) => req<Share>("PATCH", `/shares/${id}`, b),
@@ -153,7 +154,11 @@ export const publicApi = {
     (await fetch(`${pub(token)}/layers/${layerId}/raster/value?lng=${lng}&lat=${lat}`, { credentials: "same-origin" })).json() as Promise<{ values: (number | null)[] | null; bands: string[] }>,
   download: (token: string, layerId: string, format: string) => `${pub(token)}/layers/${layerId}/export?format=${format}`,
 };
-export interface HubDataset { slug: string; title: string; visibility: string; latest_version: number; feature_count: number; url: string; published_at?: string }
+export interface HubDataset {
+  slug: string; title: string; visibility: string; latest_version: number; feature_count: number; url: string; published_at?: string;
+  /** A raster on its way: Geohub is preparing it ("processing"), then it is "ready", or "failed" with the reason in `error`. */
+  upload?: string; status?: "uploading" | "processing" | "ready" | "failed"; error?: string | null; geometry_type?: string;
+}
 export interface LinkedSource { app: "land" | "farm" | "hub"; app_name: string; label: string; geometry_type: string; form_id?: string; features?: number; approved?: number; available: boolean; why: string | null }
 export interface ModelInput { name: string; label: string; kinds: ("Point" | "LineString" | "Polygon" | "Raster")[] }
 export interface ModelStep { id: string; tool: string; kind: "vector" | "raster"; params: Record<string, unknown>; output_name: string; keep?: boolean }

@@ -22,6 +22,7 @@ Copy this one file into the app. It needs `PyJWT[crypto]` and `httpx`.
 The access token is checked with Geohub's public key, fetched once and cached; no call to Geohub per request."""
 import base64
 import hashlib
+import os
 import secrets
 import time
 from urllib.parse import urlencode
@@ -38,13 +39,15 @@ class GeoEstateIDError(Exception):
 
 class GeoEstateID:
     def __init__(self, geohub: str, api: str, client_id: str, client_secret: str | None = None,
-                 transport: httpx.BaseTransport | None = None, key_ttl: int = 3600):
+                 transport: httpx.BaseTransport | None = None, key_ttl: int = 3600,
+                 upload_transport: httpx.BaseTransport | None = None):
         self.geohub, self.api = geohub.rstrip("/"), api.rstrip("/")
         self.client_id, self.client_secret = client_id, client_secret
         self._http = httpx.Client(timeout=15, transport=transport)
         self._keys: dict[str, object] = {}
         self._keys_at = 0.0
         self.key_ttl = key_ttl
+        self._upload_transport = upload_transport        # for upload(): the parts go to storage, not to Geohub
 
     # ---- signing in ----
     @staticmethod
@@ -122,6 +125,23 @@ class GeoEstateID:
                 b = {}
             raise GeoEstateIDError(b.get("detail", f"Geohub answered {r.status_code}"), r.status_code, b.get("code") or "error")
         return r.json()
+
+    def upload(self, access_token: str, path: str, body: dict, file_path: str, timeout: float = 600) -> dict:
+        """Sends a large file to Geohub as the person, e.g. a raster published to the Data hub (path "rasters", body: title,
+        ref, visibility… or `dataset` for the next version). Geohub answers with upload addresses; the parts go straight
+        to storage, then Geohub is told it is complete. Returns the upload's status ("processing", then "ready" or
+        "failed"): ask again with data(token, f"rasters/{id}")."""
+        size = os.path.getsize(file_path)
+        start = self.send(access_token, path, {"filename": os.path.basename(file_path), **body, "size": size})
+        done = []
+        with httpx.Client(timeout=timeout, transport=self._upload_transport) as http, open(file_path, "rb") as fh:
+            for part in start["parts"]:
+                chunk = fh.read(start["part_size"])
+                r = http.put(part["url"], content=chunk)
+                if r.status_code >= 400:
+                    raise GeoEstateIDError(f"Storage refused part {part['part_number']} of the upload ({r.status_code}).", 502, "upload_failed")
+                done.append({"part_number": part["part_number"], "etag": r.headers.get("etag", "")})
+        return self.send(access_token, f"{path.rstrip('/')}/{start['id']}/complete", {"parts": done}, timeout=timeout)
 
     # ---- checking an access token ----
     def _key(self, kid: str | None):

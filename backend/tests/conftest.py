@@ -47,6 +47,9 @@ class FakeGeohub:
         self.products: set[str] = set()                   # other apps the organization has (for linked layers)
         self.hub_projects: list[dict] = []
         self.hub_features: dict[str, list[dict]] = {}
+        self.uploads: dict[str, dict] = {}                # rasters on their way, by upload id
+        self.parts: dict[tuple[str, int], bytes] = {}
+        self.part_size = 64 * 1024                        # small, so a test raster goes in several parts
 
     def claims(self, role="owner", org="Abuja Survey Ltd", org_id=None, status="active", features=None, limits=None, staff=None,
                name="Ada Mapper"):
@@ -98,6 +101,12 @@ class FakeGeohub:
             return httpx.Response(200, json={"revoked": True})
         if path.startswith("/id/data/datasets"):
             return self.hub(req, path)
+        if path.startswith("/id/data/rasters"):
+            return self.rasters(req, path)
+        if req.url.host == "storage.test":                # an upload part, PUT straight to storage
+            _, _, uid, n = path.split("/")
+            self.parts[(uid, int(n))] = req.content
+            return httpx.Response(200, headers={"etag": f'"{uid}-{n}-{len(req.content)}"'})
         if path == "/id/apps":
             return httpx.Response(200, json=[{"product": "hub", "name": "Geohub", "status": "active", "url": settings.geohub_url, "current": False},
                                              {"product": "gis", "name": "PolyGIS", "status": "active", "url": settings.app_url, "current": True},
@@ -139,6 +148,53 @@ class FakeGeohub:
         return httpx.Response(201, json={"dataset": d, "version": d["latest_version"], "feature_count": len(body["features"])})
 
 
+    def rasters(self, req: httpx.Request, path: str) -> httpx.Response:
+        """A stand-in for Geohub's raster publishing: upload addresses, the parts, then 'processing' until asked again."""
+        who = jwt.decode(req.headers["authorization"][7:], options={"verify_signature": False})
+        bits = path.split("/")                            # /id/data/rasters[/{id}[/complete]]
+        if req.method == "POST" and len(bits) == 4:
+            body = json.loads(req.content)
+            if body.get("dataset") and (body["dataset"] not in self.datasets or self.datasets[body["dataset"]]["by"] != who["sub"]):
+                return httpx.Response(404, json={"detail": "Dataset not found.", "code": "not_found"})
+            if not body["filename"].lower().endswith((".tif", ".tiff")):
+                return httpx.Response(422, json={"detail": "That is not a raster file.", "code": "unsupported_format"})
+            uid = str(uuid.uuid4())
+            n = -(-body["size"] // self.part_size)
+            self.uploads[uid] = {"id": uid, "by": who["sub"], "body": body, "status": "uploading", "parts": n, "dataset": None, "version": None,
+                                 "error": None, "error_code": None, "filename": body["filename"], "size": body["size"]}
+            return httpx.Response(201, json={"id": uid, "part_size": self.part_size,
+                                             "parts": [{"part_number": i, "url": f"http://storage.test/up/{uid}/{i}?sig=x"} for i in range(1, n + 1)]})
+        u = self.uploads.get(bits[4])
+        if not u or u["by"] != who["sub"]:
+            return httpx.Response(404, json={"detail": "Upload not found.", "code": "not_found"})
+        if req.method == "POST":                          # complete: the parts must all be there, with their ETags
+            parts = json.loads(req.content)["parts"]
+            if [p["part_number"] for p in parts] != list(range(1, u["parts"] + 1)) or any(
+                    p["etag"] != f'"{u["id"]}-{p["part_number"]}-{len(self.parts.get((u["id"], p["part_number"]), b""))}"' for p in parts):
+                return httpx.Response(422, json={"detail": "Storage rejected the list of parts.", "code": "upload_incomplete"})
+            u["file"] = b"".join(self.parts.pop((u["id"], i)) for i in range(1, u["parts"] + 1))
+            body = u["body"]
+            if body.get("dataset"):
+                d = self.datasets[body["dataset"]]
+            else:
+                slug = f"{body['title'].lower().replace(' ', '-')}-{len(self.datasets) + 1}"
+                d = self.datasets[slug] = {"slug": slug, "title": body["title"], "visibility": body["visibility"], "latest_version": 0, "by": who["sub"],
+                                           "source": {"app": who["aud"], "name": "PolyGIS", "ref": body["ref"], "label": body["label"], "kind": "raster"},
+                                           "feature_count": 0, "geometry_type": "raster", "body": body}
+            u["dataset"], u["status"] = d, "processing"
+            return httpx.Response(202, json=self._upload_out(u))
+        if u["status"] == "processing":                   # the worker has finished by the time PolyGIS asks again
+            u["dataset"]["latest_version"] += 1
+            u["status"], u["version"] = "ready", u["dataset"]["latest_version"]
+        return httpx.Response(200, json=self._upload_out(u))
+
+    @staticmethod
+    def _upload_out(u: dict) -> dict:
+        d = u["dataset"]
+        return {**{k: u[k] for k in ("id", "status", "version", "error", "error_code", "filename", "size")},
+                "dataset": {k: v for k, v in d.items() if k not in ("body", "by")} if d else None}
+
+
 ORG = str(uuid.uuid4())
 HUB = FakeGeohub()
 
@@ -146,7 +202,7 @@ HUB = FakeGeohub()
 @pytest.fixture(scope="session")
 def client():
     identity.gid = GeoEstateID(geohub=settings.geohub_url, api=settings.geohub_api, client_id="gis", client_secret=settings.id_secret,
-                               transport=httpx.MockTransport(HUB.handle))
+                               transport=httpx.MockTransport(HUB.handle), upload_transport=httpx.MockTransport(HUB.handle))
     import psycopg
     with psycopg.connect(settings.database_url, autocommit=True) as c:
         c.execute(f'DROP SCHEMA IF EXISTS "{settings.db_schema}" CASCADE')
