@@ -65,6 +65,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
   const [georefOpen, setGeorefOpen] = useState(false);
+  const [georefFile, setGeorefFile] = useState<File | null>(null);
   // the 3D view: tilted, on terrain from an elevation model in the project or the open global one
   const [view3d, setView3d] = useStored<{ on: boolean; terrain: string; exaggeration: number }>(`view3d-${id}`, { on: false, terrain: "global", exaggeration: 1.5 });
   const earthJobs = useEarthJobs((j) => {
@@ -758,7 +759,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
           </>}
           {tab === "imagery" && <>
             <Group name="Place">
-              <Tb onClick={() => setGeorefOpen(true)} icon={<MapPinned />} label="Georeference" disabled={!canEdit} />
+              <Tb onClick={() => { setGeorefFile(null); setGeorefOpen(true); }} icon={<MapPinned />} label="Georeference" disabled={!canEdit} />
             </Group>
             <Group name="Correct">
               <Tb onClick={() => openTool("to_reflectance")} icon={<Gauge />} label="To reflectance" />
@@ -857,7 +858,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
         {!canEdit && <span>{me.can_write ? "Viewer: read-only" : "Read-only licence"}</span>}
       </footer>
 
-      {dialog === "add" && <AddData projectId={id} onClose={() => setDialog(null)} onImagery={() => setDialog("imagery")} onDone={(ls) => {
+      {dialog === "add" && <AddData projectId={id} onClose={() => setDialog(null)} onImagery={() => setDialog("imagery")}
+        onGeoreference={me.features.includes("raster") ? (f) => { setDialog(null); setGeorefFile(f); setGeorefOpen(true); } : undefined} onDone={(ls) => {
         setLayers((cur) => [...cur, ...ls]); setActiveId(ls[0].id); setDialog(null); setLeftOpen(true);
         const dropped = ls.reduce((n, l) => n + (l.source.dropped ?? 0), 0);
         toast(`Added ${ls.map((l) => l.name).join(", ")}.${dropped ? ` ${dropped} feature(s) had no usable shape and were left out.` : ""}`, "success");
@@ -871,10 +873,10 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       {dialog === "export" && active && <Export layer={active} selected={sel(active.id)} epsg={project.display_epsg} onClose={() => setDialog(null)} />}
       {modelsOpen && <ModelBuilder projectId={id} layers={layers} canEdit={canEdit} rasterAllowed={me.features.includes("raster")} onClose={() => setModelsOpen(false)}
         onDone={(ls) => { if (!ls.length) return; setLayers((cur) => [...cur, ...ls]); setActiveId(ls[ls.length - 1].id); if (ls[ls.length - 1].bbox) zoomTo(ls[ls.length - 1].bbox!); toast(ls.length === 1 ? `${ls[0].name} added to the map.` : `${ls.length} layers added to the map.`, "success"); }} />}
-      {georefOpen && <Georeference projectId={id} layers={layers} canEdit={canEdit}
+      {georefOpen && <Georeference projectId={id} layers={layers} canEdit={canEdit} file={georefFile}
         view={map.current ? { center: map.current.getCenter().toArray() as [number, number], zoom: map.current.getZoom() } : null}
-        onClose={() => setGeorefOpen(false)}
-        onDone={(l) => { setGeorefOpen(false); setLayers((cur) => [...cur, l]); setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); }} />}
+        onClose={() => { setGeorefOpen(false); setGeorefFile(null); }}
+        onDone={(l) => { setGeorefOpen(false); setGeorefFile(null); setLayers((cur) => [...cur, l]); setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); }} />}
       {layoutOpen && map.current && <LayoutView project={project} layers={layers} crs={crs} me={me} map={map.current} canSave={canEdit && layoutsAllowed} onClose={() => setLayoutOpen(false)} />}
       {dialog === "plan" && <Dialog title="Print layouts" onClose={() => setDialog(null)}>
         <div className="ws-form"><p>Print layouts (map sheets with a title, legend, scale bar, north arrow and grid, exported as PDF) are in PolyGIS Advanced.

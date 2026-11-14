@@ -66,9 +66,12 @@ export const api = {
   updateProject: (id: string, b: { name?: string; description?: string; display_epsg?: number; view?: View }) => req<Project>("PATCH", `/projects/${id}`, b),
   deleteProject: (id: string) => req<void>("DELETE", `/projects/${id}`),
 
-  importFile: async (projectId: string, file: File, epsg?: number): Promise<Layer[]> => {
+  /** One file, or several chosen together (a Shapefile's parts, a picture and its world file): the first goes as `file`. */
+  importFile: async (projectId: string, files: File | File[], epsg?: number): Promise<Layer[]> => {
+    const all = Array.isArray(files) ? files : [files];
     const form = new FormData();
-    form.append("file", file);
+    form.append("file", all[0]);
+    for (const f of all.slice(1)) form.append("extra", f);
     if (epsg) form.append("epsg", String(epsg));
     let res: Response;
     try {
