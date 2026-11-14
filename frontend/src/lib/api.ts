@@ -1,6 +1,6 @@
 import type { LayoutSettings } from "./layout";
 import type { LayoutDoc } from "./layoutDoc";
-import type { Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
+import type { Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
@@ -89,6 +89,12 @@ export const api = {
     }
     return handle<GeorefSource>(res, "/georeference");
   },
+  scenarios: (projectId: string) => req<Scenario[]>("GET", `/projects/${projectId}/scenarios`),
+  scenarioCreate: (projectId: string, b: { kind: ScenarioKind; name: string; params: Record<string, unknown> }) => req<Scenario>("POST", `/projects/${projectId}/scenarios`, b),
+  scenarioUpdate: (id: string, b: { name?: string; notes?: string; params?: Record<string, unknown> }) => req<Scenario>("PATCH", `/scenarios/${id}`, b),
+  scenarioDuplicate: (id: string) => req<Scenario>("POST", `/scenarios/${id}/duplicate`),
+  scenarioRun: (id: string) => req<{ scenario: Scenario; layer: Layer }>("POST", `/scenarios/${id}/run`),
+  scenarioDelete: (id: string) => req<void>("DELETE", `/scenarios/${id}`),
   georefFromLayer: (projectId: string, layerId: string) => req<GeorefSource>("POST", `/projects/${projectId}/georeference/from-layer`, { layer_id: layerId }),
   georefList: (projectId: string) => req<GeorefSource[]>("GET", `/projects/${projectId}/georeference`),
   georefSave: (id: string, b: { points: GeorefPoint[]; method: GeorefMethod }) => req<GeorefSource>("PUT", `/georeference/${id}`, b),
