@@ -74,12 +74,17 @@ downloads recorded in the activity log. A shared page may be embedded in another
 
 ## Publishing to the Data hub
 
-Share › Publish layer sends the active vector layer (or only its selection) to Geohub's Data hub as a dataset, as the
+Share › Publish layer sends the active layer (a vector layer, or only its selection; or a raster) to Geohub's Data hub as a dataset, as the
 person signed in (their GeoEstate ID access token): title, description, licence, tags, and who may see it (only them,
 their organization, or anyone). Geohub keeps each publication as a version that never changes, with previews and
 downloads; publishing the layer again adds the next version to a dataset published from it before. Field names travel
 as column labels. Up to 50,000 features at a time. Needs Geohub with `/id/data/datasets` (Geohub PR "Data hub: datasets
 published from the other GeoEstate apps").
+
+A raster layer goes as its GeoTIFF, sent in parts straight to Geohub's storage (`/id/data/rasters`, the kit's
+`upload()`), so its size is limited only by Geohub (5 GB). Geohub prepares it (a Cloud-Optimised GeoTIFF with its
+statistics) and the dialog shows when it is ready; in the Data hub it is drawn on a map with the layer's colour ramp and
+range, and downloads as a GeoTIFF. Needs Geohub with raster datasets (Geohub PR "Data hub: raster datasets").
 
 ## Linked layers
 

@@ -676,7 +676,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => setDialog("share")} icon={<Link2 />} label="Share link" />
             </Group>
             <Group name="Data hub">
-              <Tb onClick={() => setDialog("publish")} icon={<UploadCloud />} label="Publish layer" disabled={!canEdit || !active || active.geometry_type === "Raster"} />
+              <Tb onClick={() => setDialog("publish")} icon={<UploadCloud />} label="Publish layer" disabled={!canEdit || !active} />
             </Group>
             <Group name="Print">
               <Tb onClick={openLayout} icon={<Printer />} label="Print layout" />

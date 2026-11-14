@@ -1,7 +1,12 @@
 """Publishing a layer to Geohub's Data hub, as the person signed in: the layer's features (or its selection) become a
 dataset there, or the next version of one published before. Geohub keeps the versions, the catalogue, previews and
-downloads; PolyGIS only sends the data (with the person's GeoEstate ID access token)."""
+downloads; PolyGIS only sends the data (with the person's GeoEstate ID access token).
+
+A raster layer goes as its GeoTIFF, uploaded in parts straight to Geohub's storage; Geohub then prepares it (a
+Cloud-Optimised GeoTIFF with its statistics), and the dataset appears once that is done. It is drawn there with the
+layer's colour ramp."""
 import json
+import re
 from typing import Literal
 from uuid import UUID
 
@@ -61,10 +66,59 @@ async def _features(conn, layer: dict, ids: list[int] | None) -> list[dict]:
     return [{"geometry": json.loads(r["g"]), "properties": r["props"] or {}} for r in rows]
 
 
+# PolyGIS's colour ramps, as Geohub (TiTiler) names them; an inverted ramp is the name with _r
+RAMPS = {"Gray": "gray", "Terrain": "terrain", "Greens": "greens", "Blues": "blues", "Reds": "reds", "Viridis": "viridis",
+         "Magma": "magma", "Red to green": "rdylgn", "Spectral": "spectral_r", "Blue to red": "rdbu_r"}
+
+
+def _render(layer: dict) -> dict | None:
+    """How Geohub should draw the raster: the layer's own ramp (its colours, and the nearest named ramp) and range; an
+    RGB image is drawn as a photo there anyway."""
+    st = layer.get("style") or {}
+    if st.get("mode", "ramp") != "ramp" or st.get("ramp") not in RAMPS:
+        return None
+    name = RAMPS[st["ramp"]]
+    if st.get("invert"):
+        name = name[:-2] if name.endswith("_r") else f"{name}_r"
+    from ..raster_style import RAMPS as STOPS
+    stops = list(STOPS[st["ramp"]])
+    out: dict = {"colormap": name, "colors": stops[::-1] if st.get("invert") else stops}       # its exact colours; the name if not
+    if st.get("min") is not None and st.get("max") is not None and st["max"] > st["min"]:
+        out["rescale"] = [st["min"], st["max"]]
+    return out
+
+
+async def _upload(request: Request, layer: dict, body: dict) -> dict:
+    """Sends the raster layer's GeoTIFF to Geohub (in parts, straight to its storage) and asks it to prepare it."""
+    from .. import rasters
+    token = _token(request)
+    key = (layer.get("raster") or {}).get("key")
+    if not key or not rasters.stored(key):
+        raise Problem(409, "This raster's file is missing from storage: add the raster again before publishing it.", code="raster_missing")
+    name = re.sub(r"[^\w .()-]+", "_", layer["name"]).strip()[:80] or "raster"
+    try:
+        path = await anyio.to_thread.run_sync(rasters.local, key)
+        return await anyio.to_thread.run_sync(lambda: identity.client().upload(token, "rasters", {**body, "filename": f"{name}.tif"}, str(path)))
+    except GeoEstateIDError as e:
+        status = e.status if e.status in (401, 403, 404, 409, 413, 422) else 502
+        raise Problem(status, f"Geohub: {e}", code=e.code or "geohub") from None
+    except Problem:
+        raise
+    except Exception:  # noqa: BLE001  (Geohub or its storage could not be reached)
+        raise Problem(502, "Geohub could not be reached to publish the raster. Try again in a moment.", code="geohub_unreachable") from None
+
+
+def _raster_out(out: dict) -> dict:
+    """An upload's state as the dialog shows it: the dataset (once made), and whether Geohub is still preparing it."""
+    d = out.get("dataset") or {}
+    return {**d, "url": _hub_url(d["slug"]) if d.get("slug") else None, "upload": out["id"], "status": out["status"],
+            "version": out.get("version"), "feature_count": 0, "error": out.get("error")}
+
+
 def _vector(layer: dict) -> str:
     kind = KIND.get(layer["geometry_type"])
     if not kind:
-        raise Problem(422, "Only vector layers (points, lines, polygons) can go to the Data hub.", code="validation")
+        raise Problem(422, "This layer cannot go to the Data hub.", code="validation")
     return kind
 
 
@@ -93,8 +147,14 @@ async def published(layer_id: UUID, request: Request, user=Depends(need()), conn
 @router.post("/layers/{layer_id}/hub", status_code=201, summary="Publish the layer (or its selection) to the Data hub as a new dataset")
 async def publish(layer_id: UUID, body: PublishIn, request: Request, user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     layer = await layer_of(conn, layer_id, user)
-    kind = _vector(layer)
     p = await project_of(conn, layer["project_id"], user)
+    if layer["geometry_type"] == "Raster":
+        out = _raster_out(await _upload(request, layer, {
+            "title": body.title.strip(), "description": body.description.strip(), "license": body.license, "tags": body.tags,
+            "visibility": body.visibility, "ref": str(layer_id), "label": f"{p['name']} › {layer['name']}", "render": _render(layer)}))
+        await audit(conn, user, "layer.publish", "layer", layer_id, name=layer["name"], dataset=out.get("slug"), visibility=body.visibility, raster=True)
+        return out
+    kind = _vector(layer)
     feats = await _features(conn, layer, body.ids)
     out = await _send(request, "datasets", {
         "title": body.title.strip(), "description": body.description.strip(), "license": body.license, "tags": body.tags, "visibility": body.visibility,
@@ -108,9 +168,26 @@ async def publish(layer_id: UUID, body: PublishIn, request: Request, user=Depend
 @router.post("/layers/{layer_id}/hub/{slug}/versions", status_code=201, summary="Publish the layer again as the dataset's next version")
 async def publish_version(layer_id: UUID, slug: str, body: VersionIn, request: Request, user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     layer = await layer_of(conn, layer_id, user)
+    if layer["geometry_type"] == "Raster":
+        out = _raster_out(await _upload(request, layer, {"dataset": slug, "render": _render(layer)}))
+        await audit(conn, user, "layer.publish", "layer", layer_id, name=layer["name"], dataset=slug, raster=True)
+        return out
     kind = _vector(layer)
     feats = await _features(conn, layer, body.ids)
     out = await _send(request, f"datasets/{slug}/versions", {
         "geometry_type": kind, "fields": [{"name": f["name"], "type": f["type"]} for f in layer["fields"]], "features": feats})
     await audit(conn, user, "layer.publish", "layer", layer_id, name=layer["name"], dataset=slug, version=out.get("version"), features=len(feats))
     return {**out["dataset"], "url": _hub_url(slug), "version": out.get("version"), "feature_count": out.get("feature_count", len(feats))}
+
+
+@router.get("/layers/{layer_id}/hub/uploads/{upload_id}", summary="How a raster's publishing is going: processing, ready or failed")
+async def raster_status(layer_id: UUID, upload_id: UUID, request: Request, user=Depends(need()), conn=Depends(get_conn)):
+    await layer_of(conn, layer_id, user)
+    token = _token(request)
+    try:
+        out = await anyio.to_thread.run_sync(lambda: identity.client().data(token, f"rasters/{upload_id}"))
+    except GeoEstateIDError as e:
+        raise Problem(e.status if e.status in (401, 403, 404) else 502, f"Geohub: {e}", code=e.code or "geohub") from None
+    except Exception:  # noqa: BLE001
+        raise Problem(502, "Geohub could not be reached. Try again in a moment.", code="geohub_unreachable") from None
+    return _raster_out(out)

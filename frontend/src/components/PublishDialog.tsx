@@ -1,4 +1,4 @@
-import { ExternalLink, UploadCloud } from "lucide-react";
+import { ExternalLink, Loader2, UploadCloud } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiError, api, type HubDataset } from "../lib/api";
 import type { Layer } from "../lib/types";
@@ -9,7 +9,8 @@ const LICENCES: [string, string][] = [["CC-BY-4.0", "CC BY 4.0: anyone may use i
   ["CC0-1.0", "CC0: no rights reserved"], ["Private", "Private: not for reuse"]];
 
 /** Share › Publish to Data hub: the active layer (or its selection) as a dataset in Geohub's Data hub, or the next version of
- *  one published from it before. Geohub keeps the versions, previews and downloads. */
+ *  one published from it before. Geohub keeps the versions, previews and downloads. A raster layer goes as its GeoTIFF;
+ *  Geohub then prepares it, and the dialog follows that until it is ready. */
 export default function PublishDialog({ layer, selected, onClose }: { layer: Layer; selected: number[]; onClose: () => void }) {
   const toast = useToast();
   const [mine, setMine] = useState<HubDataset[] | null>(null);
@@ -23,36 +24,58 @@ export default function PublishDialog({ layer, selected, onClose }: { layer: Lay
   const [tags, setTags] = useState("");
   const [done, setDone] = useState<(HubDataset & { version: number }) | null>(null);
   useEffect(() => { api.hubDatasets(layer.id).then(setMine, () => setMine([])); }, [layer.id]);
-  const ids = onlySel && selected.length ? selected : undefined;
+  const raster = layer.geometry_type === "Raster";
+  const ids = !raster && onlySel && selected.length ? selected : undefined;
   const count = ids ? ids.length : layer.feature_count;
+
+  // a raster Geohub is still preparing: ask how it is going every few seconds, for up to half an hour
+  useEffect(() => {
+    if (!done?.upload || done.status !== "processing") return;
+    let n = 0;
+    const t = setInterval(() => {
+      if (++n > 600) { clearInterval(t); return; }
+      api.hubUpload(layer.id, done.upload!).then((u) => {
+        if (u.status === "processing") return;
+        clearInterval(t);
+        setDone({ ...done, ...u, version: u.version ?? done.version });
+        if (u.status === "ready") toast(`${done.title} is ready in the Data hub (version ${u.version}).`, "success");
+      }, () => undefined);
+    }, 3000);
+    return () => clearInterval(t);
+  }, [done?.upload, done?.status]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   async function run(f: () => Promise<HubDataset & { version: number }>, what: string) {
     setError(null); setBusy(what);
-    try { const d = await f(); setDone(d); toast(`Published: version ${d.version} of ${d.title}.`, "success"); }
+    try {
+      const d = await f(); setDone(d);
+      toast(d.status === "processing" ? `${d.title}: sent to Geohub, which is preparing it.` : `Published: version ${d.version} of ${d.title}.`, "success");
+    }
     catch (e) { setError(e instanceof ApiError ? e : new Error("Could not publish.")); }
     finally { setBusy(""); }
   }
-  if (layer.geometry_type === "Raster") return (
-    <Dialog title="Publish to the Data hub" onClose={onClose}><div className="ws-form"><p>The Data hub takes vector layers (points, lines and polygons). Choose one in Contents.</p>
-      <div className="ws-row"><Button variant="primary" onClick={onClose}>OK</Button></div></div></Dialog>
-  );
   return (
     <Dialog title={`Publish ${layer.name} to the Data hub`} onClose={onClose} wide>
       <div className="ws-form">
-        <p className="ws-muted">The Data hub is Geohub's catalogue of datasets. Publishing copies the features and their fields there as a
-          version that never changes; publish again for the next version. People find, preview and download it there, as you choose who may.</p>
+        <p className="ws-muted">{raster
+          ? <>The Data hub is Geohub's catalogue of datasets. Publishing sends the raster there as a GeoTIFF; Geohub prepares it (a few minutes for
+            a large one), then people find it, see it on a map with this layer's colours, and download it, as you choose who may. Publish again for the next version.</>
+          : <>The Data hub is Geohub's catalogue of datasets. Publishing copies the features and their fields there as a
+          version that never changes; publish again for the next version. People find, preview and download it there, as you choose who may.</>}</p>
         <ErrorText error={error} />
-        {done ? <div className="pb-done">
-          <UploadCloud size={22} aria-hidden="true" />
-          <div><strong>{done.title}</strong>, version {done.version}: {done.feature_count.toLocaleString("en-GB")} features are in the Data hub.</div>
-          <a className="ge-btn ge-btn-sm ge-btn-primary" href={done.url} target="_blank" rel="noreferrer"><ExternalLink size={14} aria-hidden="true" />Open in Geohub</a>
+        {done ? <div className={`pb-done${done.status === "failed" ? " is-failed" : ""}`} role="status">
+          {done.status === "processing" ? <Loader2 size={22} className="pb-spin" aria-hidden="true" /> : <UploadCloud size={22} aria-hidden="true" />}
+          <div>{done.status === "processing" ? <><strong>{done.title}</strong>: sent. Geohub is preparing the raster; this page updates when it is ready.</>
+            : done.status === "failed" ? <><strong>{done.title}</strong> could not be prepared: {done.error}</>
+            : raster ? <><strong>{done.title}</strong>, version {done.version}: the raster is in the Data hub.</>
+            : <><strong>{done.title}</strong>, version {done.version}: {done.feature_count.toLocaleString("en-GB")} features are in the Data hub.</>}</div>
+          {done.url && done.status !== "failed" && <a className="ge-btn ge-btn-sm ge-btn-primary" href={done.url} target="_blank" rel="noreferrer"><ExternalLink size={14} aria-hidden="true" />Open in Geohub</a>}
         </div> : <>
-          {selected.length > 0 && <label className="lo-check"><input type="checkbox" checked={onlySel} onChange={(e) => setOnlySel(e.target.checked)} />
+          {!raster && selected.length > 0 && <label className="lo-check"><input type="checkbox" checked={onlySel} onChange={(e) => setOnlySel(e.target.checked)} />
             Only the {selected.length.toLocaleString("en-GB")} selected feature{selected.length === 1 ? "" : "s"}</label>}
           {mine && mine.length > 0 && <fieldset className="sh-new"><legend className="pb-legend">Already published from this layer</legend>
             <ul className="sh-list">{mine.map((d) => (
               <li key={d.slug}><div className="sh-main"><strong>{d.title}</strong>
-                <span className="ws-muted">Version {d.latest_version} · {d.feature_count.toLocaleString("en-GB")} features · {d.visibility === "public" ? "public" : d.visibility === "organization" ? "the organization" : "private"}</span></div>
+                <span className="ws-muted">{d.latest_version ? `Version ${d.latest_version}` : "Being prepared"} · {raster ? "raster" : `${d.feature_count.toLocaleString("en-GB")} features`} · {d.visibility === "public" ? "public" : d.visibility === "organization" ? "the organization" : "private"}</span></div>
                 <div className="sh-acts"><Button small disabled={!!busy} busy={busy === d.slug} onClick={() => void run(() => api.publishHubVersion(layer.id, d.slug, ids), d.slug)}>
                   Publish version {d.latest_version + 1}</Button>
                   <a className="ge-btn ge-btn-sm ge-btn-ghost" href={d.url} target="_blank" rel="noreferrer"><ExternalLink size={14} aria-hidden="true" />Open</a></div></li>
@@ -66,10 +89,10 @@ export default function PublishDialog({ layer, selected, onClose }: { layer: Lay
               <label className="ws-f">Licence<select value={license} onChange={(e) => setLicense(e.target.value)}>{LICENCES.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></label>
             </div>
             <label className="ws-f">Tags<input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Comma-separated, e.g. minna, parcels, 2026" /></label>
-            <div className="ws-row"><Button variant="primary" disabled={!title.trim() || !!busy || !count} busy={busy === "new"}
+            <div className="ws-row"><Button variant="primary" disabled={!title.trim() || !!busy || (!raster && !count)} busy={busy === "new"}
               onClick={() => void run(() => api.publishHub(layer.id, { title: title.trim(), description, license, visibility, ids,
                 tags: tags.split(",").map((t) => t.trim()).filter(Boolean).slice(0, 20) }), "new")}>
-              <UploadCloud size={15} aria-hidden="true" />Publish {count.toLocaleString("en-GB")} feature{count === 1 ? "" : "s"}</Button>
+              <UploadCloud size={15} aria-hidden="true" />{raster ? "Publish the raster" : `Publish ${count.toLocaleString("en-GB")} feature${count === 1 ? "" : "s"}`}</Button>
               <Button variant="ghost" onClick={onClose}>Cancel</Button></div>
           </fieldset>
         </>}

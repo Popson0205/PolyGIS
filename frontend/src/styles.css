@@ -655,3 +655,7 @@ h2.ct-heading, .ct-heading { margin: 0; color: var(--c-ink); padding: 10px 12px 
 .lv .ws-tb-select select { min-width: 112px; }
 .lv-tb-menu .ws-tb .ws-tb-icon svg { width: 22px; height: 22px; }
 .lv .ws-tb-stack { justify-content: center; padding-top: 6px; gap: 4px; }
+.pb-done.is-failed { background: #fdecec; color: #8a1f1f; }
+.pb-spin { animation: pb-spin 1s linear infinite; flex: none; }
+@keyframes pb-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pb-spin { animation: none; } }
