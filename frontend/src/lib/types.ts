@@ -86,3 +86,12 @@ export interface GeorefFit {
   points: { id: string; dx_m: number; dy_m: number; error_m: number; error_px: number }[];
   preview?: { url: string; coordinates: [number, number][] };
 }
+
+/** Scenarios: named what-if settings for a simulation, run into a raster layer (a band per time step or level). */
+export type ScenarioKind = "suitability" | "flood" | "land_change" | "spread";
+export interface ScenarioStep { label: string; [k: string]: unknown }
+export interface Scenario {
+  id: string; project_id: string; kind: ScenarioKind; name: string; notes: string; params: Record<string, unknown>;
+  status: "draft" | "ready" | "failed"; summary: (Record<string, unknown> & { steps?: ScenarioStep[] }) | null; error: string | null;
+  layer_id: string | null; ran_at: string | null; run_ms: number | null; created_at: string; updated_at: string;
+}

@@ -1,7 +1,7 @@
 import maplibregl, { type Map as MapLibre, type MapGeoJSONFeature } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
-  ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
+  ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
   PanelRightClose, PanelRightOpen, Printer, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
 } from "lucide-react";
@@ -17,6 +17,7 @@ import LayerPanel from "../components/LayerPanel";
 import LayoutView from "../components/LayoutView";
 import Georeference from "../components/Georeference";
 import ModelBuilder from "../components/ModelBuilder";
+import Scenarios from "../components/Scenarios";
 import { Group, Tb } from "../components/Ribbon";
 import ShareDialog from "../components/ShareDialog";
 import PublishDialog from "../components/PublishDialog";
@@ -65,6 +66,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
   const [georefOpen, setGeorefOpen] = useState(false);
+  const [scenariosOpen, setScenariosOpen] = useState(false);
   // the 3D view: tilted, on terrain from an elevation model in the project or the open global one
   const [view3d, setView3d] = useStored<{ on: boolean; terrain: string; exaggeration: number }>(`view3d-${id}`, { on: false, terrain: "global", exaggeration: 1.5 });
   const earthJobs = useEarthJobs((j) => {
@@ -542,8 +544,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const editable = layers.filter((l) => canEdit && l.geometry_type !== "Raster" && !l.source.linked);
   const totalSel = Object.values(selection).reduce((n, x) => n + x.length, 0);
   const notice = licenceNotice(me.product);
-  const openTool = (t: string | null, q = "") => { setEarth({ open: false, start: null }); setGp({ open: true, start: t, query: q }); setRightOpen(true); };
-  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setEarth({ open: true, start: t }); setRightOpen(true); };
+  const openTool = (t: string | null, q = "") => { setEarth({ open: false, start: null }); setScenariosOpen(false); setGp({ open: true, start: t, query: q }); setRightOpen(true); };
+  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
   const kindWord = editLayer?.geometry_type === "Point" ? "points" : editLayer?.geometry_type === "LineString" ? "lines" : "polygons";
   const hint: Partial<Record<Tool, ReactNode>> = {
     select: <>Click features of <strong>{active?.name}</strong> to select them. Shift-click adds or removes.</>,
@@ -554,7 +556,13 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     "pick-reshape": <>Click the feature of <strong>{editLayer?.name}</strong> to reshape.</>,
     reshape: <>Drag a vertex to move it, a midpoint to add one; right-click a vertex to remove it.</>,
   };
-  const right = earth.open ? (
+  const right = scenariosOpen ? (
+    <Scenarios projectId={id} layers={layers} canEdit={canEdit} onClose={() => setScenariosOpen(false)}
+      onLayer={(l, show) => {
+        setLayers((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? l : x)) : [...cur, l]));
+        if (show) { setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); }
+      }} />
+  ) : earth.open ? (
     <PolyEarth projectId={id} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit} allowed={me.features.includes("raster")}
       start={earth.start} jobs={earthJobs.jobs} viewBox={mapBox} onStarted={earthJobs.add} onStop={(jid) => void earthJobs.stop(jid)} onClose={() => setEarth({ open: false, start: null })}
       onShowLayer={(l) => { setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); }} />
@@ -730,6 +738,10 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             </>}
           </>}
           {tab === "analysis" && <>
+            {me.features.includes("raster") && <Group name="What if">
+              <Tb on={scenariosOpen && rightOpen} onClick={() => { if (scenariosOpen) setScenariosOpen(false); else { setGp({ open: false, start: null, query: "" }); setEarth({ open: false, start: null }); setScenariosOpen(true); setRightOpen(true); } }}
+                icon={<FlaskConical />} label="Scenarios" />
+            </Group>}
             <Group name="Measure">
               <Tb on={tool === "measure-line"} onClick={() => chooseTool("measure-line")} icon={<Ruler />} label="Distance" />
               <Tb on={tool === "measure-area"} onClick={() => chooseTool("measure-area")} icon={<LandPlot />} label="Area" />
