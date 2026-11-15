@@ -138,11 +138,14 @@ export interface AreaBrief {
 export interface Tracker {
   id: string; project_id: string; name: string; kind: "device" | "adsb" | "ais" | "geohub"; kind_name: string;
   config: { bbox?: [number, number, number, number]; source?: string; form_id?: string; form_label?: string; geofence_layer_id?: string | null;
-    geofence_field?: string; keep_days?: number; trail_minutes?: number };
+    geofence_field?: string; keep_days?: number; trail_minutes?: number; notify?: TrackNotify | null };
   secret_set: string[]; layer_id: string | null; active: boolean; last_at: string | null; refreshed_at: string | null; last_error: string | null;
+  asked_at?: string | null; last_seen?: number | null; notified_at?: string | null; notify_error?: string | null;
   devices: number; ingest_url?: string; created_at: string;
 }
-export interface TrackAlert { id: number; tracker_id: string; tracker: string; device: string; name: string | null; kind: "enter" | "exit"; zone: string; ts: string; x: number; y: number }
+/** Where a tracker's alerts go on WhatsApp, and which: a new device, entering or leaving a geofence. */
+export interface TrackNotify { provider: "meta" | "twilio" | "callmebot"; to: string; events: ("new" | "enter" | "exit")[]; active: boolean }
+export interface TrackAlert { id: number; tracker_id: string; tracker: string; device: string; name: string | null; kind: "enter" | "exit" | "new"; zone: string | null; ts: string; x: number; y: number }
 export interface TrackingLive { positions: GeoJSON.FeatureCollection; trails: GeoJSON.FeatureCollection; alerts: TrackAlert[]; at: string }
 
 /** An imagery service the organization added (or a built-in free one): tiles (XYZ, WMS) or a STAC catalogue of scenes. */

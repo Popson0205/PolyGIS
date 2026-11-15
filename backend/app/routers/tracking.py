@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
-from .. import identity, milcoords as mc, tracking
+from .. import identity, milcoords as mc, notify, tracking
 from ..audit import audit
 from ..config import settings
 from ..db import get_conn, pool
@@ -67,7 +67,7 @@ class TrackerPatch(BaseModel):
 
 def _config_ok(kind: str, cfg: dict) -> dict:
     out = {k: v for k, v in cfg.items() if k in ("bbox", "source", "form_id", "form_label", "geofence_layer_id", "geofence_field", "keep_days",
-                                                    "trail_minutes", "after")}
+                                                    "trail_minutes", "after", "notify")}
     if kind in ("adsb", "ais"):
         try:
             w, s, e, n = (float(x) for x in out.get("bbox") or [])
@@ -82,9 +82,25 @@ def _config_ok(kind: str, cfg: dict) -> dict:
         raise Problem(422, "The ADS-B source is adsb.lol or opensky.", code="validation")
     if kind == "geohub" and not out.get("form_id"):
         raise Problem(422, "Choose the Geohub form.", code="validation", fields={"config.form_id": ["missing"]})
+    if out.get("notify"):
+        out["notify"] = _notify_ok(out["notify"])
     out["keep_days"] = max(1, min(365, int(out.get("keep_days") or 7)))
     out["trail_minutes"] = max(0, min(24 * 60, int(out.get("trail_minutes") or 60)))
     return out
+
+
+def _notify_ok(n) -> dict | None:
+    """{provider, to, events}: where the tracker's alerts go on WhatsApp. Without a number, nothing is sent."""
+    if not isinstance(n, dict) or not (n.get("to") or "").strip():
+        return None
+    if n.get("provider") not in notify.PROVIDERS:
+        raise Problem(422, "Choose how WhatsApp messages are sent: meta, twilio or callmebot.", code="validation", fields={"config.notify.provider": ["invalid"]})
+    try:
+        to = notify.phone(n["to"])
+    except ValueError as e:
+        raise Problem(422, str(e), code="validation", fields={"config.notify.to": ["invalid"]}) from None
+    events = [e for e in notify.EVENTS if e in (n.get("events") or ["new", "enter", "exit"])]
+    return {"provider": n["provider"], "to": to, "events": events, "active": n.get("active", True) is not False}
 
 
 @router.get("/projects/{project_id}/trackers", summary="The project's trackers")
@@ -171,8 +187,11 @@ async def ingest(conn, t: dict, positions: list[tracking.Pos]) -> int:
     cfg = t["config"] or {}
     fence = cfg.get("geofence_layer_id")
     fence_field = cfg.get("geofence_field") or "name"
+    nt = cfg.get("notify") or {}
+    events = set(nt.get("events") or []) if nt.get("active", True) and nt.get("to") else set()
     kept = 0
     latest: dict[str, tracking.Pos] = {}
+    known: set[str] = set()
     for p in sorted(positions, key=lambda x: x.ts):
         cur = await conn.execute(
             "INSERT INTO track_points (tracker_id, device, ts, geom, speed_kmh, course, altitude, props) "
@@ -183,6 +202,14 @@ async def ingest(conn, t: dict, positions: list[tracking.Pos]) -> int:
             continue                                              # already had it (a feed asked twice)
         kept += 1
         latest[p.device] = p
+        if p.device not in known:                                 # the first time this tracker sees the device: an alert
+            known.add(p.device)
+            cur = await conn.execute("INSERT INTO track_devices (tracker_id, device, name) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING RETURNING device",
+                                     (t["id"], p.device, p.name or p.device))
+            if await cur.fetchone():
+                await conn.execute("INSERT INTO track_alerts (tracker_id, project_id, device, name, kind, ts, geom, notified) "
+                                   "VALUES (%s, %s, %s, %s, 'new', %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s)",
+                                   (t["id"], t["project_id"], p.device, p.name or p.device, p.ts, p.lng, p.lat, "new" not in events))
         if fence:
             cur = await conn.execute(
                 "SELECT coalesce(nullif(props->>%s, ''), id::text) AS z FROM features WHERE layer_id = layer_data(%s) "
@@ -193,9 +220,9 @@ async def ingest(conn, t: dict, positions: list[tracking.Pos]) -> int:
             was = set(row["zones"]) if row else set()
             for kind, zones in (("enter", set(now_in) - was), ("exit", was - set(now_in))):
                 for z in sorted(zones):
-                    await conn.execute("INSERT INTO track_alerts (tracker_id, project_id, device, name, kind, zone, ts, geom) "
-                                       "VALUES (%s, %s, %s, %s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326))",
-                                       (t["id"], t["project_id"], p.device, p.name or p.device, kind, z, p.ts, p.lng, p.lat))
+                    await conn.execute("INSERT INTO track_alerts (tracker_id, project_id, device, name, kind, zone, ts, geom, notified) "
+                                       "VALUES (%s, %s, %s, %s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s)",
+                                       (t["id"], t["project_id"], p.device, p.name or p.device, kind, z, p.ts, p.lng, p.lat, kind not in events))
             await conn.execute("INSERT INTO track_devices (tracker_id, device, name, zones) VALUES (%s, %s, %s, %s) "
                                "ON CONFLICT (tracker_id, device) DO UPDATE SET zones = EXCLUDED.zones", (t["id"], p.device, p.name, now_in))
     # the layer: one point per device, where it last was (its symbol and designation kept if someone changed them)
@@ -228,7 +255,56 @@ async def ingest(conn, t: dict, positions: list[tracking.Pos]) -> int:
             await conn.execute("UPDATE layers SET updated_at = clock_timestamp() WHERE id = %s", (t["layer_id"],))
     if tracking.prune_now():
         await conn.execute("DELETE FROM track_points WHERE tracker_id = %s AND ts < now() - make_interval(days => %s)", (t["id"], cfg.get("keep_days", 7)))
+    if events:
+        await _flush(conn, t)
     return kept
+
+
+async def _flush(conn, t: dict) -> None:
+    """Sends the tracker's unsent alerts in one WhatsApp message, at most once a minute (the rest wait for the next).
+    The message goes after the request lets go of its connection; how it went is written back on the tracker."""
+    nt = (t["config"] or {}).get("notify") or {}
+    cur = await conn.execute("UPDATE trackers SET notified_at = now() WHERE id = %s AND (notified_at IS NULL OR notified_at < now() - make_interval(secs => %s)) "
+                             "AND EXISTS (SELECT 1 FROM track_alerts WHERE tracker_id = %s AND NOT notified) RETURNING id", (t["id"], notify.MIN_GAP_S, t["id"]))
+    if not await cur.fetchone():
+        return
+    cur = await conn.execute("UPDATE track_alerts SET notified = true WHERE tracker_id = %s AND NOT notified "
+                             "RETURNING device, name, kind, zone, ts, ST_X(geom) AS x, ST_Y(geom) AS y", (t["id"],))
+    alerts = sorted(await cur.fetchall(), key=lambda a: a["ts"])
+    if alerts:
+        notify.later(_deliver(t["id"], nt["provider"], nt["to"], notify.compose(t["name"], alerts), dict(t["secret"] or {})))
+
+
+async def _deliver(tid, provider: str, to: str, text: str, secret: dict) -> None:
+    try:
+        await notify.send(provider, to, text, secret)
+        err = None
+    except notify.SendError as e:
+        err = str(e)
+    try:
+        async with pool.connection() as conn:
+            await conn.execute("UPDATE trackers SET notify_error = %s WHERE id = %s", (err, tid))
+    except Exception:                                             # noqa: BLE001 - only a note of how the send went
+        pass
+
+
+@router.post("/trackers/{tracker_id}/notify/test", summary="Send a test WhatsApp message to the tracker's alert number")
+async def notify_test(tracker_id: UUID, user=Depends(EDIT)):
+    async with pool.connection() as conn:
+        t = await tracker_of(conn, tracker_id, user)
+    nt = (t["config"] or {}).get("notify") or {}
+    if not nt.get("to"):
+        raise Problem(422, "Give the WhatsApp number first.", code="validation")
+    try:
+        await notify.send(nt["provider"], nt["to"], f"PolyGIS · {t['name']}\nTest: alerts from this tracker will come here.", t["secret"] or {})
+        err = None
+    except notify.SendError as e:
+        err = str(e)
+    async with pool.connection() as conn:
+        await conn.execute("UPDATE trackers SET notify_error = %s WHERE id = %s", (err, tracker_id))
+    if err:
+        raise Problem(502, err, code="whatsapp")
+    return {"sent": True, "to": nt["to"]}
 
 
 @router.api_route("/track/{token}", methods=["GET", "POST"], summary="Where devices and apps send positions (OsmAnd / Traccar Client, OwnTracks, "
@@ -323,8 +399,8 @@ async def refresh(tracker_id: UUID, request: Request, user=Depends(need())):
         if after is not None:
             await conn.execute("UPDATE trackers SET config = jsonb_set(config, '{after}', to_jsonb(%s::int)) WHERE id = %s", (after, tracker_id))
         n = await ingest(conn, t, positions)
-        if note:                                 # kept after ingest, which clears the last error when positions come in
-            await conn.execute("UPDATE trackers SET last_error = %s WHERE id = %s", (note, tracker_id))
+        # the feed answered: whatever went wrong before is over, even when no one is in the area just now
+        await conn.execute("UPDATE trackers SET last_error = %s, asked_at = now(), last_seen = %s WHERE id = %s", (note, len(positions), tracker_id))
     return {"received": n, "seen": len(positions), **({"note": note} if note else {})}
 
 

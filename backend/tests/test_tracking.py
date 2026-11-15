@@ -7,7 +7,9 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 
-from app import tracking
+import asyncio
+
+from app import notify, tracking
 from app.routers import tracking as tr_router
 from conftest import HUB
 from test_rasters import pro  # noqa: F401  (fixture)
@@ -89,7 +91,7 @@ def test_geofence_alerts(pro, P, client):
     for k, (lat, lng) in enumerate([(8.95, 7.45), (9.05, 7.45), (9.06, 7.46), (9.20, 7.45)]):
         client.get(p, params={"id": "convoy", "lat": lat, "lon": lng, "timestamp": now - 100 + k * 10})
     alerts = live(pro, P)["alerts"]
-    assert [(a["kind"], a["zone"]) for a in reversed(alerts)] == [("enter", "0"), ("exit", "0")]
+    assert [(a["kind"], a["zone"]) for a in reversed(alerts)] == [("new", None), ("enter", "0"), ("exit", "0")]
     pro.post(f"/projects/{P['id']}/tracking/alerts/seen")
     assert live(pro, P)["alerts"] == []
     # tracks as a layer
@@ -221,3 +223,94 @@ def test_opensky_unreachable_falls_back_and_failing_feeds_rest(pro, P, monkeypat
     assert pro.post(f"/trackers/{a['id']}/refresh").json()["note"] == "Asked a moment ago."
     t = next(x for x in pro.get(f"/projects/{P['id']}/trackers").json() if x["id"] == a["id"])
     assert "Asked again in 2 minutes" in t["last_error"]
+
+
+def test_an_answered_ask_clears_the_old_error_even_with_no_one_in_the_area(pro, P, monkeypatch):
+    monkeypatch.setattr(tracking, "TRANSPORT", httpx.MockTransport(lambda req: (_ for _ in ()).throw(httpx.ConnectTimeout("x", request=req))))
+    a = new(pro, P, "adsb", config={"bbox": AREA})
+    assert pro.post(f"/trackers/{a['id']}/refresh").status_code == 502
+    monkeypatch.setattr(tracking, "TRANSPORT", httpx.MockTransport(lambda req: httpx.Response(200, json={"ac": []})))
+    pro.patch(f"/trackers/{a['id']}", json={"config": {"bbox": AREA}})          # a new area: asked again at once
+    r = pro.post(f"/trackers/{a['id']}/refresh").json()
+    assert r == {"received": 0, "seen": 0}
+    t = next(x for x in pro.get(f"/projects/{P['id']}/trackers").json() if x["id"] == a["id"])
+    assert t["last_error"] is None and t["last_seen"] == 0 and t["asked_at"]
+
+
+def test_phone_numbers():
+    assert notify.phone("09160420100") == "+2349160420100"
+    assert notify.phone("+234 916 042 0100") == "+2349160420100"
+    assert notify.phone("0044 7700 900123") == "+447700900123"
+    with pytest.raises(ValueError):
+        notify.phone("12")
+
+
+def test_whatsapp_providers(monkeypatch):
+    seen = []
+
+    def answer(req: httpx.Request):
+        seen.append(req)
+        if req.url.host == "graph.facebook.com" and b"bad" in req.headers.get("authorization", "").encode():
+            return httpx.Response(401, json={"error": {"message": "Invalid OAuth access token."}})
+        return httpx.Response(200, json={"ok": True}) if req.url.host != "api.callmebot.com" else httpx.Response(200, text="Message queued.")
+    monkeypatch.setattr(notify, "TRANSPORT", httpx.MockTransport(answer))
+    to = "+2340000000000"
+    asyncio.run(notify.send("meta", to, "hi", {"wa_token": "T", "wa_phone_id": "123"}))
+    body = json.loads(seen[-1].content)
+    assert seen[-1].url.path.endswith("/123/messages") and body["to"] == to[1:] and body["text"]["body"] == "hi"
+    asyncio.run(notify.send("meta", to, "hi", {"wa_token": "T", "wa_phone_id": "123", "wa_template": "polygis_alert"}))
+    body = json.loads(seen[-1].content)
+    assert body["type"] == "template" and body["template"]["components"][0]["parameters"][0]["text"] == "hi"
+    asyncio.run(notify.send("twilio", to, "hi", {"twilio_sid": "AC1", "twilio_token": "x", "twilio_from": "+14155238886"}))
+    assert b"whatsapp%3A%2B14155238886" in seen[-1].content and seen[-1].url.path.endswith("/AC1/Messages.json")
+    asyncio.run(notify.send("callmebot", to, "hi", {"callmebot_key": "k"}))
+    assert seen[-1].url.params["apikey"] == "k"
+    with pytest.raises(notify.SendError, match="Invalid OAuth"):
+        asyncio.run(notify.send("meta", to, "hi", {"wa_token": "bad", "wa_phone_id": "123"}))
+    with pytest.raises(notify.SendError, match="wa_phone_id"):
+        asyncio.run(notify.send("meta", to, "hi", {"wa_token": "T"}))
+
+
+def test_new_devices_and_geofences_go_to_whatsapp_together(pro, P, client, monkeypatch):
+    sent = []
+
+    async def deliver(tid, provider, to, text, secret):
+        sent.append((provider, to, text, secret))
+
+    def at_once(coro):
+        try:
+            coro.send(None)
+        except StopIteration:
+            pass
+    monkeypatch.setattr(tr_router, "_deliver", deliver)
+    monkeypatch.setattr(notify, "later", at_once)
+    r = pro.post(f"/projects/{P['id']}/trackers", json={"name": "Patrols", "kind": "device", "config": {"notify": {"provider": "nope", "to": "0916"}}})
+    assert r.status_code == 422
+    t = new(pro, P, config={"notify": {"provider": "callmebot", "to": "0800 000 0000", "events": ["new"]}}, secret={"callmebot_key": "k"})
+    assert t["config"]["notify"]["to"] == "+2348000000000" and t["secret_set"] == ["callmebot_key"] and "secret" not in t
+    p, now = path(t), int(time.time())
+    client.cookies.clear()
+    client.post(p, json=[{"device_id": "a", "lat": 9.0, "lon": 7.3, "time": now - 9}, {"device_id": "b", "lat": 9.1, "lon": 7.3, "time": now - 8}])
+    assert len(sent) == 1 and sent[0][:2] == ("callmebot", "+2348000000000") and sent[0][3] == {"callmebot_key": "k"}
+    assert "New device: a" in sent[0][2] and "New device: b" in sent[0][2]
+    client.post(p, json=[{"device_id": "a", "lat": 9.0, "lon": 7.31, "time": now - 5}])          # known: nothing to say
+    client.post(p, json=[{"device_id": "c", "lat": 9.0, "lon": 7.32, "time": now - 4}])          # new, but within the minute: waits
+    assert len(sent) == 1
+    _age(t["id"])                                                                         # a minute on
+    client.post(p, json=[{"device_id": "a", "lat": 9.0, "lon": 7.33, "time": now - 2}])
+    assert len(sent) == 2 and "New device: c" in sent[1][2] and "New device: a" not in sent[1][2]
+    # the test message: refused keys are told
+    monkeypatch.setattr(notify, "TRANSPORT", httpx.MockTransport(lambda req: httpx.Response(200, text="ERROR: APIKey is invalid")))
+    r = pro.post(f"/trackers/{t['id']}/notify/test")
+    assert r.status_code == 502 and "APIKey is invalid" in r.json()["detail"]
+    tt = next(x for x in pro.get(f"/projects/{P['id']}/trackers").json() if x["id"] == t["id"])
+    assert "APIKey" in tt["notify_error"]
+
+
+def _age(tid):
+    import psycopg
+
+    from app.config import settings
+    with psycopg.connect(settings.database_url, autocommit=True) as c:
+        c.execute(f'SET search_path TO "{settings.db_schema}", public')
+        c.execute("UPDATE trackers SET notified_at = now() - interval '2 minutes' WHERE id = %s", (tid,))
