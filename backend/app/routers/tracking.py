@@ -99,7 +99,7 @@ def _notify_ok(n) -> dict | None:
         to = notify.phone(n["to"])
     except ValueError as e:
         raise Problem(422, str(e), code="validation", fields={"config.notify.to": ["invalid"]}) from None
-    events = [e for e in notify.EVENTS if e in (n.get("events") or ["new", "enter", "exit"])]
+    events = [e for e in notify.EVENTS if e in (n.get("events") or notify.EVENTS)]
     return {"provider": n["provider"], "to": to, "events": events, "active": n.get("active", True) is not False}
 
 
@@ -202,11 +202,16 @@ async def ingest(conn, t: dict, positions: list[tracking.Pos]) -> int:
             continue                                              # already had it (a feed asked twice)
         kept += 1
         latest[p.device] = p
+        if p.props.get("urgent"):                                 # a patrol in need, a hostile sighting: an alert of its own
+            await conn.execute("INSERT INTO track_alerts (tracker_id, project_id, device, name, kind, zone, ts, geom, notified) "
+                               "VALUES (%s, %s, %s, %s, 'urgent', %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s)",
+                               (t["id"], t["project_id"], p.device, p.name or p.device, str(p.props["urgent"])[:300], p.ts, p.lng, p.lat,
+                                "urgent" not in events))
         if p.device not in known:                                 # the first time this tracker sees the device: an alert
             known.add(p.device)
             cur = await conn.execute("INSERT INTO track_devices (tracker_id, device, name) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING RETURNING device",
                                      (t["id"], p.device, p.name or p.device))
-            if await cur.fetchone():
+            if await cur.fetchone() and not p.device.startswith("rpt:"):          # (a sighting report is not a device)
                 await conn.execute("INSERT INTO track_alerts (tracker_id, project_id, device, name, kind, ts, geom, notified) "
                                    "VALUES (%s, %s, %s, %s, 'new', %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s)",
                                    (t["id"], t["project_id"], p.device, p.name or p.device, p.ts, p.lng, p.lat, "new" not in events))
@@ -231,10 +236,10 @@ async def ingest(conn, t: dict, positions: list[tracking.Pos]) -> int:
         d = await cur.fetchone()
         if d and d["last_ts"] and d["last_ts"] >= p.ts and d["feature_id"]:
             continue
-        details = "; ".join(f"{k}: {v}" for k, v in p.props.items() if v not in (None, "") and k not in ("status",))[:500]
+        details = "; ".join(f"{k}: {v}" for k, v in p.props.items() if v not in (None, "") and k not in ("status", "sidc", "urgent"))[:500]
         props = {"device": dev, "name": p.name or dev, "time": p.ts.isoformat(), "speed_kmh": None if p.speed_kmh is None else round(p.speed_kmh, 1),
                  "course": None if p.course is None else round(p.course, 1), "altitude": None if p.altitude is None else round(p.altitude, 1),
-                 "tracker": t["name"], "details": details or None}
+                 "tracker": t["name"], "details": details or None, **({"sidc": p.props["sidc"]} if p.props.get("sidc") else {})}
         fid = d["feature_id"] if d else None
         if fid and t["layer_id"]:
             cur = await conn.execute("UPDATE features SET geom = ST_SetSRID(ST_MakePoint(%s, %s), 4326), props = props || %s, updated_at = now() "

@@ -221,7 +221,7 @@ export interface HubDataset {
   /** A raster on its way: Geohub is preparing it ("processing"), then it is "ready", or "failed" with the reason in `error`. */
   upload?: string; status?: "uploading" | "processing" | "ready" | "failed"; error?: string | null; geometry_type?: string;
 }
-export interface LinkedSource { app: "land" | "farm" | "hub"; app_name: string; label: string; geometry_type: string; form_id?: string; features?: number; approved?: number; available: boolean; why: string | null }
+export interface LinkedSource { app: "land" | "farm" | "hub"; app_name: string; label: string; geometry_type: string; form_id?: string; features?: number; approved?: number; available: boolean; why: string | null; template?: string }
 export interface ModelInput { name: string; label: string; kinds: ("Point" | "LineString" | "Polygon" | "Raster")[] }
 export interface ModelStep { id: string; tool: string; kind: "vector" | "raster"; params: Record<string, unknown>; output_name: string; keep?: boolean }
 export interface ModelDraft { name: string; description: string; inputs: ModelInput[]; steps: ModelStep[] }

@@ -144,8 +144,8 @@ export interface Tracker {
   devices: number; ingest_url?: string; created_at: string;
 }
 /** Where a tracker's alerts go on WhatsApp, and which: a new device, entering or leaving a geofence. */
-export interface TrackNotify { provider: "waha" | "brevo" | "meta" | "twilio" | "callmebot"; to: string; events: ("new" | "enter" | "exit")[]; active: boolean }
-export interface TrackAlert { id: number; tracker_id: string; tracker: string; device: string; name: string | null; kind: "enter" | "exit" | "new"; zone: string | null; ts: string; x: number; y: number }
+export interface TrackNotify { provider: "waha" | "brevo" | "meta" | "twilio" | "callmebot"; to: string; events: ("urgent" | "new" | "enter" | "exit")[]; active: boolean }
+export interface TrackAlert { id: number; tracker_id: string; tracker: string; device: string; name: string | null; kind: "enter" | "exit" | "new" | "urgent"; zone: string | null; ts: string; x: number; y: number }
 export interface TrackingLive { positions: GeoJSON.FeatureCollection; trails: GeoJSON.FeatureCollection; alerts: TrackAlert[]; at: string }
 
 /** An imagery service the organization added (or a built-in free one): tiles (XYZ, WMS) or a STAC catalogue of scenes. */

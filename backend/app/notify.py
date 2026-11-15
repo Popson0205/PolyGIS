@@ -1,4 +1,4 @@
-"""Tracking alerts sent to WhatsApp: a new device seen, or a device entering or leaving a geofence.
+"""Tracking alerts sent to WhatsApp: an urgent report (a patrol asking for support, a hostile sighting), a new device seen, or a device entering or leaving a geofence.
 
 Three ways to send, chosen per tracker; the keys are kept server-side in the tracker's secret and never sent to the browser:
 - meta:      WhatsApp Cloud API (Meta). Keys wa_token, wa_phone_id; wa_template (optional) for messages outside the 24-hour window,
@@ -17,7 +17,7 @@ import re
 import httpx
 
 PROVIDERS = ("waha", "brevo", "meta", "twilio", "callmebot")
-EVENTS = ("new", "enter", "exit")
+EVENTS = ("urgent", "new", "enter", "exit")
 NEEDS = {"waha": ("waha_url",), "brevo": ("brevo_key", "brevo_sender"), "meta": ("wa_token", "wa_phone_id"), "twilio": ("twilio_sid", "twilio_token", "twilio_from"), "callmebot": ("callmebot_key",)}
 MIN_GAP_S = 60                       # at most one message a minute per tracker; alerts in between go together in the next
 MAX_LINES = 15
@@ -52,7 +52,9 @@ def compose(tracker: str, alerts: list[dict]) -> str:
         who = a.get("name") or a["device"]
         at = a["ts"].strftime("%H:%M UTC") if hasattr(a["ts"], "strftime") else str(a["ts"])
         where = f" ({a['y']:.5f}, {a['x']:.5f})" if a.get("x") is not None else ""
-        if a["kind"] == "new":
+        if a["kind"] == "urgent":
+            lines.append(f"🚨 {a['zone']} at {at}{where}")
+        elif a["kind"] == "new":
             lines.append(f"• New device: {who} at {at}{where}")
         else:
             lines.append(f"• {who} {'entered' if a['kind'] == 'enter' else 'left'} {a['zone']} at {at}{where}")

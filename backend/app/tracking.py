@@ -192,6 +192,11 @@ async def adsb(cfg: dict, secret: dict) -> tuple[list[Pos], str | None]:
     return await _adsb(cfg, secret, "adsb.lol"), None
 
 
+OPEN_ADSB = {"adsb.lol": "https://api.adsb.lol/v2/point/{lat}/{lng}/{nm}",
+             "airplanes.live": "https://api.airplanes.live/v2/point/{lat}/{lng}/{nm}",
+             "adsb.fi": "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lng}/dist/{nm}"}
+
+
 async def _adsb(cfg: dict, secret: dict, source: str) -> list[Pos]:
     w, s, e, n = _bbox(cfg)
     async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=8), transport=TRANSPORT, headers={"User-Agent": "PolyGIS tracking"}) as c:
@@ -209,22 +214,37 @@ async def _adsb(cfg: dict, secret: dict, source: str) -> list[Pos]:
             return out
         lat, lng = (s + n) / 2, (w + e) / 2
         half = max(abs(n - s) / 2 * 60, abs(e - w) / 2 * 60 * math.cos(math.radians(lat)))         # nautical miles to the edge
-        r = await c.get(f"https://api.adsb.lol/v2/point/{lat:.5f}/{lng:.5f}/{min(250, max(1, math.ceil(half * 1.42)))}")
-        r.raise_for_status()
+        nm = min(250, max(1, math.ceil(half * 1.42)))
+        # three open networks, each fed by its own volunteers' receivers: asked together, so an aircraft any of them hears is shown
+        urls = [u.format(lat=f"{lat:.5f}", lng=f"{lng:.5f}", nm=nm) for u in OPEN_ADSB.values()]
+        got = await asyncio.gather(*(c.get(u) for u in urls), return_exceptions=True)
+        answers = [g for g in got if isinstance(g, httpx.Response) and g.status_code < 400]
+        if not answers:
+            bad = next((g for g in got if isinstance(g, httpx.Response)), None)
+            if bad is not None:
+                bad.raise_for_status()
+            raise next(g for g in got if isinstance(g, BaseException))
         now = _now()
-        out = []
-        for a in r.json().get("ac") or []:
-            if a.get("lat") is None or a.get("lon") is None or not (s <= a["lat"] <= n and w <= a["lon"] <= e):
+        best: dict[str, Pos] = {}
+        for r in answers:
+            try:
+                body = r.json()
+            except ValueError:
                 continue
-            alt = a.get("alt_geom") if isinstance(a.get("alt_geom"), (int, float)) else a.get("alt_baro")
-            alt_m = alt * 0.3048 if isinstance(alt, (int, float)) else 0.0 if alt == "ground" else None
-            gs = _num(a.get("gs"))
-            call = (a.get("flight") or "").strip()
-            out.append(Pos(a["hex"], a["lon"], a["lat"], now - timedelta(seconds=float(a.get("seen_pos") or 0)), call or a.get("r") or a["hex"],
-                           gs * KNOT_KMH if gs is not None else None, _num(a.get("track")), alt_m,
-                           {"callsign": call, "registration": a.get("r"), "type": a.get("t"), "squawk": a.get("squawk"),
-                            "category": a.get("category"), "emergency": a.get("emergency") if a.get("emergency") not in (None, "none") else None}))
-        return out
+            for a in body.get("ac") or body.get("aircraft") or []:
+                if not a.get("hex") or a.get("lat") is None or a.get("lon") is None or not (s <= a["lat"] <= n and w <= a["lon"] <= e):
+                    continue
+                alt = a.get("alt_geom") if isinstance(a.get("alt_geom"), (int, float)) else a.get("alt_baro")
+                alt_m = alt * 0.3048 if isinstance(alt, (int, float)) else 0.0 if alt == "ground" else None
+                gs = _num(a.get("gs"))
+                call = (a.get("flight") or "").strip()
+                p = Pos(a["hex"], a["lon"], a["lat"], now - timedelta(seconds=float(a.get("seen_pos") or 0)), call or a.get("r") or a["hex"],
+                        gs * KNOT_KMH if gs is not None else None, _num(a.get("track")), alt_m,
+                        {"callsign": call, "registration": a.get("r"), "type": a.get("t"), "squawk": a.get("squawk"),
+                         "category": a.get("category"), "emergency": a.get("emergency") if a.get("emergency") not in (None, "none") else None})
+                if a["hex"] not in best or p.ts > best[a["hex"]].ts:                  # the freshest report of each aircraft
+                    best[a["hex"]] = p
+        return list(best.values())
 
 
 async def ais(cfg: dict, secret: dict, seconds: float = 8.0) -> list[Pos]:
@@ -279,8 +299,25 @@ async def ais(cfg: dict, secret: dict, seconds: float = 8.0) -> list[Pos]:
     return list(ships.values())
 
 
+# Geohub's ready-made forms for PolyGIS (their question ids are fixed): a patrol check-in and a SALUTE sighting report
+UNIT_FN = {"Infantry": "UCI---", "Mechanised infantry": "UCIZ--", "Reconnaissance": "UCR---", "Armour": "UCA---", "Engineer": "UCE---",
+           "Military police": "UULM--", "Medical": "USM---", "Supply or transport": "UST---", "Signal": "UUS---", "Special forces": "UCS---",
+           "Police": "UULM--", "Civil defence or NGO": "USAC--"}
+SIGHTED_FN = {"Armed group": "UCI---", "Person": "UCI---", "Vehicle": "EVUS--", "Armoured vehicle": "EVAA--", "Motorcycle": "EVUS--",
+              "Boat": None, "Aircraft or drone": None, "Camp or hideout": "IB----", "Checkpoint or roadblock": "I-----",
+              "Weapon or cache": "IR----", "Explosive device (IED)": "EXI---", "Fire or explosion": None}
+IDENTITY = {"Hostile": "H", "Suspect": "S", "Unknown": "U", "Neutral": "N", "Friendly": "F"}
+URGENT_STATUS = ("Need support", "Emergency")
+
+
+def sidc(affiliation: str, fn: str | None, dim: str = "G") -> str:
+    return f"S{affiliation}{dim}P{(fn or '------')[:6]:-<6}-----"
+
+
 def geohub_positions(page_features: list[dict]) -> list[Pos]:
-    """Geohub form submissions as positions: where each was made, by whom and when."""
+    """Geohub form submissions as positions. A patrol check-in is the position of its call sign (one device per patrol, with
+    its trail); a sighting report is a symbol of its own; any other form: where each was made, by whom and when.
+    An urgent one (a patrol in need, a hostile or suspect sighting) carries the alert text in props["urgent"]."""
     import shapely
     import shapely.geometry
     out = []
@@ -293,10 +330,34 @@ def geohub_positions(page_features: list[dict]) -> list[Pos]:
             continue
         pt = g if g.geom_type == "Point" else g.representative_point()
         who = f.get("created_by_name") or "Unknown"
-        props = {k: (", ".join(map(str, v)) if isinstance(v, list) else v) for k, v in (f.get("properties") or {}).items()
-                 if isinstance(v, (str, int, float, bool, list))}
-        out.append(Pos(str(who)[:100], pt.x, pt.y, _time(f.get("created_at")), who, None, None, None,
-                       {**dict(list(props.items())[:30]), "status": f.get("status"), "report_id": str(f.get("id"))}))
+        raw = f.get("properties") or {}
+        props = {k: (", ".join(map(str, v)) if isinstance(v, list) else v) for k, v in raw.items()
+                 if isinstance(v, (str, int, float, bool, list)) and k != "photos"}
+        props = {**dict(list(props.items())[:30]), "status": f.get("status"), "report_id": str(f.get("id")), "reported_by": who}
+        ts = _time(f.get("created_at"))
+        if isinstance(raw.get("callsign"), str) and raw["callsign"].strip():                     # a patrol check-in
+            cs = raw["callsign"].strip()[:60]
+            props["sidc"] = sidc("F", UNIT_FN.get(raw.get("unit_type")) or "U-----")
+            st = raw.get("patrol_status")
+            if st in URGENT_STATUS:
+                need = ", ".join(raw.get("support_needed") or []) if isinstance(raw.get("support_needed"), list) else ""
+                n_hurt = raw.get("casualties")
+                hurt = f", {n_hurt} {'casualty' if n_hurt == 1 else 'casualties'}" if n_hurt else ""
+                props["urgent"] = f"{cs}: {st}" + (f" ({need}{hurt})" if need or hurt else "")
+            out.append(Pos("cs:" + cs.lower(), pt.x, pt.y, ts, cs, None, None, None, props))
+        elif isinstance(raw.get("sighted"), str):                                              # a SALUTE sighting report
+            what, ident = raw["sighted"], raw.get("identity") or "Unknown"
+            dim = "S" if what == "Boat" else "A" if what == "Aircraft or drone" else "G"
+            props["sidc"] = sidc(IDENTITY.get(ident, "U"), SIGHTED_FN.get(what), dim)
+            size = f"{raw['size']} × " if raw.get("size") else ""
+            name = f"{size}{what} ({ident.lower()})"
+            if ident in ("Hostile", "Suspect"):
+                act = f", {str(raw['activity']).lower()}" if raw.get("activity") else ""
+                props["urgent"] = f"{ident} sighting: {size}{what}{act}, reported by {who}"
+            out.append(Pos("rpt:" + str(f.get("id")), pt.x, pt.y, _time(raw.get("observed_at") or f.get("created_at")), name[:100],
+                           None, None, None, props))
+        else:
+            out.append(Pos(str(who)[:100], pt.x, pt.y, ts, who, None, None, None, props))
     return out
 
 
