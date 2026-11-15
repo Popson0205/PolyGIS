@@ -1019,27 +1019,6 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 .ws-mode.is-ctx::after { content: ""; position: absolute; top: 7px; right: 12px; width: 7px; height: 7px; border-radius: 50%; background: #e66101; box-shadow: 0 0 0 2px #fff; }
 .ws-mode:focus-visible { outline: 2px solid var(--c-violet); outline-offset: -2px; }
 
-.ws-ribbon { display: flex; align-items: center; min-width: 0; }
-.ws-strip-head { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 4px 0 14px; align-self: stretch; border-right: 1px solid var(--c-line-2); }
-.ws-strip-name { font: 600 12px var(--c-head-font); letter-spacing: .07em; text-transform: uppercase; color: var(--c-faint); white-space: nowrap; }
-.ws-ribbon.is-folded .ws-strip-head { border-right: 0; }
-.ws-ribbon-body { flex: 1; min-width: 0; height: 52px; padding: 0 6px; align-items: center; }
-.ws-group { flex-direction: row; align-items: center; height: auto; padding: 0 5px; }
-.ws-group + .ws-group::before { top: 50%; bottom: auto; height: 22px; transform: translateY(-50%); }
-.ws-group-body { align-items: center; gap: 2px; }
-.ws-group-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.ws-tb { flex-direction: row; gap: 7px; min-width: 0; max-width: none; min-height: 0; height: 38px; padding: 0 11px; border-radius: var(--r-tool); font: 500 13px var(--ge-font); white-space: nowrap; }
-.ws-tb svg { color: #3b4559; }
-.ws-tb .ws-tb-icon { height: auto; } .ws-tb .ws-tb-icon svg { width: 18px; height: 18px; stroke-width: 1.8; }
-.ws-tb.is-on { border-color: transparent; }
-.ws-tb-stack { flex-direction: row; gap: 2px; }
-.ws-tb-small { height: 38px; padding: 0 10px; border-radius: var(--r-tool); font-size: 13px; } .ws-tb-small svg { color: #3b4559; }
-.ws-tb-select { flex-direction: row; align-items: center; gap: 6px; padding: 0 4px; font-size: 12px; }
-.ws-tb-select select { height: 32px; min-width: 150px; border-radius: 8px; }
-.ws-basemaps { align-items: center; gap: 2px; padding: 0; }
-.ws-basemap { flex-direction: row; width: auto; height: 38px; gap: 6px; padding: 0 9px 0 6px; border-radius: var(--r-tool); font-size: 12.5px; }
-.ws-basemap i { width: 22px; height: 16px; border-radius: 4px; }
-.ws-basemap.is-on i { outline-width: 1.5px; }
 
 /* headings and accents in PolyGIS's own type and colour */
 .ws-titlebar .ge-brand, .ws-pane-head strong, .ws-pane-title, .ct-heading, .gis-page h1, .gis-page h2, .lo-bar > strong { font-family: var(--c-head-font); }
@@ -1051,9 +1030,6 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
   .ws-modes { width: 54px; } .ws-mode { width: 46px; min-height: 46px; font-size: 0; gap: 0; }
   .ws-strip-head { padding-left: 8px; } .ws-strip-name { display: none; }
 }
-.ws-strip-scroll { flex: none; width: 30px; height: 38px; margin: 0 2px; display: grid; place-items: center; border: 0; border-radius: 8px; background: var(--c-hover); color: var(--c-ink); cursor: pointer; }
-.ws-strip-scroll:hover { background: var(--c-violet-50); color: var(--c-violet); }
-.ws-ribbon-body { scrollbar-width: none; scroll-behavior: smooth; } .ws-ribbon-body::-webkit-scrollbar { display: none; }
 
 /* every mode's tools are on the page (Ask finds them); only the open mode's show */
 .ws-mode-tools { display: contents; } .ws-mode-tools[hidden] { display: none !important; }
@@ -1189,31 +1165,19 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 .wn-moves dt { color: var(--c-faint); text-decoration: line-through; text-decoration-color: var(--c-line); } .wn-moves dd { margin: 0; font-weight: 600; }
 .wn-acts { display: flex; gap: 8px; margin-top: 10px; }
 
-/* ---------- the mode's tools as a ribbon: every tool in sight, in named groups, two rows high; groups wrap, never scroll ---------- */
-.ws-ribbon { align-items: stretch; }
-.ws-strip-head { align-self: stretch; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px; padding: 0 8px 0 14px; min-width: 92px; box-sizing: border-box; }
-.ws-ribbon-body { height: auto; min-height: 0; flex-wrap: wrap; overflow: visible; align-items: stretch; row-gap: 4px; padding: 6px 6px 7px; }
-.ws-group { flex-direction: column; align-items: flex-start; justify-content: flex-start; height: auto; padding: 0 9px; gap: 3px; }
-.ws-group + .ws-group::before { top: 6px; bottom: 4px; height: auto; transform: none; }
-.ws-group-name { position: static; width: auto; height: auto; overflow: visible; clip: auto; order: 0; padding: 0 2px; font: 600 10.5px/14px var(--ge-font); letter-spacing: .06em; text-transform: uppercase; color: var(--c-faint); white-space: nowrap; }
-.ws-group-body { display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, 32px); grid-auto-columns: max-content; gap: 2px 2px; align-items: center; }
-.ws-group-body > .ws-tb-stack, .ws-group-body > .ws-basemaps { display: contents; }
-.ws-tb, .ws-tb-small { height: 32px; padding: 0 9px; gap: 6px; font-size: 12.5px; border-radius: 8px; }
-.ws-tb .ws-tb-icon svg, .ws-tb-small .ws-tb-icon svg { width: 16px; height: 16px; }
-.ws-basemap { height: 32px; padding: 0 8px 0 5px; font-size: 12.5px; }
-.ws-tb-select { height: 32px; font-size: 12px; } .ws-tb-select select { height: 28px; min-width: 130px; }
-.ws-strip-scroll { display: none; }
-.ws.is-focus > .ws-ribbon { max-height: calc(100vh - 220px); overflow-y: auto; }
-@media (max-width: 720px) { .ws-group-name { display: none; } .ws-strip-head { min-width: 0; } }
-.ws-mode-tools:not([hidden]) + .ws-mode-tools:not([hidden]) > .ws-group:first-child::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 4px; border-left: 1px solid var(--c-line-2); }
-/* three rows high, so every mode fits on one line from 1366 px */
-.ws-group-body { grid-template-rows: repeat(3, 28px); gap: 1px 2px; }
-.ws-tb, .ws-tb-small, .ws-basemap, .ws-tb-select { height: 28px; }
-.ws-tb-select select { height: 26px; }
-.ws-ribbon-body { padding: 5px 4px 6px 8px; }
-.ws-ribbon-fold { flex: none; align-self: flex-start; margin: 6px 6px 0 0; }
-.ws-ribbon.is-folded { align-items: center; } .ws-ribbon.is-folded .ws-ribbon-fold { align-self: center; margin: 4px 6px 4px auto; }
-.ws-ribbon > .ws-strip-name { padding: 0 14px; }
 /* Focus: the floating cards start under the floating ribbon (higher when it is folded) */
 .ws.is-focus .fl, .ws.is-focus .ws-body > .ws-right { top: 146px; }
 .ws.is-focus:has(.ws-ribbon.is-folded) .fl, .ws.is-focus:has(.ws-ribbon.is-folded) .ws-body > .ws-right { top: 74px; }
+
+/* the ribbon as it was: large buttons, the group's name under them, 100 px high; the fold arrow at its end */
+.ws-ribbon { display: flex; align-items: stretch; min-width: 0; }
+.ws-ribbon-body { flex: 1; min-width: 0; }
+.ws-ribbon-fold { flex: none; align-self: flex-start; margin: 6px 6px 0 2px; }
+.ws-ribbon.is-folded { align-items: center; } .ws-ribbon.is-folded .ws-ribbon-fold { margin: 4px 6px 4px auto; }
+.ws-ribbon > .ws-strip-name { padding: 0 14px; font: 600 12px var(--c-head-font); letter-spacing: .07em; text-transform: uppercase; color: var(--c-faint); white-space: nowrap; }
+.ws-mode-tools:not([hidden]) + .ws-mode-tools:not([hidden]) > .ws-group:first-child::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 8px; border-left: 1px solid var(--c-line-2); }
+.ws-modes-gap { flex: 1; min-height: 6px; }
+.ws-mode.ws-mode-fold { min-height: 44px; font-size: 10.5px; color: var(--c-faint); }
+.ws-mode.ws-mode-fold { background: none; font-weight: 500; } .ws-mode.ws-mode-fold:hover { color: var(--c-ink); background: var(--c-hover); }
+.ws-mode.ws-mode-fold .ws-mode-icon svg { width: 17px; height: 17px; }
+.ws.is-focus > .ws-modes .ws-modes-gap, .ws.is-focus > .ws-modes .ws-mode-fold { display: none; }

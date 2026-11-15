@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scissors, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, ZoomIn, Hand, Maximize2, Minimize2, Moon, Database, PenLine, Image as ImageIcon,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scissors, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, ZoomIn, Hand, Maximize2, Scan, Minimize2, Moon, Database, PenLine, Image as ImageIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -792,8 +792,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     const out: Command[] = [];
     document.querySelectorAll<HTMLButtonElement>(".ws-mode-tools button").forEach((b, i) => {
       const label = (b.textContent ?? "").replace(/\s+/g, " ").trim();
-      const raw = (b.closest("[data-mode]") as HTMLElement | null)?.dataset.mode ?? "";
-      const mode = raw === "select-in-explore" ? "map" : raw;
+      const mode = (b.closest("[data-mode]") as HTMLElement | null)?.dataset.mode ?? "";
       if (!label || !names[mode]) return;
       const id = `${mode}-${i}`;
       cmdEls.current.set(id, b);
@@ -813,8 +812,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       map.current?.flyTo({ center: [h.lng, h.lat], zoom: Math.max(map.current.getZoom(), 14) });
     } else {
       const b = cmdEls.current.get(h.id);
-      const raw = b?.closest<HTMLElement>("[data-mode]")?.dataset.mode;
-      const mode = (raw === "select-in-explore" ? "map" : raw) as Tab | undefined;
+      const mode = b?.closest<HTMLElement>("[data-mode]")?.dataset.mode as Tab | undefined;
       if (mode) { setTab(mode); setRibbonFolded(false); }
       requestAnimationFrame(() => b?.click());
     }
@@ -934,7 +932,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     </aside>
   );
   /** The modes down the left: each brings its own tools into the tool row. */
-  const tabs: [Tab, string, ReactNode][] = [["map", "Explore", <Compass key="i" />], ["insert", "Data", <Database key="i" />],
+  const tabs: [Tab, string, ReactNode][] = [["map", "Explore", <Compass key="i" />], ["insert", "Data", <Database key="i" />], ["select", "Select", <MousePointerClick key="i" />],
     ["edit", "Edit", <PenLine key="i" />], ["analysis", "Analyse", <Wrench key="i" />], ...(me.features.includes("raster") ? [["imagery", "Imagery", <ImageIcon key="i" />] as [Tab, string, ReactNode]] : []),
     ["military", "Defence", <Shield key="i" />], ["earth", "Earth", <Earth key="i" />], ["share", "Publish", <UploadCloud key="i" />]];
   const modeName = tabs.find(([t]) => t === tab)?.[1] ?? "";
@@ -969,6 +967,10 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             onClick={() => { if (tab === t) setRibbonFolded(!ribbonFolded); else { setRibbonFolded(false); setTab(t); } }}>
             <span className="ws-mode-icon" aria-hidden="true">{icon}</span>{label}</button>
         ))}
+        <span className="ws-modes-gap" />
+        <button type="button" className="ws-mode ws-mode-fold" aria-expanded={!ribbonFolded} onClick={() => setRibbonFolded(!ribbonFolded)}
+          title={ribbonFolded ? `Show the ${modeName} tools` : "Fold the tools away"}>
+          <span className="ws-mode-icon" aria-hidden="true">{ribbonFolded ? <ChevronDown /> : <ChevronUp />}</span>{ribbonFolded ? "Show tools" : "Fold tools"}</button>
       </nav>
 
       <section className={`ws-ribbon${ribbonFolded ? " is-folded" : ""}`} aria-label={`${modeName} tools`}>
@@ -1012,12 +1014,19 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => setDialog("crs")} icon={<Globe2 />} label={crs ? shortCrs(crs.name) : `EPSG:${project.display_epsg}`} />
             </Group>
           </div>
-          <div className="ws-mode-tools" data-mode="select-in-explore" hidden={tab !== "map"}>
-            <Group name="Select">
+          <div className="ws-mode-tools" data-mode="select" hidden={tab !== "select"}>
+            <Group name="Interactive">
               <Tb on={tool === "select"} onClick={() => chooseTool("select")} icon={<MousePointerClick />} label="Select" disabled={!active || active.geometry_type === "Raster"} />
               <Tb on={tool === "select-area"} onClick={() => chooseTool("select-area")} icon={<Lasso />} label="By shape" disabled={!active || active.geometry_type === "Raster"} />
+            </Group>
+            <Group name="Queries">
               <Tb onClick={() => setDialog("attr")} icon={<ListFilter />} label="Filter by values" disabled={!active || active.geometry_type === "Raster"} />
               <Tb onClick={() => setDialog("loc")} icon={<LocateFixed />} label="By place" disabled={!active || active.geometry_type === "Raster"} />
+            </Group>
+            <Group name="Selection">
+              <Tb onClick={() => void switchSelection()} icon={<ArrowLeftRight />} label="Invert" disabled={!active || active.geometry_type === "Raster"} />
+              <Tb onClick={() => setSelection({})} icon={<Eraser />} label="Clear" disabled={!totalSel} />
+              <Tb onClick={() => active && void zoomToSelection(active)} icon={<Scan />} label="Zoom to" disabled={!active || !sel(active.id).length} />
             </Group>
           </div>
           <div className="ws-mode-tools" data-mode="insert" hidden={tab !== "insert"}>
@@ -1111,21 +1120,31 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => { setGeorefFile(null); setGeorefLayer(null); setGeorefOpen(true); }} icon={<MapPinned />} label="Georeference" disabled={!canEdit} />
             </Group>
             <Group name="Correct">
-              <Tb onClick={() => openTool("to_reflectance")} icon={<Gauge />} label="To reflectance" />
-              <Tb onClick={() => openTool("dark_object_subtraction")} icon={<CloudFog />} label="Atmospheric" />
-              <Tb onClick={() => openTool("cloud_mask")} icon={<CloudOff />} label="Cloud mask" />
-              <Tb onClick={() => openTool("topographic_correction")} icon={<Mountain />} label="Topographic" />
-              <Tb onClick={() => openTool("pan_sharpen")} icon={<Focus />} label="Pan-sharpen" />
-              <Tb onClick={() => openTool("fill_nodata")} icon={<PaintBucket />} label="Fill gaps" />
+              <div className="ws-tb-stack">
+                <Ts onClick={() => openTool("to_reflectance")} icon={<Gauge size={16} />} label="To reflectance" />
+                <Ts onClick={() => openTool("dark_object_subtraction")} icon={<CloudFog size={16} />} label="Atmospheric" />
+                <Ts onClick={() => openTool("cloud_mask")} icon={<CloudOff size={16} />} label="Cloud mask" />
+              </div>
+              <div className="ws-tb-stack">
+                <Ts onClick={() => openTool("topographic_correction")} icon={<Mountain size={16} />} label="Topographic" />
+                <Ts onClick={() => openTool("pan_sharpen")} icon={<Focus size={16} />} label="Pan-sharpen" />
+                <Ts onClick={() => openTool("fill_nodata")} icon={<PaintBucket size={16} />} label="Fill gaps" />
+              </div>
             </Group>
             <Group name="Enhance">
-              <Tb onClick={() => openTool("brightness_contrast")} icon={<SunMedium />} label="Brightness" />
-              <Tb onClick={() => openTool("stretch")} icon={<SlidersHorizontal />} label="Stretch" />
-              <Tb onClick={() => openTool("clahe")} icon={<Contrast />} label="Local contrast" />
-              <Tb onClick={() => openTool("unsharp_mask")} icon={<Sparkles />} label="Sharpen" />
-              <Tb onClick={() => openTool("dehaze")} icon={<Haze />} label="Haze removal" />
-              <Tb onClick={() => openTool("denoise")} icon={<Eraser />} label="Noise removal" />
-              <Tb onClick={() => openTool("histogram_match")} icon={<Palette />} label="Match colours" />
+              <div className="ws-tb-stack">
+                <Ts onClick={() => openTool("brightness_contrast")} icon={<SunMedium size={16} />} label="Brightness" />
+                <Ts onClick={() => openTool("stretch")} icon={<SlidersHorizontal size={16} />} label="Stretch" />
+                <Ts onClick={() => openTool("clahe")} icon={<Contrast size={16} />} label="Local contrast" />
+              </div>
+              <div className="ws-tb-stack">
+                <Ts onClick={() => openTool("unsharp_mask")} icon={<Sparkles size={16} />} label="Sharpen" />
+                <Ts onClick={() => openTool("dehaze")} icon={<Haze size={16} />} label="Haze removal" />
+                <Ts onClick={() => openTool("denoise")} icon={<Eraser size={16} />} label="Noise removal" />
+              </div>
+              <div className="ws-tb-stack">
+                <Ts onClick={() => openTool("histogram_match")} icon={<Palette size={16} />} label="Match colours" />
+              </div>
             </Group>
             <Group name="Analyse">
               <Tb onClick={() => openTool("normalized_difference")} icon={<Leaf />} label="NDVI" />
@@ -1211,9 +1230,6 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             </Group>
           </div>
         </div>
-        <IconButton className="ws-ribbon-fold" label={ribbonFolded ? `Show the ${modeName} tools` : "Fold the tools away"} onClick={() => setRibbonFolded(!ribbonFolded)}>
-          {ribbonFolded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-        </IconButton>
       </section>
 
       <ViewTabs tabs={views} current={viewNow} maps={maps} layouts={savedLayouts} onPick={pickView} onClose={closeView}
