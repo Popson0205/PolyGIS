@@ -252,6 +252,11 @@ def test_whatsapp_providers(monkeypatch):
         seen.append(req)
         if req.url.host == "graph.facebook.com" and b"bad" in req.headers.get("authorization", "").encode():
             return httpx.Response(401, json={"error": {"message": "Invalid OAuth access token."}})
+        if req.url.host == "api.brevo.com":
+            b = json.loads(req.content)
+            if "text" in b:
+                return httpx.Response(400, json={"code": "invalid_parameter", "message": "Send a template first."})
+            return httpx.Response(201, json={"messageId": "m1"}) if b["templateId"] == 42 else httpx.Response(400, json={"message": "Template not approved."})
         return httpx.Response(200, json={"ok": True}) if req.url.host != "api.callmebot.com" else httpx.Response(200, text="Message queued.")
     monkeypatch.setattr(notify, "TRANSPORT", httpx.MockTransport(answer))
     to = "+2340000000000"
@@ -265,6 +270,20 @@ def test_whatsapp_providers(monkeypatch):
     assert b"whatsapp%3A%2B14155238886" in seen[-1].content and seen[-1].url.path.endswith("/AC1/Messages.json")
     asyncio.run(notify.send("callmebot", to, "hi", {"callmebot_key": "k"}))
     assert seen[-1].url.params["apikey"] == "k"
+    # WAHA, self-hosted
+    asyncio.run(notify.send("waha", to, "hi", {"waha_url": "http://waha.railway.internal:3000/", "waha_key": "WK"}))
+    assert str(seen[-1].url) == "http://waha.railway.internal:3000/api/sendText" and seen[-1].headers["x-api-key"] == "WK"
+    assert json.loads(seen[-1].content) == {"session": "default", "chatId": to[1:] + "@c.us", "text": "hi"}
+    with pytest.raises(notify.SendError, match="http"):
+        asyncio.run(notify.send("waha", to, "hi", {"waha_url": "file:///etc/passwd"}))
+    # Brevo: text first; refused (no conversation open), the approved template
+    n = len(seen)
+    asyncio.run(notify.send("brevo", to, "hi", {"brevo_key": "BK", "brevo_sender": "+2340000000001", "brevo_template": "42"}))
+    sent = [json.loads(r.content) for r in seen[n:]]
+    assert seen[-1].headers["api-key"] == "BK" and sent[0] == {"senderNumber": "2340000000001", "contactNumbers": [to[1:]], "text": "hi"}
+    assert sent[1]["templateId"] == 42 and sent[1]["params"] == {"ALERT": "hi"}
+    with pytest.raises(notify.SendError, match="Template not approved"):
+        asyncio.run(notify.send("brevo", to, "hi", {"brevo_key": "BK", "brevo_sender": "+2340000000001", "brevo_template": "7"}))
     with pytest.raises(notify.SendError, match="Invalid OAuth"):
         asyncio.run(notify.send("meta", to, "hi", {"wa_token": "bad", "wa_phone_id": "123"}))
     with pytest.raises(notify.SendError, match="wa_phone_id"):

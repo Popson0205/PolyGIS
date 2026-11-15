@@ -94,7 +94,7 @@ def _notify_ok(n) -> dict | None:
     if not isinstance(n, dict) or not (n.get("to") or "").strip():
         return None
     if n.get("provider") not in notify.PROVIDERS:
-        raise Problem(422, "Choose how WhatsApp messages are sent: meta, twilio or callmebot.", code="validation", fields={"config.notify.provider": ["invalid"]})
+        raise Problem(422, "Choose how WhatsApp messages are sent: waha, brevo, meta, twilio or callmebot.", code="validation", fields={"config.notify.provider": ["invalid"]})
     try:
         to = notify.phone(n["to"])
     except ValueError as e:

@@ -129,6 +129,12 @@ const km = (b: [number, number, number, number]) => Math.round(Math.min((b[2] - 
 const small = (b: [number, number, number, number]) => km(b) < 60;
 
 const SENDERS: { id: TrackNotify["provider"]; name: string; keys: { k: string; label: string; optional?: boolean }[]; how: string }[] = [
+  { id: "waha", name: "WAHA (free, self-hosted)", keys: [{ k: "waha_url", label: "WAHA address" }, { k: "waha_key", label: "WAHA API key (if set)", optional: true },
+    { k: "waha_session", label: "Session (default: default)", optional: true }],
+    how: "Free and open source: deploy WAHA (devlikeapro/waha) as a service in your Railway project and link a WhatsApp number to it by scanning its QR code (as WhatsApp Web). Use a spare number: it sends the alerts. The address is e.g. http://waha.railway.internal:3000. WAHA is not an official WhatsApp API, so WhatsApp may block a number that sends a lot." },
+  { id: "brevo", name: "Brevo", keys: [{ k: "brevo_key", label: "Brevo API key" }, { k: "brevo_sender", label: "Sender (your WhatsApp number on Brevo)" },
+    { k: "brevo_template", label: "Template ID (approved WhatsApp template)", optional: true }],
+    how: "WhatsApp turned on in Brevo (Settings → WhatsApp, with a sender number). WhatsApp only lets a business start a conversation with an approved template: make one in Brevo (e.g. “PolyGIS alert: {{params.ALERT}}”) and give its ID. Plain text is sent while the conversation is open, the template otherwise." },
   { id: "callmebot", name: "CallMeBot (free, own number)", keys: [{ k: "callmebot_key", label: "CallMeBot API key" }],
     how: "From the WhatsApp number that gets the alerts, send “I allow callmebot to send me messages” to CallMeBot's number (see callmebot.com); it answers with the API key." },
   { id: "meta", name: "WhatsApp Cloud API (Meta)", keys: [{ k: "wa_token", label: "Access token" }, { k: "wa_phone_id", label: "Phone number ID" },
@@ -142,7 +148,7 @@ const EVENT_NAMES: Record<TrackNotify["events"][number], string> = { new: "A new
 /** Alerts of the tracker sent to a WhatsApp number. The keys stay on the server: the page only learns which are set. */
 function WhatsApp({ t, act }: { t: Tracker; act: (f: () => Promise<unknown>, done?: string) => Promise<void> }) {
   const n = t.config.notify;
-  const [provider, setProvider] = useState<TrackNotify["provider"]>(n?.provider ?? "callmebot");
+  const [provider, setProvider] = useState<TrackNotify["provider"]>(n?.provider ?? "waha");
   const [to, setTo] = useState(n?.to ?? "");
   const [events, setEvents] = useState<TrackNotify["events"]>(n?.events ?? (t.kind === "device" || t.kind === "geohub" ? ["new", "enter", "exit"] : ["enter", "exit"]));
   const [keys, setKeys] = useState<Record<string, string>>({});
@@ -159,7 +165,7 @@ function WhatsApp({ t, act }: { t: Tracker; act: (f: () => Promise<unknown>, don
       <p className="ws-muted">{s.how}</p>
       <label className="ws-f">WhatsApp number<input value={to} onChange={(e) => setTo(e.target.value)} placeholder="+234 …" inputMode="tel" autoComplete="off" /></label>
       {s.keys.map(({ k, label }) => <label key={k} className="ws-f">{label}
-        <input value={keys[k] ?? ""} onChange={(e) => setKeys({ ...keys, [k]: e.target.value })} type={k === "wa_template" ? "text" : "password"} autoComplete="off"
+        <input value={keys[k] ?? ""} onChange={(e) => setKeys({ ...keys, [k]: e.target.value })} type={k === "wa_template" || k === "brevo_template" || k === "brevo_sender" || k === "waha_url" || k === "waha_session" ? "text" : "password"} autoComplete="off"
           placeholder={t.secret_set.includes(k) ? "Set; type to change" : ""} /></label>)}
       <fieldset className="trk-events"><legend>Send when</legend>
         {(Object.keys(EVENT_NAMES) as TrackNotify["events"]).map((e) => <label key={e}><input type="checkbox" checked={events.includes(e)}
