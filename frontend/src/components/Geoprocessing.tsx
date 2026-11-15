@@ -8,9 +8,13 @@ const WORD: Record<string, string> = { Point: "points", LineString: "lines", Pol
 const when = (d: string) => new Date(d).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 /** The geoprocessing pane: find a tool, fill in its form, run it; the result arrives as a new layer. */
-export default function Geoprocessing({ projectId, layers, selection, activeId, allowed, rasterAllowed, canEdit, start, query = "", onClose, onDone }: {
+export default function Geoprocessing({ projectId, layers, selection, activeId, allowed, rasterAllowed, canEdit, start, query = "", onClose, onDone, mapView, preset }: {
   projectId: string; layers: Layer[]; selection: Record<string, number[]>; activeId: string | null; allowed: boolean; rasterAllowed?: boolean; canEdit: boolean;
   start?: string | null; query?: string; onClose: () => void; onDone: (l: Layer) => void;
+  /** What the map shows now, [west, south, east, north]: a tool can work over it. */
+  mapView?: () => [number, number, number, number] | null;
+  /** Values to start the opened tool with. */
+  preset?: Record<string, unknown>;
 }) {
   const [tools, setTools] = useState<Tool[]>([]);
   const [view, setView] = useState<"list" | "history">("list");
@@ -61,7 +65,7 @@ export default function Geoprocessing({ projectId, layers, selection, activeId, 
       {!allowed ? (
         <div className="ws-empty-state"><Wrench size={22} aria-hidden="true" /><span>Geoprocessing tools are in <b>PolyGIS Advanced</b>. Ask GeoEstate NIG Limited to move your organization to Advanced.</span></div>
       ) : tool ? (
-        <ToolForm key={tool.id} tool={tool} projectId={projectId} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit}
+        <ToolForm key={tool.id} tool={tool} projectId={projectId} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit} mapView={mapView} preset={tool.id === start ? preset : undefined}
           starred={stars.includes(tool.id)} onStar={() => setStars(stars.includes(tool.id) ? stars.filter((x) => x !== tool.id) : [...stars, tool.id])} onDone={onDone} />
       ) : (
         <>
@@ -89,8 +93,9 @@ export default function Geoprocessing({ projectId, layers, selection, activeId, 
   );
 }
 
-function ToolForm({ tool, projectId, layers, selection, activeId, canEdit, starred, onStar, onDone }: {
+function ToolForm({ tool, projectId, layers, selection, activeId, canEdit, starred, onStar, onDone, mapView, preset }: {
   tool: Tool; projectId: string; layers: Layer[]; selection: Record<string, number[]>; activeId: string | null; canEdit: boolean;
+  mapView?: () => [number, number, number, number] | null; preset?: Record<string, unknown>;
   starred: boolean; onStar: () => void; onDone: (l: Layer) => void;
 }) {
   // a raster parameter takes rasters only; any other layer parameter takes vector layers only
@@ -103,9 +108,10 @@ function ToolForm({ tool, projectId, layers, selection, activeId, canEdit, starr
         out[p.name] = (p.name === "input" && ok.find((l) => l.id === activeId)?.id) || ok[p.name === "input" ? 0 : Math.min(1, ok.length - 1)]?.id || "";
       } else if (p.type === "layers") out[p.name] = [];
       else if (p.type === "fields") out[p.name] = [];
+      else if (p.type === "extent") out[p.name] = "view";
       else if (p.default !== undefined) out[p.name] = p.default;
     }
-    return out;
+    return { ...out, ...(preset ?? {}) };
   });
   const [onlySel, setOnlySel] = useState<Record<string, boolean>>({});
   const [name, setName] = useState("");
@@ -119,6 +125,14 @@ function ToolForm({ tool, projectId, layers, selection, activeId, canEdit, starr
     setBusy(true); setError(null); setDone(null);
     const params: Record<string, unknown> = { ...v };
     for (const p of tool.params) if (p.type === "layer" && onlySel[p.name] && selection[String(v[p.name])]?.length) params[`${p.name}_ids`] = selection[String(v[p.name])];
+    for (const p of tool.params) {
+      if (p.type !== "extent" || !shown(p)) continue;              // the map view as it is now, or a layer's extent
+      if (v[p.name] === "view") {
+        const b = mapView?.();
+        if (!b) { setBusy(false); setError(new Error("The map is not ready yet.")); return; }
+        params[p.name] = b;
+      } else params[p.name] = { layer: v[p.name] };
+    }
     try {
       const r = await (tool.kind === "raster" ? api.runRasterTool : api.runTool)(projectId, tool.id, params, name.trim() || undefined);
       const what = r.layer.raster ? `a raster of ${r.layer.raster.width.toLocaleString("en-GB")} × ${r.layer.raster.height.toLocaleString("en-GB")} cells`
@@ -166,7 +180,16 @@ function ToolForm({ tool, projectId, layers, selection, activeId, canEdit, starr
         );
         if (p.type === "text") return (
           <div key={p.name} className="ws-f"><label htmlFor={id}>{p.label}{p.optional ? " (optional)" : ""}</label>
-            <input id={id} value={String(v[p.name] ?? "")} required={!p.optional} onChange={(e) => setV({ ...v, [p.name]: e.target.value })} /></div>
+            {p.lines
+              ? <textarea id={id} rows={7} className="ws-textarea" spellCheck={false} value={String(v[p.name] ?? "")} required={!p.optional} onChange={(e) => setV({ ...v, [p.name]: e.target.value })} />
+              : <input id={id} value={String(v[p.name] ?? "")} required={!p.optional} onChange={(e) => setV({ ...v, [p.name]: e.target.value })} />}</div>
+        );
+        if (p.type === "extent") return (
+          <div key={p.name} className="ws-f"><label htmlFor={id}>{p.label}</label>
+            <select id={id} value={String(v[p.name] ?? "view")} onChange={(e) => setV({ ...v, [p.name]: e.target.value })}>
+              <option value="view">The map as it is now</option>
+              {layers.filter((l) => l.bbox).map((l) => <option key={l.id} value={l.id}>The extent of {l.name}</option>)}
+            </select></div>
         );
         if (p.type === "bool") return (
           <label key={p.name} className="ws-check"><input type="checkbox" checked={!!v[p.name]} onChange={(e) => setV({ ...v, [p.name]: e.target.checked })} /> {p.label}</label>

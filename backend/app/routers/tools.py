@@ -70,6 +70,13 @@ async def run(project_id: UUID, tool: str, body: RunIn,
             if len(ids) < p.get("min", 1):
                 raise Problem(422, f"Choose at least {p.get('min', 1)} layers.", code="validation", fields={"params": [p["name"]]})
             layers[p["name"]] = [await layer_of(conn, x, user) for x in ids]
+        elif p["type"] == "extent":
+            # the map view as [west, south, east, north], or {"layer": id} for a layer's extent
+            if isinstance(v, dict) and v.get("layer"):
+                lay = await layer_of(conn, v["layer"], user)
+                if str(lay["project_id"]) != str(project_id) or not lay.get("bbox"):
+                    raise Problem(422, "That layer has no extent to use.", code="validation", fields={"params": [p["name"]]})
+                params[p["name"]] = list(lay["bbox"])
         elif p["type"] == "field" and v:
             of = layers.get(p.get("of", "input"))
             if of and v not in {f["name"] for f in of["fields"]}:
@@ -82,10 +89,10 @@ async def run(project_id: UUID, tool: str, body: RunIn,
         async with conn.transaction():                       # a savepoint: a failed tool leaves no half-made layer
             await conn.execute(f"SET LOCAL statement_timeout = '{int(settings.tool_timeout_s * 1000)}'")
             cur = await conn.execute(
-                "INSERT INTO layers (project_id, org_id, name, geometry_type, fields, style, position, source, created_by) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                (project_id, user["org_id"], out_name, built.kind, Jsonb(built.fields), Jsonb(default_style(built.kind, pos)), pos,
-                 Jsonb({"tool": tool, "tool_name": spec["name"]}), user["id"]))
+                "INSERT INTO layers (project_id, org_id, name, geometry_type, fields, style, labels, position, source, created_by) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (project_id, user["org_id"], out_name, built.kind, Jsonb(built.fields), Jsonb(built.style or default_style(built.kind, pos)),
+                 Jsonb(built.labels) if built.labels else None, pos, Jsonb({"tool": tool, "tool_name": spec["name"]}), user["id"]))
             lid = (await cur.fetchone())["id"]
             if built.compute:                                  # worked out in Python (statistics, networks)
                 made = await built.compute(conn)

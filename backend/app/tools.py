@@ -29,6 +29,8 @@ class Built:
     fields: list[dict]
     name: str
     compute: Callable | None = None  # async (conn) -> [(shapely geometry, props)], for tools worked out in Python
+    style: dict | None = None        # how the new layer is drawn, where the tool knows better than the default
+    labels: dict | None = None       # and labelled
 
 
 def _p(name, label, type, **kw):
@@ -370,4 +372,5 @@ def build(tool: str, params: dict, layers: dict[str, dict]) -> Built:
 
 from . import tools_more  # noqa: E402  (registers the rest of the toolbox; it builds on the helpers above)
 
+from . import tools_military  # noqa: E402,F401  (registers the Military tools)
 TOOLS.update(tools_more.TOOLS)

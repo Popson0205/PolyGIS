@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, FolderTree, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -16,6 +16,8 @@ import PolyEarth, { useEarthJobs } from "../components/PolyEarth";
 import LayerPanel from "../components/LayerPanel";
 import LayoutView from "../components/LayoutView";
 import Catalog, { ViewTabs, isNewLayout, viewKey, type ViewTab } from "../components/Catalog";
+import CoordinatePane from "../components/Military";
+import { NOTATIONS, NOTATION_NAMES, writeCoordinate, type Notation } from "../lib/milcoords";
 import Georeference from "../components/Georeference";
 import ModelBuilder from "../components/ModelBuilder";
 import Scenarios from "../components/Scenarios";
@@ -32,7 +34,7 @@ import { Editor } from "../lib/editor";
 import { BASEMAPS, GLOBAL_TERRAIN, GLYPHS, allIds, basemapStyle, ids as layerIds, labelSrc, mapLayers, src } from "../lib/mapstyle";
 import type { CrsDef, GisMap, Layer, Me, Project, Selection, VectorType, View } from "../lib/types";
 
-type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "imagery" | "earth" | "share";
+type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "imagery" | "military" | "earth" | "share";
 type Tool = "explore" | "select" | "select-area" | "measure-line" | "measure-area" | "create" | "reshape" | "pick-reshape";
 type DialogName = "add" | "imagery" | "new" | "attr" | "loc" | "export" | "crs" | "plan" | "share" | "publish" | "linked" | null;
 const DRAW = { Point: "point", LineString: "linestring", Polygon: "polygon" } as const;
@@ -74,7 +76,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [zoom, setZoom] = useState(0);
   const [measure, setMeasure] = useState<string>("");
   const [basemap, setBasemap] = useState("streets");
-  const [gp, setGp] = useState<{ open: boolean; start: string | null; query: string }>({ open: false, start: null, query: "" });
+  const [gp, setGp] = useState<{ open: boolean; start: string | null; query: string; preset?: Record<string, unknown> }>({ open: false, start: null, query: "" });
+  const [coordsOpen, setCoordsOpen] = useState(false);
+  const [coordFmt, setCoordFmt] = useStored<"crs" | Notation>("coord-format", "crs");
   const [earth, setEarth] = useState<{ open: boolean; start: string | null }>({ open: false, start: null });
   const [panelTab, setPanelTab] = useState<{ tab: PanelTab; n: number }>({ tab: "symbology", n: 0 });
   const [modelsOpen, setModelsOpen] = useState(false);
@@ -700,16 +704,18 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const pointerText = useMemo(() => {
     if (!pointer) return "";
     const [lng, lat] = pointer.split(",").map(Number);
+    if (coordFmt !== "crs") return writeCoordinate(coordFmt, lng, lat) ?? `${NOTATION_NAMES[coordFmt]} does not reach here`;
     return formatCoords(crs, lng, lat);
-  }, [pointer, crs]);
+  }, [pointer, crs, coordFmt]);
 
   if (error) return <div className="ge-main"><ErrorText error={error} /><Link to="/">All projects</Link></div>;
   if (!project) return <p className="loading">Opening the project…</p>;
   const editable = layers.filter((l) => canEdit && l.geometry_type !== "Raster" && !l.source.linked);
   const totalSel = Object.values(selection).reduce((n, x) => n + x.length, 0);
   const notice = licenceNotice(me.product);
-  const openTool = (t: string | null, q = "") => { setEarth({ open: false, start: null }); setScenariosOpen(false); setGp({ open: true, start: t, query: q }); setRightOpen(true); };
-  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
+  const openTool = (t: string | null, q = "", preset?: Record<string, unknown>) => { setEarth({ open: false, start: null }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setGp({ open: true, start: t, query: q, preset }); setRightOpen(true); };
+  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
+  const openCoords = () => { setCatalogOpen(false); setCoordsOpen(true); setRightOpen(true); };
   const kindWord = editLayer?.geometry_type === "Point" ? "points" : editLayer?.geometry_type === "LineString" ? "lines" : "polygons";
   const hint: Partial<Record<Tool, ReactNode>> = {
     select: <>Click features of <strong>{active?.name}</strong> to select them. Shift-click adds or removes.</>,
@@ -720,7 +726,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     "pick-reshape": <>Click the feature of <strong>{editLayer?.name}</strong> to reshape.</>,
     reshape: <>Drag a vertex to move it, a midpoint to add one; right-click a vertex to remove it.</>,
   };
-  const right = catalogOpen ? (
+  const right = coordsOpen ? (
+    <CoordinatePane map={map.current} onClose={() => setCoordsOpen(false)} onPoints={canEdit ? (text) => openTool("points_from_coordinates", "", { coordinates: text }) : undefined} />
+  ) : catalogOpen ? (
     <Catalog maps={maps} layouts={savedLayouts} mapId={mapId} current={viewNow} canEdit={canEdit} layoutsAllowed={layoutsAllowed}
       onOpenMap={(m) => void openMap(m)} onNewMap={() => void newMap()} onCopyMap={(m) => void newMap(m)} onRenameMap={(m, n) => void renameMap(m, n)} onDeleteMap={(m) => void deleteMap(m)}
       onOpenLayout={openLayoutTab} onNewLayout={newLayout} onRenameLayout={(l, n) => void renameLayout(l, n)} onDeleteLayout={(l) => void deleteLayout(l)} onClose={() => setCatalogOpen(false)} />
@@ -735,7 +743,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       start={earth.start} jobs={earthJobs.jobs} viewBox={mapBox} onStarted={earthJobs.add} onStop={(jid) => void earthJobs.stop(jid)} onClose={() => setEarth({ open: false, start: null })}
       onShowLayer={(l) => { setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); }} />
   ) : gp.open ? (
-    <Geoprocessing projectId={id} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit} query={gp.query}
+    <Geoprocessing projectId={id} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit} query={gp.query} preset={gp.preset} mapView={() => (map.current ? mapBox() : null)}
       allowed={me.features.includes("geoprocessing")} rasterAllowed={me.features.includes("raster")} start={gp.start} onClose={() => setGp({ open: false, start: null, query: "" })}
       onDone={(l) => { setLayers((cur) => [...cur, l]); setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); toast(`${l.name} added to the map.`, "success"); }} />
   ) : identify && tool === "explore" ? (
@@ -765,7 +773,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       <div className="ws-empty-state"><SlidersHorizontal size={22} aria-hidden="true" />Choose a layer in Contents to style it, label it and see its fields.</div>
     </aside>
   );
-  const tabs: [Tab, string][] = [["map", "Map"], ["insert", "Insert"], ["select", "Select"], ["edit", "Edit"], ["analysis", "Analysis"], ...(me.features.includes("raster") ? [["imagery", "Imagery"] as [Tab, string]] : []), ["earth", "Poly Earth"], ["share", "Share"]];
+  const tabs: [Tab, string][] = [["map", "Map"], ["insert", "Insert"], ["select", "Select"], ["edit", "Edit"], ["analysis", "Analysis"], ...(me.features.includes("raster") ? [["imagery", "Imagery"] as [Tab, string]] : []), ["military", "Military"], ["earth", "Poly Earth"], ["share", "Share"]];
   const openLayout = newLayout;
   const viewing = views.find((v) => viewKey(v) === viewNow) ?? null;
   const onLayout = viewing?.kind === "layout";
@@ -837,7 +845,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => setDialog("add")} icon={<FilePlus2 />} label="Add data" disabled={!canEdit} />
             </Group>
             <Group name="Project">
-              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) setCatalogOpen(false); else { setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Catalog" />
+              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) setCatalogOpen(false); else { setCoordsOpen(false); setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Catalog" />
             </Group>
             <Group name="Coordinates">
               <Tb onClick={() => setDialog("crs")} icon={<Globe2 />} label={crs ? shortCrs(crs.name) : `EPSG:${project.display_epsg}`} />
@@ -970,6 +978,22 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => openTool("change_detection")} icon={<ArrowLeftRight />} label="Change" />
             </Group>
           </>}
+          {tab === "military" && <>
+            <Group name="Coordinates">
+              <Tb on={coordsOpen && rightOpen} onClick={() => (coordsOpen ? setCoordsOpen(false) : openCoords())} icon={<Crosshair />} label="Convert" />
+              <Tb onClick={() => openTool("points_from_coordinates")} icon={<ListPlus />} label="To points" />
+              <Tb onClick={() => openTool("convert_notation")} icon={<Shield />} label="Notation fields" />
+              <div className="mil-fmt">
+                <label htmlFor="mil-fmt">Show the pointer in</label>
+                <select id="mil-fmt" value={coordFmt} onChange={(e) => setCoordFmt(e.target.value as "crs" | Notation)}>
+                  <option value="crs">The project's system</option>{NOTATIONS.map((n) => <option key={n} value={n}>{NOTATION_NAMES[n]}</option>)}</select>
+              </div>
+            </Group>
+            <Group name="Grids">
+              <Tb onClick={() => openTool("mgrs_grid")} icon={<Grid3x3 />} label="MGRS grid" />
+              <Tb onClick={() => openTool("gars_grid")} icon={<Grid2x2 />} label="GARS grid" />
+            </Group>
+          </>}
           {tab === "earth" && <>
             <Group name="Poly Earth">
               <Tb on={earth.open && !earth.start && rightOpen} onClick={() => (earth.open && !earth.start ? setEarth({ open: false, start: null }) : openEarth(null))} icon={<Earth />} label="All tools" />
@@ -1039,7 +1063,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
 
       <footer className="ws-status" aria-label="Status">
         <span className="ws-coords" title="Pointer position">{pointerText || "Point at the map for coordinates"}</span>
-        <button type="button" className="ws-crs" onClick={() => setDialog("crs")} title="Change the coordinate system">{crs ? crs.name : `EPSG:${project.display_epsg}`}</button>
+        <select className="ws-fmt" value={coordFmt} onChange={(e) => setCoordFmt(e.target.value as "crs" | Notation)} aria-label="Show the pointer position in" title="Show the pointer position in">
+          <option value="crs">{crs ? crs.name : `EPSG:${project.display_epsg}`}</option>{NOTATIONS.map((n) => <option key={n} value={n}>{NOTATION_NAMES[n]}</option>)}</select>
+        <button type="button" className="ws-crs" onClick={() => setDialog("crs")} title="Change the coordinate system">{coordFmt === "crs" ? "Change…" : (crs ? crs.name : `EPSG:${project.display_epsg}`)}</button>
         <span title="Map scale at the centre">1:{niceScale(scale)}</span>
         <span className="ws-zoom">Zoom {zoom.toFixed(1)}</span>
         {totalSel > 0 && <button type="button" className="ws-sel" onClick={() => setSelection({})} title="Clear the selection">{totalSel.toLocaleString("en-GB")} selected <X size={12} aria-hidden="true" /></button>}
