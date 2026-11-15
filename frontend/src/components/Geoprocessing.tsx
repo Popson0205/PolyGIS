@@ -184,6 +184,10 @@ function ToolForm({ tool, projectId, layers, selection, activeId, canEdit, starr
               ? <textarea id={id} rows={7} className="ws-textarea" spellCheck={false} value={String(v[p.name] ?? "")} required={!p.optional} onChange={(e) => setV({ ...v, [p.name]: e.target.value })} />
               : <input id={id} value={String(v[p.name] ?? "")} required={!p.optional} onChange={(e) => setV({ ...v, [p.name]: e.target.value })} />}</div>
         );
+        if (p.type === "date") return (
+          <div key={p.name} className="ws-f"><label htmlFor={id}>{p.label}</label>
+            <input id={id} type="date" required={!p.optional} value={String(v[p.name] ?? "")} onChange={(e) => setV({ ...v, [p.name]: e.target.value })} /></div>
+        );
         if (p.type === "extent") return (
           <div key={p.name} className="ws-f"><label htmlFor={id}>{p.label}</label>
             <select id={id} value={String(v[p.name] ?? "view")} onChange={(e) => setV({ ...v, [p.name]: e.target.value })}>
