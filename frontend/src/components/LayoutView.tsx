@@ -56,7 +56,7 @@ const firstLayout = (map: MapLibre, title: string, t: Partial<LayoutSettings> = 
   return m ? { ...d, elements: d.elements.map((e) => (e.id === m.id ? { ...m, scale: scaleToFit(map, m.w) } : e)) } : d;
 };
 
-/** Layout view, as ArcGIS Pro has it: the page with its elements, which are inserted from the ribbon, moved and resized
+/** Print studio: the page with its elements, which are inserted from the tools above, moved and resized
  *  on the page, listed in drawing order in Contents and set in the Element pane. Double-click a map frame to move and
  *  scale the map inside it. Export the page as a PDF (vector text and lines, maps as pictures) or a PNG; save
  *  layouts with the project. */
@@ -485,17 +485,17 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
   const insert = (kind: ElKind, text?: string) => { setActive(null); setTool(tool?.kind === kind && tool.text === text ? null : { kind, text }); };
 
   return (
-    <div className={`lo lv${embedded ? " is-embedded" : ""}${hidden ? " is-hidden" : ""}`} {...(embedded ? { role: "region" } : { role: "dialog", "aria-modal": true })} aria-label="Layout">
+    <div className={`lo lv${embedded ? " is-embedded" : ""}${hidden ? " is-hidden" : ""}`} {...(embedded ? { role: "region" } : { role: "dialog", "aria-modal": true })} aria-label="Print studio">
       <div className="lo-bar">
         <Printer size={18} aria-hidden="true" />
-        <strong>Layout</strong>
+        <strong>Print studio</strong>
         {!embedded && <select className="lo-pick" value={current?.id ?? ""} onChange={(e) => open(e.target.value)} aria-label="Saved layouts">
-          <option value="">{saved.length ? "New layout" : "New layout (none saved yet)"}</option>
+          <option value="">{saved.length ? "New print sheet" : "New print sheet (none saved yet)"}</option>
           {saved.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
         </select>}
-        {embedded && <span className="lo-name">{current?.name ?? "New layout (not saved yet)"}{dirty && canSave ? " •" : ""}</span>}
+        {embedded && <span className="lo-name">{current?.name ?? "New print sheet (not saved yet)"}{dirty && canSave ? " •" : ""}</span>}
         {canSave && <>
-          <Button small onClick={() => void save(false)}><Save size={14} aria-hidden="true" />{current ? (dirty ? "Save" : "Saved") : "Save layout"}</Button>
+          <Button small onClick={() => void save(false)}><Save size={14} aria-hidden="true" />{current ? (dirty ? "Save" : "Saved") : "Save sheet"}</Button>
           {current && <Button small variant="ghost" onClick={() => void save(true)}>Save as new</Button>}
           {current && <IconButton label="Delete this layout" onClick={() => void remove()}><Trash2 size={16} /></IconButton>}
         </>}
@@ -506,7 +506,7 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
         <IconButton label="Close the layout" onClick={close}><X size={18} /></IconButton>
       </div>
 
-      <div className="ws-ribbon-body lv-ribbon" role="toolbar" aria-label="Layout ribbon">
+      <div className="ws-ribbon-body lv-ribbon" role="toolbar" aria-label="Print studio tools">
         <Group name="Insert">
           <Tb icon={<MapIcon />} label="Map frame" on={tool?.kind === "map"} onClick={() => insert("map")} title="Draw a map frame on the page" />
           <Tb icon={<Rows />} label="Legend" on={tool?.kind === "legend"} onClick={() => insert("legend")} />
@@ -569,9 +569,9 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
       </div>
 
       <div className="lv-body">
-        <aside className="lv-contents ws-scroll" aria-label="Contents">
-          <div className="ws-pane-head"><h2 className="ws-pane-title">Contents</h2></div>
-          <p className="lv-sub">Drawing order</p>
+        <aside className="lv-contents ws-scroll" aria-label="Page items">
+          <div className="ws-pane-head"><h2 className="ws-pane-title">Page items</h2></div>
+          <p className="lv-sub">Top to bottom</p>
           <ul className="lv-list" role="listbox" aria-label="Elements on the page, top first" aria-multiselectable="true">
             {[...doc.elements].reverse().map((e) => {
               const on = sel.includes(e.id);
@@ -590,7 +590,7 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
               );
             })}
           </ul>
-          {!doc.elements.length && <p className="ws-muted lv-sub">The page is empty: insert a map frame from the ribbon, or start from a template.</p>}
+          {!doc.elements.length && <p className="ws-muted lv-sub">The page is empty: insert a map frame from the tools above, or start from a template.</p>}
         </aside>
 
         <div className="lv-stage" ref={stage}>
@@ -800,8 +800,8 @@ function PageForm({ doc, onPage, onDpi }: { doc: LayoutDoc; onPage: (p: Partial<
           {px && px.dpi < doc.dpi && <span className="ws-help">The largest map frame is drawn at {px.dpi} dpi, the most a browser can draw.</span>}</label>
       </fieldset>
       <div className="lv-help">
-        <p><strong>Insert</strong> an element from the ribbon, then draw its box on the page (or click for its usual size).</p>
-        <p><strong>Select</strong> by clicking it on the page or in Contents (Shift adds to the selection); drag to move, drag a handle to resize (Shift keeps the shape, Alt stops snapping).</p>
+        <p><strong>Insert</strong> an element from the tools above, then draw its box on the page (or click for its usual size).</p>
+        <p><strong>Select</strong> by clicking it on the page or in Page items (Shift adds to the selection); drag to move, drag a handle to resize (Shift keeps the shape, Alt stops snapping).</p>
         <p><strong>Navigate</strong> a map frame: double-click it, then drag to move the map and scroll to change the scale.</p>
         <p>Arrow keys nudge by 1 mm (Shift: 5 mm) · Delete removes · Ctrl+D duplicates · Ctrl+Z undoes.</p>
       </div>

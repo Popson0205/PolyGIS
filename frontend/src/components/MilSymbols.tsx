@@ -101,7 +101,7 @@ export function SymbolsPane({ layers, canEdit, placing, onPlace, onStop, onNewLa
               {symbolLayers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
           <Button onClick={() => void onNewLayer().then((l) => l && setTarget(l.id))} disabled={!canEdit}><Plus size={15} aria-hidden="true" />New symbol layer</Button>
         </div>
-        {lay && !mil?.sidc_field && <p className="ws-muted">{lay.name} shows one symbol for all its points: choose a code field in its Symbology to place different ones.</p>}
+        {lay && !mil?.sidc_field && <p className="ws-muted">{lay.name} shows one symbol for all its points: choose a code field in its Style to place different ones.</p>}
         <SymbolPicker value={sidc} onChange={setSidc} />
         <div className="mil-opts">
           <label className="ws-f">Unique designation<input value={designation} onChange={(e) => setDesignation(e.target.value)} placeholder="e.g. A/2-14" disabled={!mil?.designation_field} /></label>

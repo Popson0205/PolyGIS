@@ -123,7 +123,7 @@ export default function PolyEarth({ projectId, layers, selection, activeId, canE
 }
 
 function Runs({ jobs, onOpen, onStop }: { jobs: EarthJob[]; onOpen: (j: EarthJob) => void; onStop: (id: string) => void }) {
-  if (!jobs.length) return <p className="ws-muted">Runs started in this session appear here while they work and after. Every finished run is also in Geoprocessing's history.</p>;
+  if (!jobs.length) return <p className="ws-muted">Runs started in this session appear here while they work and after. Every finished run is also in the Tools history.</p>;
   return (
     <ul className="ws-runs">
       {jobs.map((j) => (

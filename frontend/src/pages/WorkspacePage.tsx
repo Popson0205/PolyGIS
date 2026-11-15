@@ -2,8 +2,8 @@ import maplibregl, { type Map as MapLibre, type MapGeoJSONFeature } from "maplib
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
-  LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
+  LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointerClick, PanelLeftOpen,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn, ChevronLeft, Hand, Database, PenLine, Image as ImageIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -46,7 +46,7 @@ type Tool = "explore" | "select" | "select-area" | "draw-area" | "measure-line" 
 type DialogName = "add" | "imagery" | "new" | "attr" | "loc" | "export" | "crs" | "plan" | "share" | "publish" | "linked" | null;
 const DRAW = { Point: "point", LineString: "linestring", Polygon: "polygon" } as const;
 
-/** A project open in the workspace, laid out like a desktop GIS: ribbon, contents, map, properties, table, status. */
+/** A project open in the workspace: modes down the left, the mode's tools in one row, layers, map, inspector, table, status. */
 export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
   const { id = "" } = useParams();
   const toast = useToast();
@@ -119,6 +119,31 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     toast(j.layers.length ? `${j.tool_name}: ${j.layers.map((l) => l.name).join(", ")} added to the map.` : `${j.tool_name} is ready.`, "success");
   });
   const [ribbonFolded, setRibbonFolded] = useStored("ribbon-folded", false);
+  // the mode's tools in one row: arrows show when some are out of sight
+  const stripEl = useRef<HTMLDivElement | null>(null);
+  const [stripMore, setStripMore] = useState({ left: false, right: false });
+  const measureStrip = useCallback(() => {
+    const el = stripEl.current;
+    if (!el) return;
+    const next = { left: el.scrollLeft > 4, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 };
+    setStripMore((cur) => (cur.left === next.left && cur.right === next.right ? cur : next));
+  }, []);
+  const stripObs = useRef<ResizeObserver | null>(null);
+  const stripRef = useCallback((el: HTMLDivElement | null) => {          // set when the row appears (after the project loads)
+    stripObs.current?.disconnect();
+    stripEl.current = el;
+    if (!el) return;
+    stripObs.current = new ResizeObserver(measureStrip);
+    stripObs.current.observe(el);
+    measureStrip();
+  }, [measureStrip]);
+  useEffect(() => {
+    const el = stripEl.current;
+    if (!el) return;
+    el.scrollLeft = 0;
+    Array.from(el.children).forEach((c) => stripObs.current?.observe(c));
+    measureStrip();
+  }, [tab, ribbonFolded, measureStrip]);
   // on a wide screen the panes stay docked (and remembered); on a tablet or phone one at a time slides over the map
   const narrow = useNarrow(1100);
   const [leftDocked, setLeftDocked] = useStored("left-open", true);
@@ -429,7 +454,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     if (t === "measure-bearing") editor.current?.measureWith("linestring", (m) => setMeasure(m.points ? bearingText(m.points) : ""));
     if (t === "select-area") {
       const target = layers.find((l) => l.id === activeId);
-      if (!target) { toast("Choose a layer in Contents first.", "info"); setTool("explore"); return; }
+      if (!target) { toast("Choose a layer in Layers first.", "info"); setTool("explore"); return; }
       editor.current?.create("polygon", (g) => {
         void api.select(target.id, { geometry: g }).then((s) => applySelection(target.id, s, false), (e) => toast(String(e.message ?? e), "error"));
         chooseTool("explore");
@@ -877,10 +902,14 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   ) : (
     <aside className="ws-panel" aria-label="Properties">
       <div className="ws-pane-head"><strong>Properties</strong></div>
-      <div className="ws-empty-state"><SlidersHorizontal size={22} aria-hidden="true" />Choose a layer in Contents to style it, label it and see its fields.</div>
+      <div className="ws-empty-state"><SlidersHorizontal size={22} aria-hidden="true" />Choose a layer in Layers to style it, label it and see its fields.</div>
     </aside>
   );
-  const tabs: [Tab, string][] = [["map", "Map"], ["insert", "Insert"], ["select", "Select"], ["edit", "Edit"], ["analysis", "Analysis"], ...(me.features.includes("raster") ? [["imagery", "Imagery"] as [Tab, string]] : []), ["military", "Military"], ["earth", "Poly Earth"], ["share", "Share"]];
+  /** The modes down the left: each brings its own tools into the tool row. */
+  const tabs: [Tab, string, ReactNode][] = [["map", "Explore", <Compass key="i" />], ["insert", "Data", <Database key="i" />], ["select", "Select", <MousePointerClick key="i" />],
+    ["edit", "Edit", <PenLine key="i" />], ["analysis", "Analyse", <Wrench key="i" />], ...(me.features.includes("raster") ? [["imagery", "Imagery", <ImageIcon key="i" />] as [Tab, string, ReactNode]] : []),
+    ["military", "Defence", <Shield key="i" />], ["earth", "Earth", <Earth key="i" />], ["share", "Publish", <UploadCloud key="i" />]];
+  const modeName = tabs.find(([t]) => t === tab)?.[1] ?? "";
   const openLayout = newLayout;
   const viewing = views.find((v) => viewKey(v) === viewNow) ?? null;
   const onLayout = viewing?.kind === "layout";
@@ -907,23 +936,28 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       {notice && <div className={`ge-notice ge-notice-${notice.tone}`} role="status">{notice.text}</div>}
       </div>
 
-      <section className={`ws-ribbon${ribbonFolded ? " is-folded" : ""}`} aria-label="Ribbon">
-        <div className="ws-ribbon-tabs">
-          <div className="ws-tablist" role="tablist" aria-label="Ribbon tabs">
-          {tabs.map(([t, label]) => (
-            <button key={t} role="tab" aria-selected={tab === t} className={t === "edit" && editId ? "ws-tab-ctx" : ""}
-              onClick={() => { if (ribbonFolded && tab === t) setRibbonFolded(false); setTab(t); }} onDoubleClick={() => setRibbonFolded(!ribbonFolded)}>{label}{t === "edit" && editId ? ": editing" : ""}</button>
-          ))}
-          </div>
-          <IconButton label={ribbonFolded ? "Show the ribbon" : "Fold the ribbon away"} onClick={() => setRibbonFolded(!ribbonFolded)}>
+      <nav className="ws-modes" aria-label="Modes">
+        {tabs.map(([t, label, icon]) => (
+          <button key={t} type="button" aria-pressed={tab === t} className={`ws-mode${t === "edit" && editId ? " is-ctx" : ""}`} title={t === "edit" && editId ? "Edit: editing" : label}
+            onClick={() => { if (tab === t) setRibbonFolded(!ribbonFolded); else { setRibbonFolded(false); setTab(t); } }}>
+            <span className="ws-mode-icon" aria-hidden="true">{icon}</span>{label}</button>
+        ))}
+      </nav>
+
+      <section className={`ws-ribbon${ribbonFolded ? " is-folded" : ""}`} aria-label={`${modeName} tools`}>
+        <div className="ws-strip-head">
+          <span className="ws-strip-name">{modeName}{tab === "edit" && editId ? ": editing" : ""}</span>
+          <IconButton label={ribbonFolded ? "Show the tools" : "Fold the tools away"} onClick={() => setRibbonFolded(!ribbonFolded)}>
             {ribbonFolded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
           </IconButton>
         </div>
-        <div className="ws-ribbon-body" role="tabpanel">
+        {stripMore.left && <button type="button" className="ws-strip-scroll" aria-label="Earlier tools" onClick={() => stripEl.current?.scrollBy({ left: -360 })}><ChevronLeft size={16} /></button>}
+        <div ref={stripRef} className="ws-ribbon-body" role="toolbar" aria-label={`${modeName} tools`} onScroll={measureStrip}
+          onWheel={(e) => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY; }}>
           {tab === "map" && <>
             <Group name="Navigate">
-              <Tb on={tool === "explore"} onClick={() => chooseTool("explore")} icon={<MousePointer2 />} label="Explore" />
-              <Tb onClick={zoomAll} icon={<Maximize />} label="Full extent" disabled={!layers.some((l) => l.bbox)} />
+              <Tb on={tool === "explore"} onClick={() => chooseTool("explore")} icon={<Hand />} label="Pan" />
+              <Tb onClick={zoomAll} icon={<Maximize />} label="Fit all" disabled={!layers.some((l) => l.bbox)} />
               <Tb onClick={() => active?.bbox && zoomTo(active.bbox)} icon={<ZoomIn />} label="Zoom to layer" disabled={!active?.bbox} />
             </Group>
             <Group name="Basemap">
@@ -952,7 +986,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => setDialog("add")} icon={<FilePlus2 />} label="Add data" disabled={!canEdit} />
             </Group>
             <Group name="Project">
-              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) setCatalogOpen(false); else { setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Catalog" />
+              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) setCatalogOpen(false); else { setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Library" />
             </Group>
             <Group name="Coordinates">
               <Tb onClick={() => setDialog("crs")} icon={<Globe2 />} label={crs ? shortCrs(crs.name) : `EPSG:${project.display_epsg}`} />
@@ -968,7 +1002,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             <Group name="Project">
               <Tb onClick={() => void newMap()} icon={<MapIcon />} label="New map" disabled={!canEdit} />
               <Tb onClick={() => openMapDoc && void newMap(openMapDoc)} icon={<Layers3 />} label="Copy map" disabled={!canEdit || !openMapDoc} />
-              <Tb onClick={newLayout} icon={<Printer />} label="New layout" />
+              <Tb onClick={newLayout} icon={<Printer />} label="New print" />
             </Group>
           </>}
           {tab === "share" && <>
@@ -979,7 +1013,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => setDialog("publish")} icon={<UploadCloud />} label="Publish layer" disabled={!canEdit || !active} />
             </Group>
             <Group name="Print">
-              <Tb onClick={openLayout} icon={<Printer />} label="Print layout" />
+              <Tb onClick={openLayout} icon={<Printer />} label="Print studio" />
             </Group>
             <Group name="Export">
               <Tb onClick={() => setDialog("export")} icon={<Download />} label="Export layer" disabled={!active || active.geometry_type === "Raster"} />
@@ -991,11 +1025,11 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb on={tool === "select-area"} onClick={() => chooseTool("select-area")} icon={<Lasso />} label="By shape" disabled={!active || active.geometry_type === "Raster"} />
             </Group>
             <Group name="Queries">
-              <Tb onClick={() => setDialog("attr")} icon={<ListFilter />} label="By attributes" disabled={!active || active.geometry_type === "Raster"} />
-              <Tb onClick={() => setDialog("loc")} icon={<LocateFixed />} label="By location" disabled={!active || active.geometry_type === "Raster"} />
+              <Tb onClick={() => setDialog("attr")} icon={<ListFilter />} label="Filter by values" disabled={!active || active.geometry_type === "Raster"} />
+              <Tb onClick={() => setDialog("loc")} icon={<LocateFixed />} label="By place" disabled={!active || active.geometry_type === "Raster"} />
             </Group>
             <Group name="Selection">
-              <Tb onClick={() => void switchSelection()} icon={<ArrowLeftRight />} label="Switch" disabled={!active || active.geometry_type === "Raster"} />
+              <Tb onClick={() => void switchSelection()} icon={<ArrowLeftRight />} label="Invert" disabled={!active || active.geometry_type === "Raster"} />
               <Tb onClick={() => setSelection({})} icon={<Eraser />} label="Clear" disabled={!totalSel} />
               <Tb onClick={() => active && void zoomToSelection(active)} icon={<Scan />} label="Zoom to" disabled={!active || !sel(active.id).length} />
             </Group>
@@ -1036,7 +1070,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb on={tool === "measure-line"} onClick={() => chooseTool("measure-line")} icon={<Ruler />} label="Distance" />
               <Tb on={tool === "measure-area"} onClick={() => chooseTool("measure-area")} icon={<LandPlot />} label="Area" />
             </Group>
-            <Group name="Geoprocessing">
+            <Group name="Tools">
               <Tb on={gp.open && !gp.start && rightOpen} onClick={() => (gp.open && !gp.start ? setGp({ open: false, start: null, query: "" }) : openTool(null))} icon={<Wrench />} label="All tools" />
               <Tb onClick={() => openTool("buffer")} icon={<CircleDot />} label="Buffer" />
               <Tb onClick={() => openTool("clip")} icon={<Scissors />} label="Clip" />
@@ -1045,10 +1079,10 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => openTool("spatial_join")} icon={<Link2 />} label="Spatial join" />
             </Group>
             <Group name="Models">
-              <Tb onClick={() => (me.features.includes("geoprocessing") ? setModelsOpen(true) : setDialog("plan"))} icon={<Workflow />} label="Model builder" />
+              <Tb onClick={() => (me.features.includes("geoprocessing") ? setModelsOpen(true) : setDialog("plan"))} icon={<Workflow />} label="Flows" />
             </Group>
             <Group name="Satellite">
-              <Tb onClick={() => { setTab("earth"); openEarth(null); }} icon={<Earth />} label="Poly Earth" />
+              <Tb onClick={() => { setTab("earth"); openEarth(null); }} icon={<Earth />} label="Earth" />
             </Group>
             {me.features.includes("raster") && <Group name="Raster">
               <Tb onClick={() => openTool("hillshade")} icon={<Mountain />} label="Hillshade" />
@@ -1060,7 +1094,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
           </>}
           {tab === "imagery" && <>
             <Group name="Sources & place">
-              <Tb on={providersOpen && rightOpen} onClick={() => (providersOpen ? setProvidersOpen(false) : openProviders())} icon={<Satellite />} label="Providers" />
+              <Tb on={providersOpen && rightOpen} onClick={() => (providersOpen ? setProvidersOpen(false) : openProviders())} icon={<Satellite />} label="Sources" />
               <Tb onClick={() => { setGeorefFile(null); setGeorefLayer(null); setGeorefOpen(true); }} icon={<MapPinned />} label="Georeference" disabled={!canEdit} />
             </Group>
             <Group name="Correct">
@@ -1164,6 +1198,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             </Group>
           </>}
         </div>
+        {stripMore.right && <button type="button" className="ws-strip-scroll" aria-label="More tools" onClick={() => stripEl.current?.scrollBy({ left: 360 })}><ChevronRight size={16} /></button>}
       </section>
 
       <ViewTabs tabs={views} current={viewNow} maps={maps} layouts={savedLayouts} onPick={pickView} onClose={closeView}
@@ -1180,10 +1215,10 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             mapName={openMapDoc?.name ?? "Map"} otherMaps={maps.filter((m) => m.id !== mapId)} onAddToMap={(l, mid, how) => void addToMap(l, mid, how)}
             onEdit={(l) => startEditing(l.id)} onAdd={() => setDialog("add")} onCollapse={() => setLeftOpen(false)} onRefresh={(l) => void refreshLinked(l)} />
         ) : (
-          <div className="ws-rail is-left"><IconButton label="Show Contents" onClick={() => setLeftOpen(true)}><PanelLeftOpen size={18} /></IconButton>
+          <div className="ws-rail is-left"><IconButton label="Show Layers" onClick={() => setLeftOpen(true)}><PanelLeftOpen size={18} /></IconButton>
             <IconButton label="Add data" onClick={() => setDialog("add")} disabled={!canEdit}><FilePlus2 size={18} /></IconButton></div>
         )}
-        {leftOpen && <Resizer axis="x" value={leftW} min={200} max={480} onChange={setLeftW} label="Resize Contents" className="rs-left" />}
+        {leftOpen && <Resizer axis="x" value={leftW} min={200} max={480} onChange={setLeftW} label="Resize Layers" className="rs-left" />}
         <div className="ws-map-wrap">
           <div ref={mapEl} className={`ws-map tool-${tool}`} />
           {tool !== "explore" && hint[tool] && <div className="ws-hintbar" role="status"><span>{hint[tool]}</span>
@@ -1192,7 +1227,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
         {rightOpen && <Resizer axis="x" value={rightW} min={260} max={560} onChange={setRightW} invert label="Resize the side pane" className="rs-right" />}
         {rightOpen ? <div className="ws-right">{right}<IconButton className="ws-collapse" label="Hide the side pane" onClick={() => setRightOpen(false)}><PanelRightClose size={16} /></IconButton></div> : (
           <div className="ws-rail is-right"><IconButton label="Show the side pane" onClick={() => setRightOpen(true)}><PanelRightOpen size={18} /></IconButton>
-            <IconButton label="Geoprocessing tools" onClick={() => openTool(null)}><Wrench size={18} /></IconButton></div>
+            <IconButton label="Tools" onClick={() => openTool(null)}><Wrench size={18} /></IconButton></div>
         )}
         {(leftOpen || rightOpen) && <div className="ws-scrim" onClick={() => { setLeftOpen(false); setRightOpen(false); }} aria-hidden="true" />}
       </main>
@@ -1247,8 +1282,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
           }}
           onDeleted={(lid) => { setSavedLayouts((ls) => ls.filter((x) => x.id !== lid)); closeView(v, false); }} />
       ))}
-      {dialog === "plan" && <Dialog title="Print layouts" onClose={() => setDialog(null)}>
-        <div className="ws-form"><p>Print layouts (map sheets with a title, legend, scale bar, north arrow and grid, exported as PDF) are in PolyGIS Advanced.
+      {dialog === "plan" && <Dialog title="Print studio" onClose={() => setDialog(null)}>
+        <div className="ws-form"><p>The print studio (map sheets with a title, legend, scale bar, north arrow and grid, exported as PDF) are in PolyGIS Advanced.
           Ask GeoEstate NIG Limited to move your organization to Advanced.</p>
           <div className="ws-row"><Button variant="primary" onClick={() => setDialog(null)}>OK</Button></div></div>
       </Dialog>}
