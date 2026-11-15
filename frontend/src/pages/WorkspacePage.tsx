@@ -14,6 +14,7 @@ import { AddData, CrsPicker, Dialog, Export, NewLayer, SelectByAttributes, Selec
 import Geoprocessing from "../components/Geoprocessing";
 import { AskBar } from "../components/AskBar";
 import { ToolCards } from "../components/ToolCards";
+import { WhatsNew } from "../components/WhatsNew";
 import { FocusLayers, Inspector, SelectionBar } from "../components/Inspector";
 import type { AskHit, Command } from "../lib/ask";
 import type { Tool as GpTool } from "../lib/types";
@@ -1265,6 +1266,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
         {leftOpen && <Resizer axis="x" value={leftW} min={200} max={480} onChange={setLeftW} label="Resize Layers" className="rs-left" />}
         <div className="ws-map-wrap">
           <div ref={mapEl} className={`ws-map tool-${tool}`} />
+          {!onLayout && <WhatsNew onAsk={() => { commandEl.current?.focus(); }} />}
           {focus && !onLayout && <FocusLayers layers={layers} activeId={activeId} onToggle={(l) => void toggle(l)}
             onPick={(l) => { setActiveId(l.id); setIdentify(null); setRightOpen(true); }} onAdd={() => setDialog("add")} canAdd={canEdit} onLeave={() => setFocus(false)} />}
           {totalSel > 0 && <SelectionBar selection={selection} layers={layers}

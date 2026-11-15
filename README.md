@@ -1,10 +1,25 @@
 # PolyGIS
 
-A full GIS in the browser, for the work people do in ArcGIS Pro or QGIS: build maps from many layers, style and label
-them, edit features with snapping, select and query, measure, and export. Part of the GeoEstate platform, beside Geohub,
+A full GIS in the browser: build maps from many layers, style and label them, edit features with snapping, select and
+query, measure, analyse, print and share, follow live positions, and export. Part of the GeoEstate platform, beside Geohub,
 Land Registry, LandCheck and FarmScan: one sign-in (GeoEstate ID, through Geohub), one licence system, one look.
 
-## Phase 1: maps and editing (this release)
+## The interface
+
+- **Modes** down the left: Explore, Data, Edit, Analyse, Imagery, Defence, Earth, Publish. Each brings its tools into
+  one slim row above the map (arrows and the mouse wheel reach the rest). Clicking the open mode folds the row away.
+- **Ask PolyGIS** (top bar, Ctrl K): type what you want. "buffer roads by 500 m" opens Buffer with Roads and 500 m
+  filled in; "clip roads to areas" fills both layers; "zoom to checkpoints", "roads table", "hide sightings"; "6.45,
+  3.39" flies there; "range rings" or "cloud mask" switches to the mode and presses the button. Worked out in the page
+  from the tools' parameters and the project's layers (`src/lib/ask.ts`), no AI service.
+- **Layers** on the left (Order, Sources, Selected, Labels), the **Inspector** on the right: click a feature for its
+  name, details and Zoom to, Select, Table, Style, Edit; click a layer for its Style, Labels, Fields and Source.
+- **Selection bar** over the map while anything is selected: Zoom to, Table, Filter by values, By place, Invert,
+  Export, Clear. **Tool cards** over the map in Analyse: your favourite and latest tools.
+- **Focus** (top bar): the map only, modes in a dock, tools and layers floating. **Operations theme** (moon button):
+  dark, for night work and control rooms, with a Night basemap. Both are remembered per browser.
+
+## Maps and editing
 
 - **Projects** for the organization, each with its own coordinate system for the read-out (any EPSG system; the
   Nigerian grids, Minna / UTM 31N and 32N and the Nigeria belts, are offered first).
@@ -12,14 +27,14 @@ Land Registry, LandCheck and FarmScan: one sign-in (GeoEstate ID, through Geohub
   layer in a file comes in; a layer that mixes points, lines and polygons is split into one layer per kind. Data is
   reprojected to WGS 84 with the proper datum shift (a `.prj` in Esri's form is matched to its EPSG system so the shift
   is not lost). A file without a system is refused with what to choose, unless its coordinates are longitude/latitude.
-- **Contents pane**: visibility, drawing order, zoom to layer, attribute table, legend.
-- **Symbology**: single symbol, unique values (categories) or graduated colours (quantile or equal interval, five
-  ColorBrewer ramps); outline, width, size, opacity. **Labels** from any field.
+- **Layers**: visibility, drawing order, zoom to layer, table, legend.
+- **Style** ("Draw as"): one style for all, a colour per category, or colours by value (quantile or equal interval,
+  five ColorBrewer ramps); outline, width, size, opacity; military symbols for points. **Labels** from any field.
 - **Fields**: add, rename (values, style and labels follow), delete; a field calculator for all or the selected features.
-- **Attribute table**: a page at a time, sorted by any field, searched, all or only the selection; click to select,
+- **Table**: a page at a time, sorted by any field, searched, all or only the selection; click to select,
   double-click to zoom; cells edited in place while the layer is being edited.
-- **Selection**: click (Shift to add), by a drawn shape, by attributes (several conditions), by location (intersects,
-  within, contains, within a distance of another layer, or only its selection), switch, clear, zoom to.
+- **Selection**: click (Shift to add), by a drawn shape, filter by values (several conditions), by place (intersects,
+  within, contains, within a distance of another layer, or only its selection), invert, clear, zoom to.
 - **Editing**: points, lines and polygons drawn on the map with **snapping** to vertices and edges of every visible
   layer at full precision (not the rounded map tiles); reshape (drag, add and delete vertices); delete; **undo** of your
   own edits; every edit recorded with who and when.
@@ -34,21 +49,22 @@ Land Registry, LandCheck and FarmScan: one sign-in (GeoEstate ID, through Geohub
 Roles come from Geohub: owners and admins are **admins** (delete anyone's project), members are **editors**,
 collectors and viewers are **viewers** (open and export). An expired licence is read-only; a suspended one is closed.
 
-## Next phases
+## Analysis, printing and sharing
 
-2. **Geoprocessing**: 107 vector tools in nine groups (proximity, overlay, generalization, conversion, topology, sampling, spatial statistics such as hot spots and Moran's I, and network analysis such as routes, closest facility and service areas), run as jobs, results as layers.
-3. **Rasters and print layouts**: raster import and analysis (see Rasters below); print layouts (see Print layouts below).
-4. **Sharing**: share links, publishing to Geohub's Data hub, linked layers from the other products and 3D (see below);
-   a model builder (see below); next, a desktop app wrapping the same web app.
+- **Tools** (Analyse): 107 vector tools in nine groups (proximity, overlay, generalization, conversion, topology,
+  sampling, spatial statistics such as hot spots and Moran's I, and network analysis such as routes, closest facility
+  and service areas), run as jobs, results as layers; **Flows** chain them (see below).
+- **Rasters** (Imagery) and the **Print studio** (Publish), below; share links, publishing to Geohub's Data hub,
+  linked layers from the other products and 3D, below. Next: a desktop app wrapping the same web app.
 
-## Print layouts
+## Print studio
 
-Share › Print layout (or Insert › New layout) opens the layout view, laid out as ArcGIS Pro's (Advanced plan, `layouts`
-feature): the page between rulers, its elements listed in drawing order in Contents (show, lock, select), and the
-chosen element's settings in the Element pane. A4 to A0, Letter, Legal and Tabloid, portrait or landscape.
+Publish › Print studio (or Data › New print) opens a print sheet (Advanced plan, `layouts` feature): the page between
+rulers, its elements listed top to bottom in Page items (show, lock, select), and the chosen element's settings beside
+it. A4 to A0, Letter, Legal and Tabloid, portrait or landscape.
 
 - **Insert** a map frame (as many as wanted, for insets), a legend, a north arrow, a scale bar, text, dynamic text
-  (`{project}`, `{date}`, `{author}`, `{org}`, `{scale}`, `{crs}`, `{credits}`) or a rectangle: choose it on the ribbon,
+  (`{project}`, `{date}`, `{author}`, `{org}`, `{scale}`, `{crs}`, `{credits}`) or a rectangle: choose it in the tool row,
   then draw its box on the page or click for its usual size.
 - **Arrange** by dragging elements and their handles (Shift keeps the shape; edges snap to the page and to other
   elements, Alt stops snapping), typing their position and size in millimetres, or with the arrow keys; bring forward,
@@ -59,13 +75,13 @@ chosen element's settings in the Element pane. A4 to A0, Letter, Legal and Tablo
 - **Templates** lay a whole page out (legend at the side or inside the map, a grid, map only) as elements to rearrange.
 
 Export makes a PDF with sharp vector text and lines and each map as a picture at 150, 200 or 300 dpi (less on very large
-frames, where a browser cannot draw that much: the view says so), or a PNG. Layouts are saved with the project as their
+frames, where a browser cannot draw that much: the view says so), or a PNG. Print sheets are saved with the project as their
 elements (`settings.v = 2`); ones saved before open as the elements of their template. The page is drawn in the browser
 (`src/lib/layoutDoc.ts` and `src/lib/layout.ts`), so the preview and the PDF are the same drawing.
 
 ## Share links
 
-Share › Share link makes a read-only link to the map: the layers chosen, opening where the map is when the link is made,
+Publish › Share link makes a read-only link to the map: the layers chosen, opening where the map is when the link is made,
 with their legend, a feature's details on click, a choice of basemap and, if allowed, downloads of those layers. A link
 is for anyone who has it (no sign-in) or only for people of the organization (signed in); it can end after a week, 30 or
 90 days or a year; it shows the layers as they are when opened, so later edits appear; "show the map as it is now"
@@ -74,7 +90,7 @@ downloads recorded in the activity log. A shared page may be embedded in another
 
 ## Publishing to the Data hub
 
-Share › Publish layer sends the active layer (a vector layer, or only its selection; or a raster) to Geohub's Data hub as a dataset, as the
+Publish › Publish layer sends the active layer (a vector layer, or only its selection; or a raster) to Geohub's Data hub as a dataset, as the
 person signed in (their GeoEstate ID access token): title, description, licence, tags, and who may see it (only them,
 their organization, or anyone). Geohub keeps each publication as a version that never changes, with previews and
 downloads; publishing the layer again adds the next version to a dataset published from it before. Field names travel
@@ -88,7 +104,7 @@ range, and downloads as a GeoTIFF. Needs Geohub with raster datasets (Geohub PR 
 
 ## Linked layers
 
-Insert › Linked layer shows data that lives in another GeoEstate app as a layer that follows it: Land Registry's parcel
+Data › Linked layer shows data that lives in another GeoEstate app as a layer that follows it: Land Registry's parcel
 fabric (PIN, title, land use, area, locality, survey plan; coloured by land use), FarmScan's farms (farmer, crop, area,
 latest NDVI; coloured red to green), or the records of a Geohub form (approved ones, or all). PolyGIS reads them as the
 person signed in, so each shows only what they may see in that app: Geohub's data with their own access token, Land
@@ -100,16 +116,16 @@ addresses from Geohub, with `/api` for Land Registry).
 
 ## 3D
 
-Map › 3D view tilts the map onto terrain: an elevation model in the project (served as Terrarium tiles from
+Explore › 3D view tilts the map onto terrain: an elevation model in the project (served as Terrarium tiles from
 `/layers/{id}/raster/terrain/…`) or, anywhere, the open Terrain Tiles (Mapzen, AWS Open Data), with 1× to 5×
-exaggeration; right-drag to turn and tilt. Polygons can be drawn in 3D (Symbology › Draw in 3D): their height from a
-numeric field times a factor (3 m per storey, say) or a fixed height. Shared maps show the heights too; print layouts
+exaggeration; right-drag to turn and tilt. Polygons can be drawn in 3D (Style › Draw in 3D): their height from a
+numeric field times a factor (3 m per storey, say) or a fixed height. Shared maps show the heights too; print sheets
 are drawn flat, from above.
 
-## Model builder
+## Flows
 
-Analysis › Model builder chains geoprocessing and raster tools into a model the organization saves and runs again on
-other layers, as ArcGIS's ModelBuilder does without scripting. A model names its inputs (Boreholes: points, say);
+Analyse › Flows chains analysis and raster tools into a flow the organization saves and runs again on other layers,
+without scripting. A model names its inputs (Boreholes: points, say);
 each step is one tool whose layer settings take an input or the result of an earlier step, shown as a flow diagram.
 Run… asks for each input's layer in the project and keeps the final result (and any step marked to keep) or every
 step's result; the layers in between are removed. Each step runs exactly as the tool does alone, so it shows in the
@@ -118,6 +134,27 @@ project's history; when one fails, the run stops there and says which step and w
 The API: `GET/POST /models`, `PATCH/DELETE /models/{id}` and `POST /projects/{id}/models/{model_id}/run` with
 `{"inputs": {"boreholes": "<layer id>"}, "keep": "final"}`. Saving and running need an editor and geoprocessing in
 the plan; a model with raster steps needs PolyGIS Advanced.
+
+## Defence
+
+- **Coordinates and grids**: convert between decimal degrees, DMS, UTM, MGRS, GARS and the Nigerian grids; MGRS and
+  GARS grids on the map. **Distance and direction**: bearings, range rings, bearing lines, distances, ellipses.
+  **Visibility**: line of sight, radial line of sight, sector viewshed, highest points. **Symbols**: MIL-STD-2525 /
+  APP-6 (milsymbol). **GEOINT**: area brief, activity change, weapon ranges.
+- **Live tracking**: your own devices (OsmAnd, Traccar, OwnTracks or any JSON, to `/track/{token}`); aircraft from the
+  open ADS-B networks adsb.lol, airplanes.live and adsb.fi together (or OpenSky); ships from aisstream.io (a free key);
+  Geohub forms, read as tracks: the **Patrol check-in** template (one device per call sign, with its unit symbol) and
+  the **Sighting report (SALUTE)** template (a symbol per report, coloured by identity). Trails, history, geofences.
+  airplanes.live and adsb.fi allow non-commercial use only; check their terms before charging for this.
+- **Alerts**: a new device, entering or leaving a geofence, and urgent reports (a patrol asking for support, a hostile
+  or suspect sighting), in the Tracking pane and on **WhatsApp**: WAHA (free, self-hosted; a spare number linked by QR
+  code; not an official WhatsApp API), Brevo, the WhatsApp Cloud API (Meta), Twilio or CallMeBot. Keys stay on the
+  server. Alerts that come together go as one message, at most one a minute per tracker.
+- **In the background**: the server asks aircraft and Geohub feeds every minute and ships every two, so alerts go out
+  when no one has PolyGIS open (`BACKGROUND_FEEDS=false` turns this off). A Geohub form is read with a read-only Geohub
+  API key pasted into its tracker (Geohub › Settings › Security › API keys).
+- **Imagery sources** (Imagery › Sources): an organization's commercial or private imagery, as XYZ/WMS tiles or a STAC
+  catalogue, added once with its key kept on the server and used as a basemap or searched for scenes.
 
 ## How it is built
 
@@ -173,7 +210,7 @@ Cells are enlarged (up to 8 times the data's own) to fit, then the area is refus
 
 ## Poly Earth: satellite analysis without code
 
-The analyses people write Google Earth Engine scripts for, as tools with a form (ribbon tab **Poly Earth**; PolyGIS Advanced).
+The analyses people write Google Earth Engine scripts for, as tools with a form (mode **Earth**; PolyGIS Advanced).
 They run on PolyGIS's own server with open data, so no Google account or Earth Engine licence is needed: Sentinel-2 and
 Landsat 8/9 (Planetary Computer, Earth Search), Sentinel-1 radar, Copernicus DEM, ESA WorldCover and JRC Global Surface
 Water (Planetary Computer), and CHIRPS monthly rainfall (Climate Hazards Center, UCSB).
@@ -193,7 +230,7 @@ or more and patches under 8 pixels removed). Classification accuracy is checked 
 (not pixels from the places it learnt from), so it is not flattered; where a class has only one place it says so.
 
 A run reads many scenes, so it runs in the background with its progress shown, and its layers are added when it finishes
-(the pane can be closed meanwhile); runs are kept in the geoprocessing history. `EARTH_MAX_MB` (384) is the memory one run's
+(the pane can be closed meanwhile); runs are kept in the Tools history. `EARTH_MAX_MB` (384) is the memory one run's
 scenes may use (larger areas get larger cells), a run is stopped only when it makes no progress for `EARTH_STALL_S` (600), or after `EARTH_TIMEOUT_S` (10 800, 0 for never) in all; `EARTH_WORKERS` (12) the
 files read at once and `EARTH_JOBS` (2) the runs at once on the server. Runs in progress are held in the server's memory: a
 restart or redeploy stops them.
