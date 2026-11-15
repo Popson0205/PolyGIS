@@ -1,5 +1,5 @@
-"""Model builder: chains of geoprocessing and raster tools, saved for the organization and run again on other layers,
-as ArcGIS's ModelBuilder does without the scripting.
+"""Flows: chains of geoprocessing and raster tools, saved for the organization and run again on other layers,
+without any scripting.
 
 A model names its inputs (e.g. "parcels", a polygon layer). Each step is one tool; its layer parameters take
 "input:<name>" or "step:<id>" (the result of an earlier step), and its other parameters are fixed values. Running it

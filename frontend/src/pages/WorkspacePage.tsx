@@ -64,7 +64,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [mapId, setMapId] = useState<string | null>(null);
   const layers = useMemo(() => (mapId ? allLayers.filter((l) => !l.map_id || l.map_id === mapId) : allLayers), [allLayers, mapId]);
   const openMapDoc = maps.find((m) => m.id === mapId) ?? null;
-  // the open views, as ArcGIS Pro's tabs: maps and layouts
+  // the open views, in tabs: maps and print sheets
   const [views, setViews] = useState<ViewTab[]>([]);
   const [viewNow, setViewNow] = useState("");
   const [savedLayouts, setSavedLayouts] = useState<SavedLayout[]>([]);
@@ -625,11 +625,11 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       if (target.geometry_type === "Raster") replaceLayer(await api.rasterStyle(target.id, from.style as unknown as Parameters<typeof api.rasterStyle>[1]));
       else {
         const fieldOk = (f?: string | null) => !f || target.fields.some((x) => x.name === f);
-        if (!fieldOk(from.style.field)) { toast(`${target.name} has no field ${from.style.field}, which ${from.name}'s symbology uses.`, "error"); return; }
+        if (!fieldOk(from.style.field)) { toast(`${target.name} has no field ${from.style.field}, which ${from.name}'s style uses.`, "error"); return; }
         const lbFields = from.labels ? [from.labels.field, from.labels.rotation_field, ...Array.from((from.labels.expression ?? "").matchAll(/\{([^{}]+)\}/g), (m) => m[1].trim())].filter(Boolean) as string[] : [];
         replaceLayer(await api.updateLayer(target.id, { style: from.style, ...(from.labels && lbFields.every(fieldOk) ? { labels: from.labels } : {}) }));
       }
-      toast(`${from.name}'s symbology pasted onto ${target.name}.`, "success");
+      toast(`${from.name}'s style pasted onto ${target.name}.`, "success");
     } catch (e) { toast(e instanceof ApiError ? e.message : "Could not paste the properties.", "error"); }
   }
   /** Zoom so one cell of the raster is one pixel on screen. */
@@ -763,16 +763,16 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   }
   async function renameLayout(l: SavedLayout, name: string) {
     try { const u = await api.updateLayout(l.id, { name }); setSavedLayouts((ls) => ls.map((x) => (x.id === l.id ? u : x))); }
-    catch (e) { toast(e instanceof ApiError ? e.message : "Could not rename the layout.", "error"); }
+    catch (e) { toast(e instanceof ApiError ? e.message : "Could not rename the print sheet.", "error"); }
   }
   async function deleteLayout(l: SavedLayout) {
-    if (!window.confirm(`Delete the layout ${l.name}? The maps and their layers are not touched.`)) return;
+    if (!window.confirm(`Delete the print sheet ${l.name}? The maps and their layers are not touched.`)) return;
     try {
       await api.deleteLayout(l.id);
       setSavedLayouts((ls) => ls.filter((x) => x.id !== l.id));
       const v = views.find((x) => x.kind === "layout" && x.id === l.id);
       if (v) closeView(v, false);
-    } catch (e) { toast(e instanceof ApiError ? e.message : "Could not delete the layout.", "error"); }
+    } catch (e) { toast(e instanceof ApiError ? e.message : "Could not delete the print sheet.", "error"); }
   }
   async function addToMap(l: Layer, target: string, how: "share" | "copy") {
     try {

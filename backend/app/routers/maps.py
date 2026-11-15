@@ -1,4 +1,4 @@
-"""Maps: a project holds several maps, as in ArcGIS Pro, each with its own layers, view and basemap. The same data
+"""Maps: a project holds several maps, each with its own layers, view and basemap. The same data
 can be in several maps (a layer sharing another's features), each styled and labelled its own way."""
 from typing import Literal
 from uuid import UUID

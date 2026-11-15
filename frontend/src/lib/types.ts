@@ -63,7 +63,7 @@ export interface Project {
   created_at: string; updated_at: string; layer_count: number; layers?: Layer[];
   maps?: GisMap[]; active_map_id?: string | null;
 }
-/** One map of a project, as in ArcGIS Pro: its own layers, view and basemap. */
+/** One map of a project: its own layers, view and basemap. */
 export interface GisMap { id: string; project_id: string; name: string; position: number; view: View; layer_count: number; created_at: string; updated_at: string }
 export interface Row { id: number; props: Record<string, unknown> }
 export interface Filter { field: string; op: "=" | "!=" | "<" | "<=" | ">" | ">=" | "contains" | "starts" | "empty" | "not_empty"; value?: string | number | boolean | null }

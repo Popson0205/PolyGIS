@@ -406,7 +406,7 @@ body.is-resizing { cursor: col-resize; user-select: none; } body.is-resizing .ma
 .pe-matrix td.is-diag { background: #e9f5ef; color: #14513b; font-weight: 600; }
 .pe-matrix td.is-off { background: #fdf0ef; color: #8a2a1e; }
 
-/* ---------- Contents, laid out like ArcGIS Pro's ---------- */
+/* ---------- Layers pane ---------- */
 .ct .ws-pane-head strong { flex: 1; }
 .ct-search { display: flex; align-items: center; gap: 4px; padding: 6px 8px 4px; }
 .ct-search .ib.is-on { color: var(--c-violet-ink); }
@@ -587,7 +587,7 @@ h2.ct-heading, .ct-heading { margin: 0; color: var(--c-ink); padding: 10px 12px 
 .maplibregl-ctrl-attrib a { text-decoration: underline; }
 .ws-pane-head h2.ws-pane-title { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 13px var(--ge-font); color: var(--c-ink); letter-spacing: 0; }
 
-/* layout view: the page and its elements, as ArcGIS Pro lays it out */
+/* print studio: the page and its elements */
 .lv .lv-ribbon { flex: none; height: 96px; background: var(--c-pane); border-bottom: 1px solid var(--c-line); }
 .lv-tb-menu .menu-wrap > .ib { width: auto; height: auto; padding: 0; border: 0; background: none; }
 .lv-tb-menu .ws-tb { pointer-events: none; }

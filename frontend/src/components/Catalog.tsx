@@ -1,4 +1,4 @@
-/** The project's maps and layouts, as ArcGIS Pro's Catalog pane lists them, and the strip of open views (maps and
+/** The Library: the project's maps and print sheets, and the strip of open views (maps and
  *  layouts) above the map. */
 import { Copy, FileText, Map as MapIcon, MoreHorizontal, PencilLine, Plus, Printer, Trash2, X } from "lucide-react";
 import { useState } from "react";
@@ -33,7 +33,7 @@ export function ViewTabs({ tabs, current, maps, layouts, onPick, onClose, onNewM
           </div>
         );
       })}
-      <Menu align="start" label="Insert a map or layout" trigger={<span className="vt-add" title="New map or layout"><Plus size={14} aria-hidden="true" /></span>}
+      <Menu align="start" label="Insert a map or layout" trigger={<span className="vt-add" title="New map or print sheet"><Plus size={14} aria-hidden="true" /></span>}
         items={[
           { label: "New map", icon: <MapIcon size={15} />, disabled: !canEdit, onSelect: onNewMap },
           { label: "New print sheet", icon: <Printer size={15} />, disabled: !layoutsAllowed, onSelect: onNewLayout },
@@ -85,14 +85,14 @@ export default function Catalog({ maps, layouts, mapId, current, canEdit, layout
           </ul>
         </section>
         <section>
-          <div className="cat-head"><Printer size={15} aria-hidden="true" /><h3>Layouts</h3><span className="cat-n">{layouts.length}</span><span className="ge-spacer" />
+          <div className="cat-head"><Printer size={15} aria-hidden="true" /><h3>Print sheets</h3><span className="cat-n">{layouts.length}</span><span className="ge-spacer" />
             {layoutsAllowed && <IconButton label="New layout" onClick={onNewLayout}><Plus size={15} /></IconButton>}</div>
-          {!layouts.length && <p className="ws-muted cat-empty">No layouts saved yet. A new layout opens in its own tab; save it to keep it with the project.</p>}
+          {!layouts.length && <p className="ws-muted cat-empty">No print sheets saved yet. A new one opens in its own tab; save it to keep it with the project.</p>}
           <ul className="cat-list">
             {layouts.map((l) => (
               <li key={l.id} className={`cat-item${current === `layout:${l.id}` ? " is-on" : ""}`}>
                 {renaming === l.id ? <span className="cat-open"><FileText size={15} aria-hidden="true" />{nameField(l.id, l.name, (n) => onRenameLayout(l, n))}</span>
-                  : <button type="button" className="cat-open" onClick={() => onOpenLayout(l)} onDoubleClick={() => canEdit && start(l.id, l.name)} title="Open this layout (double-click to rename)">
+                  : <button type="button" className="cat-open" onClick={() => onOpenLayout(l)} onDoubleClick={() => canEdit && start(l.id, l.name)} title="Open this print sheet (double-click to rename)">
                     <FileText size={15} aria-hidden="true" /><span className="cat-name">{l.name}</span>
                   </button>}
                 <Menu label={`${l.name}: more`} trigger={<span className="cat-more"><MoreHorizontal size={15} aria-hidden="true" /></span>}

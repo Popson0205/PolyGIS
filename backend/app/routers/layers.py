@@ -261,7 +261,7 @@ ANCHORS = Literal["auto", "center", "top", "bottom", "left", "right", "top-left"
 
 
 class LabelsIn(BaseModel):
-    """A label class, as ArcGIS lays it out: what the label says (Class), how it looks (Symbol) and where it goes
+    """A label setting: what the label says (Text), how it looks (Font) and where it goes
     (Position). Everything but the field is optional, so labels saved before keep working."""
     field: str
     # Class
