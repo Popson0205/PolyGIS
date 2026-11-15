@@ -964,6 +964,7 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 .trk-live .ws-muted { font-size: 12px; }
 .trk-alerts { border: 1px solid #f5c2bd; background: #fff6f5; border-radius: 8px; padding: 8px 10px; }
 .trk-alerts h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 12.5px; color: #a1231b; }
+.trk-urgent { color: #a1231b; }
 .trk-alerts ul { margin: 0; padding: 0; list-style: none; font-size: 12.5px; display: flex; flex-direction: column; gap: 4px; }
 .trk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .trk-item { border: 1px solid var(--c-line-2); border-radius: 8px; background: #fff; }

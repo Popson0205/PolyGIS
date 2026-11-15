@@ -91,7 +91,8 @@ async def sources(project_id: UUID, request: Request, user=Depends(need()), conn
         for f in p.get("forms") or []:
             if f.get("geometry_type") in KIND:
                 out.append({"app": "hub", "app_name": "Geohub", "form_id": f["id"], "label": f"{p['name']} › {f['name']}", "geometry_type": KIND[f["geometry_type"]],
-                            "features": f.get("features"), "approved": f.get("approved"), "available": True, "why": None})
+                            "features": f.get("features"), "approved": f.get("approved"), "available": True, "why": None,
+                            **({"template": f["template"]} if f.get("template") else {})})
     return out
 
 

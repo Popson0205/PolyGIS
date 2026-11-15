@@ -333,3 +333,67 @@ def _age(tid):
     with psycopg.connect(settings.database_url, autocommit=True) as c:
         c.execute(f'SET search_path TO "{settings.db_schema}", public')
         c.execute("UPDATE trackers SET notified_at = now() - interval '2 minutes' WHERE id = %s", (tid,))
+
+
+def test_aircraft_from_three_open_networks(pro, P, monkeypatch):
+    asked = []
+
+    def answer(req: httpx.Request):
+        asked.append(req.url.host)
+        if req.url.host == "api.adsb.lol":
+            return httpx.Response(200, json={"ac": [{"hex": "aaa111", "flight": "NGA1", "lat": 9.0, "lon": 7.3, "seen_pos": 9}]})
+        if req.url.host == "api.airplanes.live":                  # the same aircraft heard more recently, and one only it hears
+            return httpx.Response(200, json={"ac": [{"hex": "aaa111", "flight": "NGA1", "lat": 9.01, "lon": 7.31, "seen_pos": 1},
+                                                    {"hex": "bbb222", "flight": "AJK7", "lat": 9.2, "lon": 7.6}]})
+        return httpx.Response(503)                                # adsb.fi down: the others still count
+    monkeypatch.setattr(tracking, "TRANSPORT", httpx.MockTransport(answer))
+    t = new(pro, P, "adsb", config={"bbox": AREA})
+    r = pro.post(f"/trackers/{t['id']}/refresh").json()
+    assert r["received"] == 2 and sorted(set(asked)) == ["api.adsb.lol", "api.airplanes.live", "opendata.adsb.fi"]
+    a = next(f for f in live(pro, P)["positions"]["features"] if f["properties"]["device"] == "aaa111")
+    assert a["geometry"]["coordinates"] == [7.31, 9.01]
+    # adsb.fi's answer (ADSBexchange v2: "aircraft") is read too
+    monkeypatch.setattr(tracking, "TRANSPORT", httpx.MockTransport(lambda req: httpx.Response(200, json={"aircraft": [{"hex": "ccc333", "lat": 9.1, "lon": 7.4}]})
+                                                                  if req.url.host == "opendata.adsb.fi" else httpx.Response(500)))
+    pro.patch(f"/trackers/{t['id']}", json={"config": {"bbox": AREA}})
+    assert pro.post(f"/trackers/{t['id']}/refresh").json()["received"] == 1
+
+
+def test_geohub_patrol_checkins_and_sightings(pro, P, monkeypatch):
+    sent = []
+
+    async def deliver(tid, provider, to, text, secret):
+        sent.append(text)
+
+    def at_once(coro):
+        try:
+            coro.send(None)
+        except StopIteration:
+            pass
+    monkeypatch.setattr(tr_router, "_deliver", deliver)
+    monkeypatch.setattr(notify, "later", at_once)
+    form = "22222222-3333-4444-5555-666666666666"
+    now = datetime.now(timezone.utc)
+    pt = lambda x: {"type": "Point", "coordinates": [x, 9.0]}  # noqa: E731
+    HUB.hub_features[form] = [
+        {"id": "c1", "seq": 1, "created_by_name": "Sgt Musa", "created_at": (now - timedelta(minutes=9)).isoformat(), "geometry": pt(7.40),
+         "properties": {"callsign": "Alpha 2", "unit_type": "Reconnaissance", "patrol_status": "On task", "personnel": 8}},
+        {"id": "c2", "seq": 2, "created_by_name": "Sgt Musa", "created_at": (now - timedelta(minutes=5)).isoformat(), "geometry": pt(7.42),
+         "properties": {"callsign": "Alpha 2", "unit_type": "Reconnaissance", "patrol_status": "Emergency", "support_needed": ["Medical evacuation"], "casualties": 2}},
+        {"id": "s1", "seq": 3, "created_by_name": "Cpl Ada", "created_at": (now - timedelta(minutes=3)).isoformat(), "geometry": pt(7.45),
+         "properties": {"sighted": "Vehicle", "identity": "Hostile", "size": 3, "activity": "Moving", "observed_at": (now - timedelta(minutes=4)).isoformat(),
+                        "photos": ["x.jpg"]}},
+        {"id": "s2", "seq": 4, "created_by_name": "Cpl Ada", "created_at": (now - timedelta(minutes=2)).isoformat(), "geometry": pt(7.46),
+         "properties": {"sighted": "Person", "identity": "Neutral", "observed_at": now.isoformat()}},
+    ]
+    t = new(pro, P, "geohub", config={"form_id": form, "notify": {"provider": "waha", "to": "+2340000000000"}}, secret={"waha_url": "http://w:3000"})
+    assert t["config"]["notify"]["events"] == ["urgent", "new", "enter", "exit"]
+    assert pro.post(f"/trackers/{t['id']}/refresh").json()["received"] == 4
+    pos = {f["properties"]["device"]: f["properties"] for f in live(pro, P)["positions"]["features"]}
+    assert set(pos) == {"cs:alpha 2", "rpt:s1", "rpt:s2"}                     # one patrol (two check-ins), two sightings
+    assert pos["cs:alpha 2"]["name"] == "Alpha 2" and pos["cs:alpha 2"]["sidc"] == "SFGPUCR---------"[:15]
+    assert pos["rpt:s1"]["sidc"] == "SHGPEVUS-------" and pos["rpt:s1"]["name"] == "3 × Vehicle (hostile)" and pos["rpt:s2"]["sidc"].startswith("SNGP")
+    kinds = sorted((a["kind"], a["zone"]) for a in live(pro, P)["alerts"])
+    assert kinds == [("new", None), ("urgent", "Alpha 2: Emergency (Medical evacuation, 2 casualties)"),
+                     ("urgent", "Hostile sighting: 3 × Vehicle, moving, reported by Cpl Ada")]
+    assert len(sent) == 1 and "🚨 Alpha 2: Emergency" in sent[0] and "🚨 Hostile sighting" in sent[0] and "New device: Alpha 2" in sent[0]

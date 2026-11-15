@@ -10,10 +10,12 @@ import { Button, ErrorText, IconButton, useToast } from "./ui";
 
 const KINDS: { id: Tracker["kind"]; name: string; about: string }[] = [
   { id: "device", name: "Own devices and apps", about: "Phones and GPS trackers send their positions to an address: Traccar Client, OsmAnd, OwnTracks, a Traccar server, or any system that can post JSON." },
-  { id: "adsb", name: "Aircraft (ADS-B)", about: "Aircraft over an area, from adsb.lol (open data, no key) or the OpenSky Network." },
+  { id: "adsb", name: "Aircraft (ADS-B)", about: "Aircraft over an area from the open networks adsb.lol, airplanes.live and adsb.fi together (no key), or the OpenSky Network." },
   { id: "ais", name: "Ships (AIS)", about: "Ships over an area, from aisstream.io: a free API key from aisstream.io is needed." },
-  { id: "geohub", name: "Geohub form", about: "Each submission of a Geohub form (patrol check-ins, sightings, reports) as a position of the person who sent it." },
+  { id: "geohub", name: "Geohub form", about: "Each submission of a Geohub form as a position. Start the form from Geohub's “Patrol check-in” or “Sighting report (SALUTE)” template: each call sign is followed with its unit symbol, each sighting is a symbol coloured by who it is, and emergencies and hostile sightings raise alerts." },
 ];
+/** Geohub's ready-made forms PolyGIS reads as patrols and sightings. */
+const TEMPLATE_NAMES: Record<string, string> = { patrol_checkin: "Patrol check-in", sighting_report: "Sighting report" };
 /** How often the feeds PolyGIS asks are asked while the picture is live, in seconds. */
 const EVERY: Record<Tracker["kind"], number> = { device: 0, adsb: 10, ais: 30, geohub: 30 };
 const ago = (iso: string | null) => {
@@ -50,7 +52,8 @@ export function TrackingPane({ projectId, layers, canEdit, live, onLive, alerts,
           <h3><AlertTriangle size={14} aria-hidden="true" />Alerts ({alerts.length})<span className="ge-spacer" /><button type="button" className="ws-link" onClick={onAlertsSeen}>Mark all seen</button></h3>
           <ul>{alerts.slice(0, 20).map((a) => (
             <li key={a.id}><button type="button" className="ws-link" onClick={() => onZoom(a.x, a.y)}>
-              {a.kind === "new" ? <>New device: <strong>{a.name || a.device}</strong></>
+              {a.kind === "urgent" ? <strong className="trk-urgent">{a.zone}</strong>
+                : a.kind === "new" ? <>New device: <strong>{a.name || a.device}</strong></>
                 : <><strong>{a.name || a.device}</strong> {a.kind === "enter" ? "entered" : "left"} <strong>{a.zone}</strong></>}</button>
               <span className="ws-muted"> · {a.tracker} · {ago(a.ts)}</span></li>))}</ul>
         </section>}
@@ -97,7 +100,7 @@ function AddTracker({ projectId, layers, view, onDone }: { projectId: string; la
       if (kind === "adsb" || kind === "ais") config.bbox = view();
       if (kind === "adsb") config.source = source;
       if (kind === "geohub") { config.form_id = form; config.form_label = forms.find((f) => f.form_id === form)?.label; }
-      const t = await api.newTracker(projectId, { name: name.trim() || k.name, kind, config, ...(kind === "ais" && key ? { secret: { api_key: key } } : {}) });
+      const t = await api.newTracker(projectId, { name: name.trim() || (kind === "geohub" && form ? (forms.find((f) => f.form_id === form)?.label.split(" › ").pop() ?? k.name) : k.name), kind, config, ...(kind === "ais" && key ? { secret: { api_key: key } } : {}) });
       toast(`${t.name} added.${kind === "device" ? " Open it for the address to send to." : ""}`, "success");
       onDone(t.layer);
     } catch (e) { setError(e); } finally { setBusy(false); }
@@ -112,10 +115,12 @@ function AddTracker({ projectId, layers, view, onDone }: { projectId: string; la
       <label className="ws-f">Name<input value={name} onChange={(e) => setName(e.target.value)} placeholder={k.name} maxLength={200} /></label>
       {(kind === "adsb" || kind === "ais") && <p className="ws-muted">The feed covers the map as it is now (at most about 20° × 20°): zoom to the area first.</p>}
       {kind === "adsb" && <label className="ws-f">Source<select value={source} onChange={(e) => setSource(e.target.value)}>
-        <option value="adsb.lol">adsb.lol (open data, no key; recommended)</option><option value="opensky">OpenSky Network (often refuses cloud servers; adsb.lol is used then)</option></select></label>}
+        <option value="adsb.lol">Open networks: adsb.lol, airplanes.live, adsb.fi (no key; recommended)</option><option value="opensky">OpenSky Network (often refuses cloud servers; the open networks are used then)</option></select></label>}
       {kind === "ais" && <label className="ws-f">aisstream.io API key<input value={key} onChange={(e) => setKey(e.target.value)} placeholder="Free at aisstream.io" autoComplete="off" /></label>}
       {kind === "geohub" && <label className="ws-f">Form<select value={form} onChange={(e) => setForm(e.target.value)} required>
-        <option value="">{forms.length ? "Choose…" : "No Geohub forms you can open"}</option>{forms.map((f) => <option key={f.form_id} value={f.form_id}>{f.label}</option>)}</select></label>}
+        <option value="">{forms.length ? "Choose…" : "No Geohub forms you can open"}</option>{forms.map((f) => <option key={f.form_id} value={f.form_id}>{f.label}{TEMPLATE_NAMES[f.template ?? ""] ? ` · ${TEMPLATE_NAMES[f.template ?? ""]}` : ""}</option>)}</select></label>}
+      {kind === "geohub" && !forms.some((f) => TEMPLATE_NAMES[f.template ?? ""]) && <p className="ws-muted">To follow patrols and sightings, make a form in
+        Geohub (Forms → New form) from the “Patrol check-in” or “Sighting report (SALUTE)” template, publish it, then choose it here.</p>}
       <label className="ws-f">Geofences (optional)<select value={fence} onChange={(e) => setFence(e.target.value)}>
         <option value="">None</option>{polys.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
       <ErrorText error={error} />
@@ -143,14 +148,14 @@ const SENDERS: { id: TrackNotify["provider"]; name: string; keys: { k: string; l
   { id: "twilio", name: "Twilio WhatsApp", keys: [{ k: "twilio_sid", label: "Account SID" }, { k: "twilio_token", label: "Auth token" }, { k: "twilio_from", label: "From (your Twilio WhatsApp number)" }],
     how: "A Twilio account with a WhatsApp sender, or its sandbox (the number joins it first by sending the sandbox's join code)." },
 ];
-const EVENT_NAMES: Record<TrackNotify["events"][number], string> = { new: "A new device is seen", enter: "A device enters a geofence", exit: "A device leaves a geofence" };
+const EVENT_NAMES: Record<TrackNotify["events"][number], string> = { urgent: "An urgent report (a patrol in need, a hostile or suspect sighting)", new: "A new device is seen", enter: "A device enters a geofence", exit: "A device leaves a geofence" };
 
 /** Alerts of the tracker sent to a WhatsApp number. The keys stay on the server: the page only learns which are set. */
 function WhatsApp({ t, act }: { t: Tracker; act: (f: () => Promise<unknown>, done?: string) => Promise<void> }) {
   const n = t.config.notify;
   const [provider, setProvider] = useState<TrackNotify["provider"]>(n?.provider ?? "waha");
   const [to, setTo] = useState(n?.to ?? "");
-  const [events, setEvents] = useState<TrackNotify["events"]>(n?.events ?? (t.kind === "device" || t.kind === "geohub" ? ["new", "enter", "exit"] : ["enter", "exit"]));
+  const [events, setEvents] = useState<TrackNotify["events"]>(n?.events ?? (t.kind === "device" || t.kind === "geohub" ? ["urgent", "new", "enter", "exit"] : ["urgent", "enter", "exit"]));
   const [keys, setKeys] = useState<Record<string, string>>({});
   const s = SENDERS.find((x) => x.id === provider)!;
   const save = () => act(() => api.updateTracker(t.id, {
