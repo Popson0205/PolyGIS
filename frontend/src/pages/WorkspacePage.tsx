@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scissors, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, ZoomIn, ChevronLeft, Hand, Database, PenLine, Image as ImageIcon,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scissors, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, ZoomIn, ChevronLeft, Hand, Maximize2, Minimize2, Moon, Database, PenLine, Image as ImageIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -14,7 +14,7 @@ import { AddData, CrsPicker, Dialog, Export, NewLayer, SelectByAttributes, Selec
 import Geoprocessing from "../components/Geoprocessing";
 import { AskBar } from "../components/AskBar";
 import { ToolCards } from "../components/ToolCards";
-import { Inspector, SelectionBar } from "../components/Inspector";
+import { FocusLayers, Inspector, SelectionBar } from "../components/Inspector";
 import type { AskHit, Command } from "../lib/ask";
 import type { Tool as GpTool } from "../lib/types";
 import PolyEarth, { useEarthJobs } from "../components/PolyEarth";
@@ -124,6 +124,17 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     toast(j.layers.length ? `${j.tool_name}: ${j.layers.map((l) => l.name).join(", ")} added to the map.` : `${j.tool_name} is ready.`, "success");
   });
   const [ribbonFolded, setRibbonFolded] = useStored("ribbon-folded", false);
+  // Focus: the map only (modes in a dock, tools and layers float); and the dark Operations theme, for the whole app
+  const [focus, setFocus] = useStored("focus", false);
+  const [theme, setTheme] = useStored<"light" | "ops">("theme", "light");
+  useEffect(() => {
+    if (theme === "ops") document.documentElement.dataset.theme = "ops"; else delete document.documentElement.dataset.theme;
+    // "No basemap" is a plain background: dark in the Operations theme (the map is made after the project loads: wait a tick)
+    let m: maplibregl.Map | null = null;
+    const paint = () => { if (m?.getLayer("background")) m.setPaintProperty("background", "background-color", theme === "ops" ? "#10151f" : "#f4f6fa"); };
+    const t = window.setTimeout(() => { m = map.current; paint(); m?.on("styledata", paint); }, 0);
+    return () => { window.clearTimeout(t); m?.off("styledata", paint); };
+  }, [theme, project?.id]);
   // the mode's tools in one row: arrows show when some are out of sight
   const stripEl = useRef<HTMLDivElement | null>(null);
   const [stripMore, setStripMore] = useState({ left: false, right: false });
@@ -158,6 +169,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const rightOpen = narrow ? drawer === "right" : rightDocked;
   const setLeftOpen = (v: boolean) => (narrow ? setDrawer(v ? "left" : drawer === "left" ? null : drawer) : setLeftDocked(v));
   const setRightOpen = (v: boolean) => (narrow ? setDrawer(v ? "right" : drawer === "right" ? null : drawer) : setRightDocked(v));
+  // in Focus the side pane is closed until there is something to show: a clicked feature opens it (floating)
+  useEffect(() => { if (focus && identify) setRightOpen(true); }, [identify]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [leftW, setLeftW] = useStored("left-width", 272);
   const [rightW, setRightW] = useStored("right-width", 320);
   const [tableH, setTableH] = useStored("table-height", 260);
@@ -954,7 +967,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const onLayout = viewing?.kind === "layout";
 
   return (
-    <div className={`ws${onLayout ? " is-layout" : ""}`} style={{ "--left": `${leftW}px`, "--right": `${rightW}px`, "--table": `${tableH}px` } as React.CSSProperties}>
+    <div className={`ws${onLayout ? " is-layout" : ""}${focus && !onLayout ? " is-focus" : ""}`} style={{ "--left": `${leftW}px`, "--right": `${rightW}px`, "--table": `${tableH}px` } as React.CSSProperties}>
       <div className="ws-top">
       <header className="ws-titlebar">
         <a className="ge-brand" href="/" aria-label="GeoEstate PolyGIS: all projects"><img src="/logo.png" alt="" /><span>Poly<strong>GIS</strong></span></a>
@@ -963,6 +976,11 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
           <h1 className="ws-crumb-title" title={project.description || project.name}>{project.name}</h1>
         </nav>
         <AskBar ref={commandEl} tools={allTools} layers={layers} commands={modeCommands} onPick={doAsk} onSearchTools={(q) => openTool(null, q)} />
+        <button type="button" className="ws-top-btn" aria-pressed={focus} onClick={() => setFocus(!focus)} title={focus ? "Back to the panes" : "The map only: modes in a dock, tools and layers float"}>
+          {focus ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}{focus ? "Leave focus" : "Focus"}</button>
+        <button type="button" className="ws-top-btn ws-top-icon" aria-pressed={theme === "ops"} onClick={() => setTheme(theme === "ops" ? "light" : "ops")}
+          aria-label={theme === "ops" ? "Light theme" : "Operations theme (dark)"} title={theme === "ops" ? "Light theme" : "Operations theme (dark)"}>
+          {theme === "ops" ? <Sun size={16} /> : <Moon size={16} />}</button>
         <Apps apps={apps} />
         <UserMenu me={me} onSignOut={onSignOut} />
       </header>
@@ -1247,6 +1265,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
         {leftOpen && <Resizer axis="x" value={leftW} min={200} max={480} onChange={setLeftW} label="Resize Layers" className="rs-left" />}
         <div className="ws-map-wrap">
           <div ref={mapEl} className={`ws-map tool-${tool}`} />
+          {focus && !onLayout && <FocusLayers layers={layers} activeId={activeId} onToggle={(l) => void toggle(l)}
+            onPick={(l) => { setActiveId(l.id); setIdentify(null); setRightOpen(true); }} onAdd={() => setDialog("add")} canAdd={canEdit} onLeave={() => setFocus(false)} />}
           {totalSel > 0 && <SelectionBar selection={selection} layers={layers}
             onFilter={(l) => { setActiveId(l.id); setDialog("attr"); }} onPlace={(l) => { setActiveId(l.id); setDialog("loc"); }} onInvert={(l) => void switchSelection(l)}
             onZoom={(l) => void zoomToSelection(l)} onTable={(l) => setTableId(l.id)} onExport={(l) => { setActiveId(l.id); setDialog("export"); }}

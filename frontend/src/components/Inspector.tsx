@@ -1,8 +1,9 @@
 /** The Inspector: what was clicked on the map, named and described, with what can be done with it next.
  *  And the selection bar: over the map while anything is selected, with what is done to a selection. */
-import { ArrowLeftRight, Download, Eraser, ListFilter, LocateFixed, MousePointerClick, Palette, PenLine, Scan, Table2, X, ZoomIn } from "lucide-react";
+import { ArrowLeftRight, Download, Eraser, ListFilter, LocateFixed, MousePointerClick, Palette, PanelLeftOpen, PenLine, Plus, Scan, Table2, X, ZoomIn } from "lucide-react";
 import type { Layer } from "../lib/types";
 import { IconButton } from "./ui";
+import { Swatch } from "./Contents";
 
 const KIND: Record<string, string> = { Point: "point", MultiPoint: "points", LineString: "line", MultiLineString: "lines", Polygon: "area", MultiPolygon: "areas", Raster: "raster" };
 /** The field that names a feature, when it has one. */
@@ -80,5 +81,27 @@ export function SelectionBar({ selection, layers, activeId, onFilter, onPlace, o
       <button type="button" onClick={() => onExport(l)} title="Export the selection"><Download size={15} aria-hidden="true" /><span>Export</span></button>
       <button type="button" onClick={onClear} className="selbar-clear" title="Clear the selection"><Eraser size={15} aria-hidden="true" /><span>Clear</span></button>
     </div>
+  );
+}
+
+/** Focus view's layers: a small floating card, top first, to show and hide and to pick the layer to work on. */
+export function FocusLayers({ layers, activeId, canAdd, onToggle, onPick, onAdd, onLeave }: {
+  layers: Layer[]; activeId: string | null; canAdd: boolean; onToggle: (l: Layer) => void; onPick: (l: Layer) => void; onAdd: () => void; onLeave: () => void;
+}) {
+  const top = [...layers].sort((a, b) => b.position - a.position);
+  return (
+    <section className="fl" aria-label="Layers">
+      <div className="fl-head"><strong>Layers</strong>
+        {canAdd && <IconButton label="Add data" onClick={onAdd}><Plus size={16} /></IconButton>}
+        <IconButton label="All layer options (leave focus)" onClick={onLeave}><PanelLeftOpen size={16} /></IconButton></div>
+      {!top.length && <p className="ws-muted" style={{ margin: "4px 0", fontSize: 12.5 }}>No layers yet.</p>}
+      {top.map((l) => (
+        <div key={l.id} className="fl-row">
+          <input type="checkbox" checked={l.visible} onChange={() => onToggle(l)} aria-label={`Show ${l.name}`} />
+          <Swatch layer={l} />
+          <button type="button" className={l.id === activeId ? "is-on" : ""} onClick={() => onPick(l)} title={`Style and details of ${l.name}`}>{l.name}</button>
+        </div>
+      ))}
+    </section>
   );
 }
