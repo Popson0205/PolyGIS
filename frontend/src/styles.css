@@ -114,7 +114,7 @@ body.is-resizing { cursor: col-resize; user-select: none; } body.is-resizing .ma
 .ws-crumbs svg { color: var(--c-faint); flex: none; }
 
 .ws-command { position: relative; flex: 0 1 340px; min-width: 120px; }
-.ws-command svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--c-faint); pointer-events: none; }
+.ws-command > svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--c-faint); pointer-events: none; }
 .ws-command input { min-width: 0; width: 100%; height: 32px; padding: 0 44px 0 30px; border: 1px solid var(--c-line); border-radius: 8px; background: var(--c-pane-2); font: 13px var(--ge-font); color: var(--c-ink); }
 .ws-command input:focus { background: #fff; border-color: var(--c-violet); outline: none; box-shadow: 0 0 0 3px var(--c-violet-50); }
 .ws-command .kbd { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); pointer-events: none; }
@@ -1054,3 +1054,42 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 .ws-strip-scroll { flex: none; width: 30px; height: 38px; margin: 0 2px; display: grid; place-items: center; border: 0; border-radius: 8px; background: var(--c-hover); color: var(--c-ink); cursor: pointer; }
 .ws-strip-scroll:hover { background: var(--c-violet-50); color: var(--c-violet); }
 .ws-ribbon-body { scrollbar-width: none; scroll-behavior: smooth; } .ws-ribbon-body::-webkit-scrollbar { display: none; }
+
+/* every mode's tools are on the page (Ask finds them); only the open mode's show */
+.ws-mode-tools { display: contents; } .ws-mode-tools[hidden] { display: none !important; }
+
+/* Ask PolyGIS */
+.ws-command.ask { flex: 0 1 520px; }
+.ws-command.ask > svg { color: var(--c-violet); }
+.ws-command.ask input { height: 36px; border-radius: 10px; padding-left: 34px; font-size: 13.5px; }
+.ask-pop { position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; right: 0; min-width: 360px; max-height: min(70vh, 520px); overflow-y: auto; padding: 6px;
+  background: #fff; border: 1px solid var(--c-line); border-radius: 14px; box-shadow: 0 18px 44px rgba(16, 24, 40, .18); }
+.ask-hit { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; border-radius: 10px; background: none; text-align: left; cursor: pointer; font: inherit; color: var(--c-ink); }
+.ask-hit.is-at { background: var(--c-violet-50); }
+.ask-hit.is-off { opacity: .55; cursor: default; }
+.ask-ico { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; background: var(--c-hover); color: var(--c-muted); }
+.ask-ico.is-tool { background: var(--c-violet-50); color: var(--c-violet); } .ask-ico.is-layer { background: #e8f3ec; color: #2f7a3e; } .ask-ico.is-goto { background: #fff1e6; color: #b45309; }
+.ask-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ask-text strong { font-size: 13.5px; font-weight: 600; } .ask-text span { font-size: 12px; color: var(--c-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ask-enter { flex: none; font-size: 11px; padding: 2px 6px; border: 1px solid var(--c-line); border-radius: 5px; color: var(--c-faint); background: #fff; }
+.ask-try { padding: 8px 8px 6px; } .ask-try p { margin: 0 0 6px; font-size: 12px; color: var(--c-muted); }
+.ask-try button { display: inline-block; margin: 0 6px 6px 0; padding: 5px 10px; border: 1px solid var(--c-line); border-radius: 999px; background: #fff; font: 12.5px var(--ge-font); color: var(--c-ink); cursor: pointer; }
+.ask-try button:hover { border-color: var(--c-violet); color: var(--c-violet); }
+.ask-none { margin: 0; padding: 10px; font-size: 13px; color: var(--c-muted); }
+
+/* tool cards over the bottom of the map (Analyse) */
+.tc { position: absolute; z-index: 5; left: 50%; bottom: 34px; transform: translateX(-50%); width: min(760px, calc(100% - 28px)); box-sizing: border-box; padding: 12px;
+  background: #fff; border: 1px solid var(--c-line); border-radius: 16px; box-shadow: 0 14px 40px rgba(16, 24, 40, .16); }
+.tc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.tc-head strong { font: 600 14.5px var(--c-head-font); } .tc-head > span { font-size: 12px; color: var(--c-muted); } .tc-gap { flex: 1; }
+.tc-link { height: 30px; display: flex; align-items: center; gap: 5px; padding: 0 10px; border: 1px solid var(--c-line); border-radius: 8px; background: #fff; font: 500 12.5px var(--ge-font); color: var(--c-ink); cursor: pointer; }
+.tc-link:hover { border-color: var(--c-violet); color: var(--c-violet); }
+.tc-fold { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: var(--c-muted); cursor: pointer; } .tc-fold:hover { background: var(--c-hover); }
+.tc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tc-card { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; min-height: 58px; border: 1px solid var(--c-line); border-radius: 11px; background: #fff; text-align: left; cursor: pointer; font: inherit; }
+.tc-card:hover { border-color: var(--c-violet); background: var(--c-violet-50); }
+.tc-card strong { display: flex; align-items: center; gap: 5px; font-size: 13.5px; color: var(--c-ink); } .tc-card strong svg { color: #d4a017; }
+.tc-card span { font-size: 12px; color: var(--c-muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.tc-open { position: absolute; z-index: 5; left: 50%; bottom: 34px; transform: translateX(-50%); height: 36px; display: flex; align-items: center; gap: 6px; padding: 0 14px;
+  border: 1px solid var(--c-line); border-radius: 999px; background: #fff; box-shadow: 0 6px 20px rgba(16, 24, 40, .14); font: 600 13px var(--ge-font); color: var(--c-ink); cursor: pointer; }
+@media (max-width: 720px) { .tc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tc-head > span { display: none; } }
