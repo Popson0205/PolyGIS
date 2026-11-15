@@ -1,11 +1,11 @@
 /** Live tracking: the Tracking pane (add and manage feeds: own devices and apps, aircraft by ADS-B, ships by AIS, a Geohub
  *  form's submissions; how to set each device up; geofences; tracks kept as a layer) and the live picture on the map. */
 import maplibregl, { type Map as MapLibre } from "maplibre-gl";
-import { AlertTriangle, Copy, History, Pause, Play, Plus, Radio, RefreshCw, Trash2, X } from "lucide-react";
+import { AlertTriangle, Copy, History, MessageCircle, Pause, Play, Plus, Radio, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api, type LinkedSource } from "../lib/api";
 import { MIL_PREFIX } from "../lib/milsym";
-import type { Layer, Tracker, TrackAlert, TrackingLive } from "../lib/types";
+import type { Layer, Tracker, TrackAlert, TrackingLive, TrackNotify } from "../lib/types";
 import { Button, ErrorText, IconButton, useToast } from "./ui";
 
 const KINDS: { id: Tracker["kind"]; name: string; about: string }[] = [
@@ -46,11 +46,12 @@ export function TrackingPane({ projectId, layers, canEdit, live, onLive, alerts,
           <Button variant={live ? "primary" : undefined} onClick={() => onLive(!live)}>{live ? <><Pause size={15} aria-hidden="true" />Live: on</> : <><Play size={15} aria-hidden="true" />Show live</>}</Button>
           <span className="ws-muted">{live ? "Positions every 5 s; aircraft every 10 s, ships and Geohub every 30 s." : "Turn on to follow positions on the map."}</span>
         </div>
-        {alerts.length > 0 && <section className="trk-alerts" aria-label="Geofence alerts">
+        {alerts.length > 0 && <section className="trk-alerts" aria-label="Alerts">
           <h3><AlertTriangle size={14} aria-hidden="true" />Alerts ({alerts.length})<span className="ge-spacer" /><button type="button" className="ws-link" onClick={onAlertsSeen}>Mark all seen</button></h3>
           <ul>{alerts.slice(0, 20).map((a) => (
             <li key={a.id}><button type="button" className="ws-link" onClick={() => onZoom(a.x, a.y)}>
-              <strong>{a.name || a.device}</strong> {a.kind === "enter" ? "entered" : "left"} <strong>{a.zone}</strong></button>
+              {a.kind === "new" ? <>New device: <strong>{a.name || a.device}</strong></>
+                : <><strong>{a.name || a.device}</strong> {a.kind === "enter" ? "entered" : "left"} <strong>{a.zone}</strong></>}</button>
               <span className="ws-muted"> · {a.tracker} · {ago(a.ts)}</span></li>))}</ul>
         </section>}
         <ErrorText error={error} />
@@ -61,7 +62,7 @@ export function TrackingPane({ projectId, layers, canEdit, live, onLive, alerts,
               <button type="button" className="trk-row" onClick={() => setOpen(open === t.id ? null : t.id)} aria-expanded={open === t.id}>
                 <Radio size={15} aria-hidden="true" />
                 <span className="trk-name">{t.name}<span className="ws-muted"> · {t.kind_name}</span></span>
-                <span className="trk-meta">{t.devices} · {ago(t.last_at)}</span>
+                <span className="trk-meta">{t.kind !== "device" && t.asked_at ? `${t.last_seen ?? 0} now · asked ${ago(t.asked_at)}` : `${t.devices} · ${ago(t.last_at)}`}</span>
               </button>
               {t.last_error && <p className="trk-err">{t.last_error}</p>}
               {open === t.id && <TrackerDetail t={t} layers={layers} canEdit={canEdit} view={view} act={act}
@@ -123,6 +124,58 @@ function AddTracker({ projectId, layers, view, onDone }: { projectId: string; la
   );
 }
 
+/** Across the area, in km (the narrower way). */
+const km = (b: [number, number, number, number]) => Math.round(Math.min((b[2] - b[0]) * 111 * Math.cos(((b[1] + b[3]) / 2) * Math.PI / 180), (b[3] - b[1]) * 111));
+const small = (b: [number, number, number, number]) => km(b) < 60;
+
+const SENDERS: { id: TrackNotify["provider"]; name: string; keys: { k: string; label: string; optional?: boolean }[]; how: string }[] = [
+  { id: "callmebot", name: "CallMeBot (free, own number)", keys: [{ k: "callmebot_key", label: "CallMeBot API key" }],
+    how: "From the WhatsApp number that gets the alerts, send “I allow callmebot to send me messages” to CallMeBot's number (see callmebot.com); it answers with the API key." },
+  { id: "meta", name: "WhatsApp Cloud API (Meta)", keys: [{ k: "wa_token", label: "Access token" }, { k: "wa_phone_id", label: "Phone number ID" },
+    { k: "wa_template", label: "Template name (optional)", optional: true }],
+    how: "A WhatsApp Business app in Meta for Developers. Plain messages reach the number only within 24 hours of it writing to your business number; otherwise give an approved template whose body has one {{1}} variable." },
+  { id: "twilio", name: "Twilio WhatsApp", keys: [{ k: "twilio_sid", label: "Account SID" }, { k: "twilio_token", label: "Auth token" }, { k: "twilio_from", label: "From (your Twilio WhatsApp number)" }],
+    how: "A Twilio account with a WhatsApp sender, or its sandbox (the number joins it first by sending the sandbox's join code)." },
+];
+const EVENT_NAMES: Record<TrackNotify["events"][number], string> = { new: "A new device is seen", enter: "A device enters a geofence", exit: "A device leaves a geofence" };
+
+/** Alerts of the tracker sent to a WhatsApp number. The keys stay on the server: the page only learns which are set. */
+function WhatsApp({ t, act }: { t: Tracker; act: (f: () => Promise<unknown>, done?: string) => Promise<void> }) {
+  const n = t.config.notify;
+  const [provider, setProvider] = useState<TrackNotify["provider"]>(n?.provider ?? "callmebot");
+  const [to, setTo] = useState(n?.to ?? "");
+  const [events, setEvents] = useState<TrackNotify["events"]>(n?.events ?? (t.kind === "device" || t.kind === "geohub" ? ["new", "enter", "exit"] : ["enter", "exit"]));
+  const [keys, setKeys] = useState<Record<string, string>>({});
+  const s = SENDERS.find((x) => x.id === provider)!;
+  const save = () => act(() => api.updateTracker(t.id, {
+    config: { notify: to.trim() ? { provider, to, events, active: true } : null },
+    ...(Object.values(keys).some(Boolean) ? { secret: Object.fromEntries(Object.entries(keys).filter(([, v]) => v)) } : {}),
+  }).then(() => setKeys({})), to.trim() ? "WhatsApp alerts saved." : "WhatsApp alerts turned off.");
+  return (
+    <details className="trk-setup trk-wa" open={!!n}>
+      <summary><MessageCircle size={14} aria-hidden="true" /> WhatsApp alerts{n ? (n.active ? ` · to ${n.to}` : " · off") : ""}</summary>
+      <label className="ws-f">Send with<select value={provider} onChange={(e) => setProvider(e.target.value as TrackNotify["provider"])}>
+        {SENDERS.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+      <p className="ws-muted">{s.how}</p>
+      <label className="ws-f">WhatsApp number<input value={to} onChange={(e) => setTo(e.target.value)} placeholder="+234 …" inputMode="tel" autoComplete="off" /></label>
+      {s.keys.map(({ k, label }) => <label key={k} className="ws-f">{label}
+        <input value={keys[k] ?? ""} onChange={(e) => setKeys({ ...keys, [k]: e.target.value })} type={k === "wa_template" ? "text" : "password"} autoComplete="off"
+          placeholder={t.secret_set.includes(k) ? "Set; type to change" : ""} /></label>)}
+      <fieldset className="trk-events"><legend>Send when</legend>
+        {(Object.keys(EVENT_NAMES) as TrackNotify["events"]).map((e) => <label key={e}><input type="checkbox" checked={events.includes(e)}
+          onChange={() => setEvents(events.includes(e) ? events.filter((x) => x !== e) : [...events, e])} /> {EVENT_NAMES[e]}</label>)}
+      </fieldset>
+      {t.kind === "adsb" && events.includes("new") && <p className="ws-muted">Every aircraft that flies into the area is a new device: expect many messages.</p>}
+      <p className="ws-muted">Alerts that come together are sent as one message, at most one a minute.</p>
+      {t.notify_error && <p className="trk-err">Last message: {t.notify_error}</p>}
+      <div className="mil-acts">
+        <Button variant="primary" onClick={() => void save()}>Save</Button>
+        {n && <Button onClick={() => void act(() => api.notifyTest(t.id), "Test message sent: check WhatsApp.")}><Send size={14} aria-hidden="true" />Send a test</Button>}
+      </div>
+    </details>
+  );
+}
+
 function TrackerDetail({ t, layers, canEdit, view, act, onLayer }: {
   t: Tracker; layers: Layer[]; canEdit: boolean; view: () => [number, number, number, number] | null;
   act: (f: () => Promise<unknown>, done?: string) => Promise<void>; onLayer: (l: Layer) => void;
@@ -149,7 +202,10 @@ function TrackerDetail({ t, layers, canEdit, view, act, onLayer }: {
         </details>
       </>}
       {t.kind === "geohub" && <p className="ws-muted">Form: {t.config.form_label ?? t.config.form_id}. New submissions come in while the picture is live, read as you.</p>}
-      {(t.kind === "adsb" || t.kind === "ais") && <p className="ws-muted">Area: {t.config.bbox?.map((v) => v.toFixed(2)).join(", ")}{t.kind === "adsb" ? ` · ${t.config.source ?? "adsb.lol"}` : ""}</p>}
+      {(t.kind === "adsb" || t.kind === "ais") && <p className="ws-muted">Area: {t.config.bbox?.map((v) => v.toFixed(2)).join(", ")}{t.kind === "adsb" ? ` · ${t.config.source ?? "adsb.lol"}` : ""}
+        {t.asked_at && ` · last asked ${ago(t.asked_at)}: ${t.last_seen ?? 0} in the area`}</p>}
+      {(t.kind === "adsb" || t.kind === "ais") && t.config.bbox && small(t.config.bbox) && <p className="trk-err">
+        The area is only about {km(t.config.bbox)} km across, so little may be in it. Zoom the map out and click “Area: the map view”.</p>}
       {canEdit && <div className="trk-grid">
         {(t.kind === "adsb" || t.kind === "ais") && <Button onClick={() => void act(() => api.updateTracker(t.id, { config: { bbox: view() } }), "The area is now the map view.")}>Area: the map view</Button>}
         {t.kind !== "device" && <Button onClick={() => void act(() => api.refreshTracker(t.id))}><RefreshCw size={14} aria-hidden="true" />Ask now</Button>}
@@ -163,6 +219,7 @@ function TrackerDetail({ t, layers, canEdit, view, act, onLayer }: {
           {[1, 6, 24, 72, 168].map((h) => <option key={h} value={h}>{h < 24 ? `${h} h` : `${h / 24} days`}</option>)}</select></label>
           <Button onClick={() => void act(async () => { const r = await api.trackHistory(t.id, { since: new Date(Date.now() - hours * 3600e3).toISOString() }); onLayer(r.layer); },
             "Tracks added as a layer.")}><History size={14} aria-hidden="true" />As a layer</Button></div>
+        <WhatsApp t={t} act={act} />
         <div className="mil-acts">
           <Button onClick={() => void act(() => api.updateTracker(t.id, { active: !t.active }))}>{t.active ? "Pause" : "Resume"}</Button>
           {t.kind === "device" && <Button onClick={() => { if (window.confirm("Make a new address? Devices using the old one stop reaching PolyGIS.")) void act(() => api.trackerToken(t.id), "New address made."); }}>New address</Button>}

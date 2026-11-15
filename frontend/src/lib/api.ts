@@ -168,6 +168,7 @@ export const api = {
     req<Tracker>("PATCH", `/trackers/${id}`, b),
   deleteTracker: (id: string) => req<void>("DELETE", `/trackers/${id}`),
   trackerToken: (id: string) => req<Tracker>("POST", `/trackers/${id}/token`),
+  notifyTest: (id: string) => req<{ sent: boolean; to: string }>("POST", `/trackers/${id}/notify/test`),
   refreshTracker: (id: string) => req<{ received: number; seen?: number; note?: string }>("POST", `/trackers/${id}/refresh`),
   trackingLive: (projectId: string) => req<TrackingLive>("GET", `/projects/${projectId}/tracking/live`),
   alertsSeen: (projectId: string) => req<{ ok: boolean }>("POST", `/projects/${projectId}/tracking/alerts/seen`),
