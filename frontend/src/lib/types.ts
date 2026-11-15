@@ -133,3 +133,14 @@ export interface AreaBrief {
   unit_counts: Record<string, number>;
   geometry: GeoJSON.Geometry;
 }
+
+/** A feed of live positions: own devices and apps, aircraft (ADS-B), ships (AIS) or a Geohub form's submissions. */
+export interface Tracker {
+  id: string; project_id: string; name: string; kind: "device" | "adsb" | "ais" | "geohub"; kind_name: string;
+  config: { bbox?: [number, number, number, number]; source?: string; form_id?: string; form_label?: string; geofence_layer_id?: string | null;
+    geofence_field?: string; keep_days?: number; trail_minutes?: number };
+  secret_set: string[]; layer_id: string | null; active: boolean; last_at: string | null; refreshed_at: string | null; last_error: string | null;
+  devices: number; ingest_url?: string; created_at: string;
+}
+export interface TrackAlert { id: number; tracker_id: string; tracker: string; device: string; name: string | null; kind: "enter" | "exit"; zone: string; ts: string; x: number; y: number }
+export interface TrackingLive { positions: GeoJSON.FeatureCollection; trails: GeoJSON.FeatureCollection; alerts: TrackAlert[]; at: string }
