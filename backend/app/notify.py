@@ -4,6 +4,8 @@ Three ways to send, chosen per tracker; the keys are kept server-side in the tra
 - meta:      WhatsApp Cloud API (Meta). Keys wa_token, wa_phone_id; wa_template (optional) for messages outside the 24-hour window,
              an approved template with one {{1}} body variable that receives the alert text.
 - twilio:    Twilio WhatsApp. Keys twilio_sid, twilio_token, twilio_from (the WhatsApp number of the account or the sandbox).
+- waha:      WAHA (open source, self-hosted WhatsApp gateway, free): a WhatsApp number linked by QR code to the WAHA server.
+             Keys waha_url (e.g. http://waha.railway.internal:3000), waha_key (its X-Api-Key, if set), waha_session (default "default").
 - brevo:     Brevo (WhatsApp on the Brevo account). Keys brevo_key (API key), brevo_sender (the WhatsApp number on Brevo);
              brevo_template (optional), the ID of an approved Brevo WhatsApp template, sent when plain text is refused
              (the first message to a number, or more than 24 hours after it last wrote), with the alert text as params.ALERT.
@@ -14,9 +16,9 @@ import re
 
 import httpx
 
-PROVIDERS = ("brevo", "meta", "twilio", "callmebot")
+PROVIDERS = ("waha", "brevo", "meta", "twilio", "callmebot")
 EVENTS = ("new", "enter", "exit")
-NEEDS = {"brevo": ("brevo_key", "brevo_sender"), "meta": ("wa_token", "wa_phone_id"), "twilio": ("twilio_sid", "twilio_token", "twilio_from"), "callmebot": ("callmebot_key",)}
+NEEDS = {"waha": ("waha_url",), "brevo": ("brevo_key", "brevo_sender"), "meta": ("wa_token", "wa_phone_id"), "twilio": ("twilio_sid", "twilio_token", "twilio_from"), "callmebot": ("callmebot_key",)}
 MIN_GAP_S = 60                       # at most one message a minute per tracker; alerts in between go together in the next
 MAX_LINES = 15
 GRAPH = "https://graph.facebook.com/v21.0"
@@ -77,6 +79,12 @@ async def send(provider: str, to: str, text: str, secret: dict, client: httpx.As
             else:
                 body |= {"type": "text", "text": {"body": text[:4096]}}
             r = await client.post(f"{GRAPH}/{secret['wa_phone_id']}/messages", json=body, headers={"Authorization": f"Bearer {secret['wa_token']}"})
+        elif provider == "waha":
+            base = secret["waha_url"].strip().rstrip("/")
+            if not re.match(r"https?://[^/\s]+", base):
+                raise SendError("The WAHA address starts with http:// or https://.")
+            r = await client.post(f"{base}/api/sendText", json={"session": secret.get("waha_session") or "default", "chatId": to.lstrip("+") + "@c.us",
+                                                                 "text": text[:4096]}, headers={"X-Api-Key": secret["waha_key"]} if secret.get("waha_key") else {})
         elif provider == "brevo":
             url, head = "https://api.brevo.com/v3/whatsapp/sendMessage", {"api-key": secret["brevo_key"], "accept": "application/json"}
             base = {"senderNumber": phone(secret["brevo_sender"]).lstrip("+"), "contactNumbers": [to.lstrip("+")]}

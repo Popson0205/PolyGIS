@@ -270,6 +270,12 @@ def test_whatsapp_providers(monkeypatch):
     assert b"whatsapp%3A%2B14155238886" in seen[-1].content and seen[-1].url.path.endswith("/AC1/Messages.json")
     asyncio.run(notify.send("callmebot", to, "hi", {"callmebot_key": "k"}))
     assert seen[-1].url.params["apikey"] == "k"
+    # WAHA, self-hosted
+    asyncio.run(notify.send("waha", to, "hi", {"waha_url": "http://waha.railway.internal:3000/", "waha_key": "WK"}))
+    assert str(seen[-1].url) == "http://waha.railway.internal:3000/api/sendText" and seen[-1].headers["x-api-key"] == "WK"
+    assert json.loads(seen[-1].content) == {"session": "default", "chatId": to[1:] + "@c.us", "text": "hi"}
+    with pytest.raises(notify.SendError, match="http"):
+        asyncio.run(notify.send("waha", to, "hi", {"waha_url": "file:///etc/passwd"}))
     # Brevo: text first; refused (no conversation open), the approved template
     n = len(seen)
     asyncio.run(notify.send("brevo", to, "hi", {"brevo_key": "BK", "brevo_sender": "+2340000000001", "brevo_template": "42"}))
