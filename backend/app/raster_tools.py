@@ -114,6 +114,7 @@ class Out:
     rows: list = field(default_factory=list)      # [(shapely geometry in WGS 84, props)]
     summary: dict = field(default_factory=dict)   # figures worth keeping with the layer (volumes, accuracy…)
     nodata: float | None = None                   # raster: the no-data value, when the default for its type would clash with values
+    labels: dict | None = None                    # vector: how its features are labelled
 
 
 class Inputs:
@@ -2025,3 +2026,4 @@ def catalog() -> list[dict]:
 
 
 from . import imagery_tools  # noqa: E402,F401  (registers image correction and enhancement; builds on the helpers above)
+from . import visibility  # noqa: E402,F401  (registers the Military visibility tools)

@@ -901,3 +901,12 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 .mil-mark::before { left: 50%; top: -9px; bottom: -9px; width: 1.5px; transform: translateX(-50%); }
 .mil-mark::after { top: 50%; left: -9px; right: -9px; height: 1.5px; transform: translateY(-50%); }
 .mil-from { align-items: center; gap: 12px; font-size: 12.5px; }
+.mil-verdict { margin: 0; padding: 8px 10px; border-radius: 6px; font-weight: 600; font-size: 13px; }
+.mil-verdict.is-seen { background: #e6f4ea; color: #146c2e; }
+.mil-verdict.is-hidden { background: #fdecea; color: #a1231b; }
+.mil-profile { margin: 0; }
+.mil-profile svg { width: 100%; height: auto; display: block; border: 1px solid var(--c-line-2); border-radius: 6px; background: #fff; }
+.mil-profile figcaption { display: flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--c-muted); margin-top: 4px; }
+.mil-key { display: inline-block; width: 14px; height: 3px; margin-left: 6px; }
+.mil-key.is-seen { background: #1a9850; } .mil-key.is-hidden { background: #d73027; }
+.mil-key.is-sight { background: repeating-linear-gradient(90deg, #1d3557 0 4px, transparent 4px 7px); height: 2px; }

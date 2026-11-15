@@ -157,7 +157,7 @@ function ToolForm({ tool, projectId, layers, selection, activeId, canEdit, starr
             <div key={p.name} className="ws-f"><label htmlFor={id}>{p.label}</label>
               <select id={id} value={String(v[p.name] ?? "")} onChange={(e) => setV({ ...v, [p.name]: e.target.value })} required>
                 <option value="">{ok.length ? "Choose…" : `No ${p.geometry?.map((g) => WORD[g]).join(" or ") ?? "layers"} yet`}</option>
-                {ok.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.feature_count.toLocaleString("en-GB")} {WORD[l.geometry_type]})</option>)}
+                {ok.map((l) => <option key={l.id} value={l.id}>{l.geometry_type === "Raster" ? `${l.name}${l.raster ? ` (${l.raster.width.toLocaleString("en-GB")} × ${l.raster.height.toLocaleString("en-GB")} cells)` : ""}` : `${l.name} (${l.feature_count.toLocaleString("en-GB")} ${WORD[l.geometry_type]})`}</option>)}
               </select>
               {sel.length > 0 && <label className="ws-check"><input type="checkbox" checked={!!onlySel[p.name]} onChange={(e) => setOnlySel({ ...onlySel, [p.name]: e.target.checked })} /> Only its {sel.length.toLocaleString("en-GB")} selected</label>}
             </div>

@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -16,7 +16,7 @@ import PolyEarth, { useEarthJobs } from "../components/PolyEarth";
 import LayerPanel from "../components/LayerPanel";
 import LayoutView from "../components/LayoutView";
 import Catalog, { ViewTabs, isNewLayout, viewKey, type ViewTab } from "../components/Catalog";
-import CoordinatePane from "../components/Military";
+import CoordinatePane, { SightPane } from "../components/Military";
 import { NOTATIONS, NOTATION_NAMES, writeCoordinate, type Notation } from "../lib/milcoords";
 import { bearingText } from "../lib/geodesy";
 import Georeference from "../components/Georeference";
@@ -79,6 +79,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [basemap, setBasemap] = useState("streets");
   const [gp, setGp] = useState<{ open: boolean; start: string | null; query: string; preset?: Record<string, unknown> }>({ open: false, start: null, query: "" });
   const [coordsOpen, setCoordsOpen] = useState(false);
+  const [sightOpen, setSightOpen] = useState(false);
   const [coordFmt, setCoordFmt] = useStored<"crs" | Notation>("coord-format", "crs");
   const [earth, setEarth] = useState<{ open: boolean; start: string | null }>({ open: false, start: null });
   const [panelTab, setPanelTab] = useState<{ tab: PanelTab; n: number }>({ tab: "symbology", n: 0 });
@@ -715,9 +716,11 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const editable = layers.filter((l) => canEdit && l.geometry_type !== "Raster" && !l.source.linked);
   const totalSel = Object.values(selection).reduce((n, x) => n + x.length, 0);
   const notice = licenceNotice(me.product);
-  const openTool = (t: string | null, q = "", preset?: Record<string, unknown>) => { setEarth({ open: false, start: null }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setGp({ open: true, start: t, query: q, preset }); setRightOpen(true); };
-  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
-  const openCoords = () => { setCatalogOpen(false); setCoordsOpen(true); setRightOpen(true); };
+  const openTool = (t: string | null, q = "", preset?: Record<string, unknown>) => { setEarth({ open: false, start: null }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setGp({ open: true, start: t, query: q, preset }); setRightOpen(true); };
+  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
+  const openCoords = () => { setCatalogOpen(false); setSightOpen(false); setCoordsOpen(true); setRightOpen(true); };
+  const openSight = () => { setCatalogOpen(false); setCoordsOpen(false); setSightOpen(true); setRightOpen(true); if (tool !== "explore") chooseTool("explore"); };
+  const rasterOk = me.features.includes("raster");
   const kindWord = editLayer?.geometry_type === "Point" ? "points" : editLayer?.geometry_type === "LineString" ? "lines" : "polygons";
   const hint: Partial<Record<Tool, ReactNode>> = {
     select: <>Click features of <strong>{active?.name}</strong> to select them. Shift-click adds or removes.</>,
@@ -729,7 +732,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     "pick-reshape": <>Click the feature of <strong>{editLayer?.name}</strong> to reshape.</>,
     reshape: <>Drag a vertex to move it, a midpoint to add one; right-click a vertex to remove it.</>,
   };
-  const right = coordsOpen ? (
+  const right = sightOpen ? (
+    <SightPane map={map.current} dems={layers.filter((l) => l.geometry_type === "Raster" && l.raster && l.raster.count === 1 && !l.raster.missing)} onClose={() => setSightOpen(false)} />
+  ) : coordsOpen ? (
     <CoordinatePane map={map.current} onClose={() => setCoordsOpen(false)} onPoints={canEdit ? (text) => openTool("points_from_coordinates", "", { coordinates: text }) : undefined}
       onTool={canEdit ? (t, text) => openTool(t, "", { origin: "typed", origin_text: text }) : undefined} />
   ) : catalogOpen ? (
@@ -849,7 +854,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => setDialog("add")} icon={<FilePlus2 />} label="Add data" disabled={!canEdit} />
             </Group>
             <Group name="Project">
-              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) setCatalogOpen(false); else { setCoordsOpen(false); setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Catalog" />
+              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) setCatalogOpen(false); else { setCoordsOpen(false); setSightOpen(false); setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Catalog" />
             </Group>
             <Group name="Coordinates">
               <Tb onClick={() => setDialog("crs")} icon={<Globe2 />} label={crs ? shortCrs(crs.name) : `EPSG:${project.display_epsg}`} />
@@ -999,6 +1004,13 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => openTool("bearing_lines")} icon={<MoveUpRight />} label="Bearing lines" />
               <Tb onClick={() => openTool("distance_bearing")} icon={<Route />} label="Distance & bearing" />
               <Tb onClick={() => openTool("ellipse")} icon={<Orbit />} label="Ellipse" />
+            </Group>
+            <Group name="Visibility">
+              <Tb on={sightOpen && rightOpen} onClick={() => (sightOpen ? setSightOpen(false) : openSight())} icon={<Eye />} label="Line of sight" disabled={!rasterOk} />
+              <Tb onClick={() => openTool("line_of_sight")} icon={<ScanEye />} label="Sight lines" disabled={!rasterOk} />
+              <Tb onClick={() => openTool("radial_line_of_sight")} icon={<Sun />} label="Radial" disabled={!rasterOk} />
+              <Tb onClick={() => openTool("sector_viewshed")} icon={<Radar />} label="Viewshed" disabled={!rasterOk} />
+              <Tb onClick={() => openTool("highest_points")} icon={<MountainSnow />} label="Highest points" disabled={!rasterOk} />
             </Group>
             <Group name="Grids">
               <Tb onClick={() => openTool("mgrs_grid")} icon={<Grid3x3 />} label="MGRS grid" />
