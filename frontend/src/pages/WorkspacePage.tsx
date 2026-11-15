@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -19,6 +19,8 @@ import Catalog, { ViewTabs, isNewLayout, viewKey, type ViewTab } from "../compon
 import CoordinatePane, { SightPane } from "../components/Military";
 import { SymbolsPane } from "../components/MilSymbols";
 import BriefPane from "../components/AreaBrief";
+import { TrackingPane, useLiveTracking } from "../components/Tracking";
+import type { TrackAlert } from "../lib/types";
 import { NOTATIONS, NOTATION_NAMES, writeCoordinate, type Notation } from "../lib/milcoords";
 import { bearingText } from "../lib/geodesy";
 import Georeference from "../components/Georeference";
@@ -85,6 +87,10 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [sightOpen, setSightOpen] = useState(false);
   const [symbolsOpen, setSymbolsOpen] = useState(false);
   const [briefOpen, setBriefOpen] = useState(false);
+  const [trackingOpen, setTrackingOpen] = useState(false);
+  const [liveOn, setLiveOn] = useStored<boolean>(`tracking-live-${id}`, false);
+  const [alerts, setAlerts] = useState<TrackAlert[]>([]);
+  const alertIds = useRef<Set<number>>(new Set());
   const [placing, setPlacing] = useState(false);
   const placeProps = useRef<Record<string, unknown> | null>(null);
   const areaWait = useRef<((g: GeoJSON.Geometry | null) => void) | null>(null);     // attributes each placed symbol gets
@@ -173,6 +179,13 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     } catch (e) { setError(e); }
   }, [id]);
   useEffect(() => { void load(); }, [load]);
+  // the live picture of tracked devices, and a word when a geofence is crossed
+  useLiveTracking(liveOn && project ? map.current : null, id, liveOn, (a) => {
+    const fresh = a.filter((x) => !alertIds.current.has(x.id));
+    for (const x of fresh) alertIds.current.add(x.id);
+    if (fresh.length && alertIds.current.size > fresh.length) toast(`${fresh[0].name || fresh[0].device} ${fresh[0].kind === "enter" ? "entered" : "left"} ${fresh[0].zone}${fresh.length > 1 ? ` (and ${fresh.length - 1} more)` : ""}.`, "info");
+    setAlerts(a);
+  });
   useEffect(() => {
     if (!views.length) return;
     try { localStorage.setItem(`polygis-views-${id}`, JSON.stringify({ views: views.filter((v) => v.kind === "map" || !isNewLayout(v.id)), now: viewNow })); } catch { /* not kept */ }
@@ -729,12 +742,13 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const editable = layers.filter((l) => canEdit && l.geometry_type !== "Raster" && !l.source.linked);
   const totalSel = Object.values(selection).reduce((n, x) => n + x.length, 0);
   const notice = licenceNotice(me.product);
-  const openTool = (t: string | null, q = "", preset?: Record<string, unknown>) => { setEarth({ open: false, start: null }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setGp({ open: true, start: t, query: q, preset }); setRightOpen(true); };
-  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
-  const openCoords = () => { setBriefOpen(false);  setCatalogOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setCoordsOpen(true); setRightOpen(true); };
-  const openBrief = () => { setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(true); setRightOpen(true); };
-  const openSymbols = () => { setBriefOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(true); setRightOpen(true); };
-  const openSight = () => { setBriefOpen(false);  setCatalogOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setSightOpen(true); setRightOpen(true); if (tool !== "explore") chooseTool("explore"); };
+  const openTool = (t: string | null, q = "", preset?: Record<string, unknown>) => { setEarth({ open: false, start: null }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setGp({ open: true, start: t, query: q, preset }); setRightOpen(true); };
+  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
+  const openCoords = () => { setBriefOpen(false); setTrackingOpen(false);  setCatalogOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setCoordsOpen(true); setRightOpen(true); };
+  const openTracking = () => { setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(true); setRightOpen(true); };
+  const openBrief = () => { setTrackingOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(true); setRightOpen(true); };
+  const openSymbols = () => { setBriefOpen(false); setTrackingOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(true); setRightOpen(true); };
+  const openSight = () => { setBriefOpen(false); setTrackingOpen(false);  setCatalogOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setSightOpen(true); setRightOpen(true); if (tool !== "explore") chooseTool("explore"); };
   const rasterOk = me.features.includes("raster");
   const kindWord = editLayer?.geometry_type === "Point" ? "points" : editLayer?.geometry_type === "LineString" ? "lines" : "polygons";
   const hint: Partial<Record<Tool, ReactNode>> = {
@@ -784,7 +798,12 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     editor.current.create("polygon", (g) => { areaWait.current = null; resolve(g); setTimeout(() => { editor.current?.reset(); setTool("explore"); }, 0); });
   });
 
-  const right = briefOpen ? (
+  const right = trackingOpen ? (
+    <TrackingPane projectId={id} layers={layers} canEdit={canEdit} live={liveOn} onLive={setLiveOn} alerts={alerts}
+      onAlertsSeen={() => void api.alertsSeen(id).then(() => setAlerts([]))} view={() => (map.current ? mapBox() : null)}
+      onLayer={(l) => { setLayers((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? l : x)) : [...cur, l])); }}
+      onZoom={(x, y) => map.current?.flyTo({ center: [x, y], zoom: Math.max(map.current.getZoom(), 14) })} onClose={() => setTrackingOpen(false)} />
+  ) : briefOpen ? (
     <BriefPane projectId={id} dems={layers.filter((l) => l.geometry_type === "Raster" && l.raster && l.raster.count === 1 && !l.raster.missing)}
       selectedPolygon={selectedPolygon} onDraw={drawArea} onClose={() => setBriefOpen(false)} />
   ) : symbolsOpen ? (
@@ -912,7 +931,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => setDialog("add")} icon={<FilePlus2 />} label="Add data" disabled={!canEdit} />
             </Group>
             <Group name="Project">
-              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) setCatalogOpen(false); else { setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Catalog" />
+              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) setCatalogOpen(false); else { setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Catalog" />
             </Group>
             <Group name="Coordinates">
               <Tb onClick={() => setDialog("crs")} icon={<Globe2 />} label={crs ? shortCrs(crs.name) : `EPSG:${project.display_epsg}`} />
@@ -1046,11 +1065,15 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             </Group>
           </>}
           {tab === "military" && <>
-            <Group name="Coordinates">
+            <Group name="Coordinates & grids">
               <Tb on={coordsOpen && rightOpen} onClick={() => (coordsOpen ? setCoordsOpen(false) : openCoords())} icon={<Crosshair />} label="Convert" />
               <div className="ws-tb-stack">
-                <Ts onClick={() => openTool("points_from_coordinates")} icon={<ListPlus size={16} />} label="To points" />
-                <Ts onClick={() => openTool("convert_notation")} icon={<Shield size={16} />} label="Notation fields" />
+                <Ts onClick={() => openTool("points_from_coordinates")} icon={<ListPlus size={16} />} label="To points" title="Coordinates to points" />
+                <Ts onClick={() => openTool("convert_notation")} icon={<Shield size={16} />} label="Notation" title="Convert coordinate notation (as fields)" />
+              </div>
+              <div className="ws-tb-stack">
+                <Ts onClick={() => openTool("mgrs_grid")} icon={<Grid3x3 size={16} />} label="MGRS grid" />
+                <Ts onClick={() => openTool("gars_grid")} icon={<Grid2x2 size={16} />} label="GARS grid" />
               </div>
             </Group>
             <Group name="Distance & direction">
@@ -1058,7 +1081,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => openTool("range_rings")} icon={<Radar />} label="Range rings" />
               <div className="ws-tb-stack">
                 <Ts onClick={() => openTool("bearing_lines")} icon={<MoveUpRight size={16} />} label="Bearing lines" />
-                <Ts onClick={() => openTool("distance_bearing")} icon={<Route size={16} />} label="Distance & bearing" />
+                <Ts onClick={() => openTool("distance_bearing")} icon={<Route size={16} />} label="Distances" title="Distance and bearing between points" />
                 <Ts onClick={() => openTool("ellipse")} icon={<Orbit size={16} />} label="Ellipse" />
               </div>
             </Group>
@@ -1068,7 +1091,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <div className="ws-tb-stack">
                 <Ts onClick={() => openTool("line_of_sight")} icon={<Eye size={16} />} label="Sight lines" disabled={!rasterOk} />
                 <Ts onClick={() => openTool("radial_line_of_sight")} icon={<Sun size={16} />} label="Radial" disabled={!rasterOk} />
-                <Ts onClick={() => openTool("highest_points")} icon={<MountainSnow size={16} />} label="Highest points" disabled={!rasterOk} />
+                <Ts onClick={() => openTool("highest_points")} icon={<MountainSnow size={16} />} label="Hilltops" title="Highest points" disabled={!rasterOk} />
               </div>
             </Group>
             <Group name="Symbols">
@@ -1076,17 +1099,17 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             </Group>
             <Group name="Intelligence">
               <Tb on={briefOpen && rightOpen} onClick={() => (briefOpen ? setBriefOpen(false) : openBrief())} icon={<ClipboardList />} label="Area brief" />
-              <Tb onClick={() => openTool("weapon_ranges")} icon={<Target />} label="Weapon ranges" />
               <div className="ws-tb-stack">
-                <Ts onClick={() => openTool("activity_change")} icon={<Activity size={16} />} label="Activity change" />
+                <Ts onClick={() => openTool("weapon_ranges")} icon={<Target size={16} />} label="Ranges" title="Weapon and sensor ranges" />
+                <Ts onClick={() => openTool("activity_change")} icon={<Activity size={16} />} label="Activity" title="Activity change between periods" />
                 <Ts onClick={() => openTool("hotspots")} icon={<Flame size={16} />} label="Hot spots" />
-                <Ts onClick={() => openTool("kernel_density")} icon={<Waves size={16} />} label="Density" disabled={!rasterOk} />
               </div>
             </Group>
-            <Group name="Grids">
+            <Group name="Tracking">
+              <Tb on={trackingOpen && rightOpen} onClick={() => (trackingOpen ? setTrackingOpen(false) : openTracking())} icon={<Radio />} label="Tracking" />
               <div className="ws-tb-stack">
-                <Ts onClick={() => openTool("mgrs_grid")} icon={<Grid3x3 size={16} />} label="MGRS grid" />
-                <Ts onClick={() => openTool("gars_grid")} icon={<Grid2x2 size={16} />} label="GARS grid" />
+                <Ts on={liveOn} onClick={() => setLiveOn(!liveOn)} icon={<Play size={16} />} label={liveOn ? "Live: on" : "Live"} />
+                <Ts onClick={() => { openTracking(); }} icon={<BellRing size={16} />} label={alerts.length ? `Alerts (${alerts.length})` : "Alerts"} />
               </div>
             </Group>
           </>}

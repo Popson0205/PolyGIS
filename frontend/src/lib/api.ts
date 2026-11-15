@@ -1,6 +1,6 @@
 import type { LayoutSettings } from "./layout";
 import type { LayoutDoc } from "./layoutDoc";
-import type { AreaBrief, SightResult, Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
+import type { AreaBrief, SightResult, Tracker, TrackingLive, Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
@@ -150,6 +150,17 @@ export const api = {
     req<{ run: Run; layer: Layer }>("POST", `/projects/${projectId}/raster-tools/${tool}`, { params, output_name: output_name || null }),
   rasterStyle: (id: string, style: RasterStyle) => req<Layer>("PUT", `/layers/${id}/raster-style`, style),
   rasterValue: (id: string, lng: number, lat: number) => req<{ values: (number | null)[] | null; bands: string[] }>("GET", `/layers/${id}/raster/value?lng=${lng}&lat=${lat}`),
+  trackers: (projectId: string) => req<Tracker[]>("GET", `/projects/${projectId}/trackers`),
+  newTracker: (projectId: string, b: { name: string; kind: Tracker["kind"]; config: Record<string, unknown>; secret?: Record<string, string> }) =>
+    req<Tracker & { layer: Layer }>("POST", `/projects/${projectId}/trackers`, b),
+  updateTracker: (id: string, b: { name?: string; config?: Record<string, unknown>; secret?: Record<string, string>; active?: boolean }) =>
+    req<Tracker>("PATCH", `/trackers/${id}`, b),
+  deleteTracker: (id: string) => req<void>("DELETE", `/trackers/${id}`),
+  trackerToken: (id: string) => req<Tracker>("POST", `/trackers/${id}/token`),
+  refreshTracker: (id: string) => req<{ received: number; seen?: number; note?: string }>("POST", `/trackers/${id}/refresh`),
+  trackingLive: (projectId: string) => req<TrackingLive>("GET", `/projects/${projectId}/tracking/live`),
+  alertsSeen: (projectId: string) => req<{ ok: boolean }>("POST", `/projects/${projectId}/tracking/alerts/seen`),
+  trackHistory: (id: string, b: { since?: string; until?: string; name?: string }) => req<{ layer: Layer; tracks: number }>("POST", `/trackers/${id}/history`, b),
   areaBrief: (projectId: string, b: { geometry?: GeoJSON.Geometry; layer_id?: string; feature_id?: number; dem_id?: string | null; name?: string }) =>
     req<AreaBrief>("POST", `/projects/${projectId}/area-brief`, b),
   lineOfSight: (demId: string, b: { observer: [number, number]; target: [number, number]; height: number; target_height: number; curvature: boolean }) =>

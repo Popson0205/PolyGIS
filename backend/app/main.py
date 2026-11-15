@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from . import errors
 from .config import settings
 from .db import migrate, pool
-from .routers import auth, crs, features, georef, geoint, hub, maps, visibility, scenarios, imagery, layers, layouts, linked, models, polyearth, projects, rasters, shares, thumbs, tools
+from .routers import auth, crs, features, georef, geoint, hub, maps, tracking, visibility, scenarios, imagery, layers, layouts, linked, models, polyearth, projects, rasters, shares, thumbs, tools
 
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -28,7 +28,7 @@ app = FastAPI(title="PolyGIS API", version="1.0.0", lifespan=lifespan,
               docs_url=f"{settings.api_prefix}/docs", openapi_url=f"{settings.api_prefix}/openapi.json")
 errors.install(app)
 P = settings.api_prefix
-for r in (auth.router, projects.router, layouts.router, shares.router, hub.router, linked.router, models.router, thumbs.router, layers.router, rasters.router, georef.router, maps.router, visibility.router, geoint.router, scenarios.router, imagery.router, polyearth.router, features.router, crs.router, tools.router):
+for r in (auth.router, projects.router, layouts.router, shares.router, hub.router, linked.router, models.router, thumbs.router, layers.router, rasters.router, georef.router, maps.router, visibility.router, geoint.router, tracking.router, scenarios.router, imagery.router, polyearth.router, features.router, crs.router, tools.router):
     app.include_router(r, prefix=P)
 
 
@@ -45,8 +45,9 @@ async def health():
 @app.middleware("http")
 async def guard(request: Request, call_next):
     """Signed in by cookie, so changes must come from our own page: a cross-site form cannot set this header."""
+    # (a tracker's address is the exception: devices post to it, and its secret token, not a cookie, says who may)
     if request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith(f"{P}/") \
-            and request.headers.get("x-geoestate") != "1":
+            and not request.url.path.startswith(f"{P}/track/") and request.headers.get("x-geoestate") != "1":
         return JSONResponse({"type": "urn:geoestate-gis:problem:csrf", "title": "Forbidden", "status": 403, "code": "csrf",
                              "detail": "Changes must come from PolyGIS's own pages."}, status_code=403)
     response = await call_next(request)
