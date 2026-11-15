@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from .. import identity, milcoords as mc, tracking
 from ..audit import audit
 from ..config import settings
-from ..db import get_conn
+from ..db import get_conn, pool
 from ..errors import Problem
 from ..geoestate_id import GeoEstateIDError
 from ..identity import need
@@ -267,17 +267,25 @@ def _token(request: Request) -> str | None:
 
 
 @router.post("/trackers/{tracker_id}/refresh", summary="Ask the tracker's feed for the latest positions (ADS-B, AIS, Geohub)")
-async def refresh(tracker_id: UUID, request: Request, user=Depends(need()), conn=Depends(get_conn)):
-    t = await tracker_of(conn, tracker_id, user)
-    if t["kind"] == "device":
-        return {"received": 0, "note": "Devices send their positions themselves."}
-    if not t["active"]:
-        return {"received": 0, "note": "Paused."}
-    now = datetime.now(timezone.utc)
-    if t["refreshed_at"] and (now - t["refreshed_at"]).total_seconds() < tracking.MIN_REFRESH[t["kind"]]:
-        return {"received": 0, "note": "Asked a moment ago."}
-    await conn.execute("UPDATE trackers SET refreshed_at = now() WHERE id = %s", (tracker_id,))
+async def refresh(tracker_id: UUID, request: Request, user=Depends(need())):
+    """No database connection is held while the feed is asked (AIS listens for some seconds, and the pool is small):
+    one short connection reads the tracker, another keeps what came back."""
+    async with pool.connection() as conn:
+        t = await tracker_of(conn, tracker_id, user)
+        if t["kind"] == "device":
+            return {"received": 0, "note": "Devices send their positions themselves."}
+        if not t["active"]:
+            return {"received": 0, "note": "Paused."}
+        now = datetime.now(timezone.utc)
+        if t["refreshed_at"] and (now - t["refreshed_at"]).total_seconds() < tracking.MIN_REFRESH[t["kind"]]:
+            return {"received": 0, "note": "Asked a moment ago."}
+        # claimed for this ask, so that other open pages do not ask the feed at the same time
+        cur = await conn.execute("UPDATE trackers SET refreshed_at = now() WHERE id = %s AND (refreshed_at IS NULL OR refreshed_at < now() - make_interval(secs => %s)) "
+                                 "RETURNING id", (tracker_id, tracking.MIN_REFRESH[t["kind"]]))
+        if not await cur.fetchone():
+            return {"received": 0, "note": "Asked a moment ago."}
     cfg, sec = t["config"] or {}, t["secret"] or {}
+    after = None
     try:
         if t["kind"] == "adsb":
             positions = await tracking.adsb(cfg, sec)
@@ -301,15 +309,17 @@ async def refresh(tracker_id: UUID, request: Request, user=Depends(need()), conn
                 if not page.get("next"):
                     break
             positions = tracking.geohub_positions(feats)
-            await conn.execute("UPDATE trackers SET config = jsonb_set(config, '{after}', to_jsonb(%s::int)) WHERE id = %s", (after, tracker_id))
-    except Problem as e:
-        await conn.execute("UPDATE trackers SET last_error = %s WHERE id = %s", (e.detail, tracker_id))
-        raise
-    except httpx.HTTPError as e:
-        why = f"The feed could not be reached ({e.__class__.__name__}). Try again in a moment."
-        await conn.execute("UPDATE trackers SET last_error = %s WHERE id = %s", (why, tracker_id))
+    except (Problem, httpx.HTTPError) as e:
+        why = e.detail if isinstance(e, Problem) else f"The feed could not be reached ({e.__class__.__name__}). Try again in a moment."
+        async with pool.connection() as conn:
+            await conn.execute("UPDATE trackers SET last_error = %s WHERE id = %s", (why, tracker_id))
+        if isinstance(e, Problem):
+            raise
         raise Problem(502, why, code="feed") from None
-    n = await ingest(conn, t, positions)
+    async with pool.connection() as conn:
+        if after is not None:
+            await conn.execute("UPDATE trackers SET config = jsonb_set(config, '{after}', to_jsonb(%s::int)) WHERE id = %s", (after, tracker_id))
+        n = await ingest(conn, t, positions)
     return {"received": n, "seen": len(positions)}
 
 
