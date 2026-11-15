@@ -20,7 +20,14 @@ export const BASEMAPS: { id: string; name: string; style: string | StyleSpecific
   ...(extraImagery ? [{ id: "imagery", name: "Imagery (high resolution)", style: raster(extraImagery, import.meta.env.VITE_IMAGERY_ATTRIBUTION ?? "") }] : []),
   { id: "none", name: "No basemap", style: { version: 8, glyphs: GLYPHS, sources: {}, layers: [{ id: "background", type: "background", paint: { "background-color": "#f4f6fa" } }] } },
 ];
-export const basemapStyle = (id?: string) => (BASEMAPS.find((b) => b.id === id) ?? BASEMAPS[0]).style;
+/** The organization's own imagery services (tile services added as imagery providers), as basemaps: "provider:<id>".
+ *  Their tiles come through PolyGIS, which adds the provider's key. */
+const PROVIDED: { id: string; name: string; style: StyleSpecification }[] = [];
+export function setProviderBasemaps(list: { id: string; name: string; tiles: string; attribution?: string; maxzoom?: number }[]) {
+  PROVIDED.splice(0, PROVIDED.length, ...list.map((p) => ({ id: `provider:${p.id}`, name: p.name, style: raster(p.tiles, p.attribution ?? "", p.maxzoom ?? 20) })));
+}
+export const allBasemaps = () => [...BASEMAPS.filter((b) => b.id !== "none"), ...PROVIDED, ...BASEMAPS.filter((b) => b.id === "none")];
+export const basemapStyle = (id?: string) => (allBasemaps().find((b) => b.id === id) ?? BASEMAPS[0]).style;
 
 export const SELECT = "#00d5ff";     // the selection colour, as in ArcGIS Pro
 export const src = (l: Layer) => `src-${l.id}`;

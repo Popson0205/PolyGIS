@@ -1,6 +1,6 @@
 import type { LayoutSettings } from "./layout";
 import type { LayoutDoc } from "./layoutDoc";
-import type { AreaBrief, SightResult, Tracker, TrackingLive, Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
+import type { OrgImagery, OrgScene, AreaBrief, SightResult, Tracker, TrackingLive, Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
@@ -150,6 +150,17 @@ export const api = {
     req<{ run: Run; layer: Layer }>("POST", `/projects/${projectId}/raster-tools/${tool}`, { params, output_name: output_name || null }),
   rasterStyle: (id: string, style: RasterStyle) => req<Layer>("PUT", `/layers/${id}/raster-style`, style),
   rasterValue: (id: string, lng: number, lat: number) => req<{ values: (number | null)[] | null; bands: string[] }>("GET", `/layers/${id}/raster/value?lng=${lng}&lat=${lat}`),
+  orgImagery: () => req<OrgImagery[]>("GET", "/imagery-providers"),
+  newOrgImagery: (b: { name: string; kind: OrgImagery["kind"]; url: string; config: OrgImagery["config"]; auth: Record<string, string | undefined>; enabled?: boolean }) =>
+    req<OrgImagery>("POST", "/imagery-providers", b),
+  updateOrgImagery: (id: string, b: { name?: string; url?: string; config?: OrgImagery["config"]; auth?: Record<string, string | undefined>; enabled?: boolean }) =>
+    req<OrgImagery>("PATCH", `/imagery-providers/${id}`, b),
+  deleteOrgImagery: (id: string) => req<void>("DELETE", `/imagery-providers/${id}`),
+  searchOrgImagery: (id: string, b: { bbox: [number, number, number, number]; start: string; end: string; max_cloud: number }) =>
+    req<{ scenes: OrgScene[] }>("POST", `/imagery-providers/${id}/search`, b),
+  addOrgScene: (projectId: string, id: string, b: { scene_id: string; collection?: string | null; bbox: [number, number, number, number]; name?: string }) =>
+    req<Layer>("POST", `/projects/${projectId}/imagery-providers/${id}/add`, b),
+  orgThumb: (id: string, href: string) => `${BASE}/imagery-providers/${id}/thumbnail?href=${encodeURIComponent(href)}`,
   trackers: (projectId: string) => req<Tracker[]>("GET", `/projects/${projectId}/trackers`),
   newTracker: (projectId: string, b: { name: string; kind: Tracker["kind"]; config: Record<string, unknown>; secret?: Record<string, string> }) =>
     req<Tracker & { layer: Layer }>("POST", `/projects/${projectId}/trackers`, b),

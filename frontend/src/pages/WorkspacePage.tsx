@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -20,7 +20,8 @@ import CoordinatePane, { SightPane } from "../components/Military";
 import { SymbolsPane } from "../components/MilSymbols";
 import BriefPane from "../components/AreaBrief";
 import { TrackingPane, useLiveTracking } from "../components/Tracking";
-import type { TrackAlert } from "../lib/types";
+import ProvidersPane from "../components/Providers";
+import type { OrgImagery, TrackAlert } from "../lib/types";
 import { NOTATIONS, NOTATION_NAMES, writeCoordinate, type Notation } from "../lib/milcoords";
 import { bearingText } from "../lib/geodesy";
 import Georeference from "../components/Georeference";
@@ -36,7 +37,7 @@ import RasterPanel from "../components/RasterPanel";
 import { ApiError, BASE, api, type SavedLayout, rasterDownloadUrl, rasterTileUrl, terrainTileUrl, tileUrl } from "../lib/api";
 import { formatCoords, loadCrs, metres, squareMetres } from "../lib/coords";
 import { Editor } from "../lib/editor";
-import { BASEMAPS, GLOBAL_TERRAIN, GLYPHS, allIds, basemapStyle, ids as layerIds, labelSrc, mapLayers, src } from "../lib/mapstyle";
+import { allBasemaps, setProviderBasemaps, GLOBAL_TERRAIN, GLYPHS, allIds, basemapStyle, ids as layerIds, labelSrc, mapLayers, src } from "../lib/mapstyle";
 import type { CrsDef, GisMap, Layer, Me, Project, Selection, VectorType, View } from "../lib/types";
 import { attachMilSymbols } from "../lib/milsym";
 
@@ -88,6 +89,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [symbolsOpen, setSymbolsOpen] = useState(false);
   const [briefOpen, setBriefOpen] = useState(false);
   const [trackingOpen, setTrackingOpen] = useState(false);
+  const [providersOpen, setProvidersOpen] = useState(false);
+  const [providerTick, setProviderTick] = useState(0);
+  const providerApplied = useRef(false);
   const [liveOn, setLiveOn] = useStored<boolean>(`tracking-live-${id}`, false);
   const [alerts, setAlerts] = useState<TrackAlert[]>([]);
   const alertIds = useRef<Set<number>>(new Set());
@@ -179,6 +183,18 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     } catch (e) { setError(e); }
   }, [id]);
   useEffect(() => { void load(); }, [load]);
+  const providersLoaded = (list: OrgImagery[]) => {
+    setProviderBasemaps(list.filter((p) => p.enabled && p.tiles).map((p) => ({ id: p.id, name: p.name, tiles: `${BASE}${p.tiles}`,
+      attribution: p.config.attribution, maxzoom: p.config.max_zoom })));
+    setProviderTick((n) => n + 1);
+  };
+  useEffect(() => { api.orgImagery().then(providersLoaded, () => undefined); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  // a provider's basemap saved with the map: drawn once the providers are known (the map may have opened first)
+  useEffect(() => {
+    if (providerApplied.current || !providerTick || !map.current || !basemap.startsWith("provider:")) return;
+    providerApplied.current = true;
+    switchBasemap(basemap, false);
+  }, [providerTick, basemap, project]);   // eslint-disable-line react-hooks/exhaustive-deps
   // the live picture of tracked devices, and a word when a geofence is crossed
   useLiveTracking(liveOn && project ? map.current : null, id, liveOn, (a) => {
     const fresh = a.filter((x) => !alertIds.current.has(x.id));
@@ -742,13 +758,14 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const editable = layers.filter((l) => canEdit && l.geometry_type !== "Raster" && !l.source.linked);
   const totalSel = Object.values(selection).reduce((n, x) => n + x.length, 0);
   const notice = licenceNotice(me.product);
-  const openTool = (t: string | null, q = "", preset?: Record<string, unknown>) => { setEarth({ open: false, start: null }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setGp({ open: true, start: t, query: q, preset }); setRightOpen(true); };
-  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
-  const openCoords = () => { setBriefOpen(false); setTrackingOpen(false);  setCatalogOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setCoordsOpen(true); setRightOpen(true); };
-  const openTracking = () => { setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(true); setRightOpen(true); };
-  const openBrief = () => { setTrackingOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(true); setRightOpen(true); };
-  const openSymbols = () => { setBriefOpen(false); setTrackingOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(true); setRightOpen(true); };
-  const openSight = () => { setBriefOpen(false); setTrackingOpen(false);  setCatalogOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setSightOpen(true); setRightOpen(true); if (tool !== "explore") chooseTool("explore"); };
+  const openTool = (t: string | null, q = "", preset?: Record<string, unknown>) => { setEarth({ open: false, start: null }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setGp({ open: true, start: t, query: q, preset }); setRightOpen(true); };
+  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
+  const openCoords = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setCoordsOpen(true); setRightOpen(true); };
+  const openProviders = () => { setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(true); setRightOpen(true); };
+  const openTracking = () => { setProvidersOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(true); setRightOpen(true); };
+  const openBrief = () => { setTrackingOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(true); setRightOpen(true); };
+  const openSymbols = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(true); setRightOpen(true); };
+  const openSight = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setSightOpen(true); setRightOpen(true); if (tool !== "explore") chooseTool("explore"); };
   const rasterOk = me.features.includes("raster");
   const kindWord = editLayer?.geometry_type === "Point" ? "points" : editLayer?.geometry_type === "LineString" ? "lines" : "polygons";
   const hint: Partial<Record<Tool, ReactNode>> = {
@@ -798,7 +815,11 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     editor.current.create("polygon", (g) => { areaWait.current = null; resolve(g); setTimeout(() => { editor.current?.reset(); setTool("explore"); }, 0); });
   });
 
-  const right = trackingOpen ? (
+  const right = providersOpen ? (
+    <ProvidersPane projectId={id} map={map.current} isAdmin={me.role === "admin" && me.can_write} canAdd={canEdit && rasterOk} basemap={basemap}
+      onBasemap={(b) => switchBasemap(b)} onLayer={(l) => { setLayers((cur) => [...cur, l]); setActiveId(l.id); }}
+      onChanged={providersLoaded} view={() => (map.current ? mapBox() : null)} onClose={() => setProvidersOpen(false)} />
+  ) : trackingOpen ? (
     <TrackingPane projectId={id} layers={layers} canEdit={canEdit} live={liveOn} onLive={setLiveOn} alerts={alerts}
       onAlertsSeen={() => void api.alertsSeen(id).then(() => setAlerts([]))} view={() => (map.current ? mapBox() : null)}
       onLayer={(l) => { setLayers((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? l : x)) : [...cur, l])); }}
@@ -907,9 +928,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             </Group>
             <Group name="Basemap">
               <div className="ws-basemaps" role="radiogroup" aria-label="Basemap">
-                {BASEMAPS.map((b) => (
+                {allBasemaps().map((b) => (
                   <button key={b.id} type="button" role="radio" aria-checked={basemap === b.id} className={`ws-basemap${basemap === b.id ? " is-on" : ""}`} onClick={() => switchBasemap(b.id)} title={b.name}>
-                    <i style={{ background: BASEMAP_LOOK[b.id] ?? "#ddd" }} />{b.name.split(" (")[0]}
+                    <i style={{ background: BASEMAP_LOOK[b.id] ?? (b.id.startsWith("provider:") ? "linear-gradient(135deg, #3d5a3c, #8a7f5a 55%, #b9b39a)" : "#ddd") }} />{b.name.split(" (")[0]}
                   </button>
                 ))}
               </div>
@@ -931,7 +952,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => setDialog("add")} icon={<FilePlus2 />} label="Add data" disabled={!canEdit} />
             </Group>
             <Group name="Project">
-              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) setCatalogOpen(false); else { setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Catalog" />
+              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) setCatalogOpen(false); else { setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Catalog" />
             </Group>
             <Group name="Coordinates">
               <Tb onClick={() => setDialog("crs")} icon={<Globe2 />} label={crs ? shortCrs(crs.name) : `EPSG:${project.display_epsg}`} />
@@ -1038,7 +1059,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             </Group>}
           </>}
           {tab === "imagery" && <>
-            <Group name="Place">
+            <Group name="Sources & place">
+              <Tb on={providersOpen && rightOpen} onClick={() => (providersOpen ? setProvidersOpen(false) : openProviders())} icon={<Satellite />} label="Providers" />
               <Tb onClick={() => { setGeorefFile(null); setGeorefLayer(null); setGeorefOpen(true); }} icon={<MapPinned />} label="Georeference" disabled={!canEdit} />
             </Group>
             <Group name="Correct">
