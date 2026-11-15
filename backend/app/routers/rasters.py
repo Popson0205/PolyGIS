@@ -330,10 +330,10 @@ async def run(project_id: UUID, tool: str, body: RunIn, user=Depends(need("edito
                     raise Problem(422, f"The result has {len(out.rows):,} features, more than the {settings.max_features:,} a layer may hold.", code="too_many")
                 pos = await _next_position(conn, project_id)
                 cur = await conn.execute(
-                    "INSERT INTO layers (project_id, org_id, name, geometry_type, fields, style, position, source, created_by) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                    (project_id, user["org_id"], name, out.geometry_type, Jsonb(out.fields), Jsonb(default_style(out.geometry_type, pos)), pos,
-                     Jsonb(source), user["id"]))
+                    "INSERT INTO layers (project_id, org_id, name, geometry_type, fields, style, labels, position, source, created_by) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                    (project_id, user["org_id"], name, out.geometry_type, Jsonb(out.fields), Jsonb(out.style or default_style(out.geometry_type, pos)),
+                     Jsonb(out.labels) if out.labels else None, pos, Jsonb(source), user["id"]))
                 lid = (await cur.fetchone())["id"]
                 good = [(g, _plain(pp)) for g, pp in out.rows if g is not None and not g.is_empty]
                 await _copy_features(conn, lid, [g for g, _ in good], [pp for _, pp in good], user["id"])

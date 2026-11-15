@@ -152,7 +152,7 @@ def test_every_raster_tool_runs(pro, R, tool):
 
 
 def test_catalog_covers_every_tool(pro):
-    ids = {t["id"] for t in pro.get("/raster-tools").json()}
+    ids = {t["id"] for t in pro.get("/raster-tools").json() if t["group"] != "Military"}     # those have test_visibility.py
     assert ids == set(EVERY) and len(ids) >= 60
 
 

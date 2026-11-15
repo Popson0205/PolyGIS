@@ -110,3 +110,11 @@ export interface Scenario {
   status: "draft" | "ready" | "failed"; summary: (Record<string, unknown> & { steps?: ScenarioStep[] }) | null; error: string | null;
   layer_id: string | null; ran_at: string | null; run_ms: number | null; created_at: string; updated_at: string;
 }
+
+/** A line of sight over an elevation model: the profile, and what can be seen. */
+export interface SightResult {
+  distance_m: number; target_visible: boolean; target_on_dem: boolean; observer_ground: number | null; observer_eye: number | null;
+  target_ground: number | null; blocked_at_m: number | null; visible_share: number;
+  profile: { d: number; z: number | null; seen: boolean; sight: number | null }[];
+  segments: GeoJSON.FeatureCollection;
+}
