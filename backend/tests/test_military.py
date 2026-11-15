@@ -108,3 +108,88 @@ def test_gars_grid(pro, P):
     r = pro.post(f"/projects/{P['id']}/tools/gars_grid", json={"params": {"area": [7.0, 9.0, 8.0, 9.5], "level": "30"}})
     assert r.status_code == 201, r.text
     assert r.json()["layer"]["feature_count"] == 2 * 1
+
+
+# ---------- distance and direction ----------
+from pyproj import Geod  # noqa: E402
+
+G = Geod(ellps="WGS84")
+
+
+def _rows(pro, lay, n=500):
+    return pro.post(f"/layers/{lay['id']}/rows", json={"limit": n}).json()["rows"]
+
+
+def _geo(pro, lay):
+    return pro.get(f"/layers/{lay['id']}/features.geojson", params={"bbox": "-180,-85,180,85"}).json()["features"]
+
+
+def test_range_rings_are_true_distances(pro, P):
+    r = pro.post(f"/projects/{P['id']}/tools/range_rings", json={"params": {"origin_text": "Gun 1: 32P LR 31452 03665", "ranges": "2, 5", "unit": "km", "radials": 4}})
+    assert r.status_code == 201, r.text
+    lay = r.json()["layer"]
+    feats = _geo(pro, lay)
+    rings = [f for f in feats if f["properties"]["kind"] == "ring"]
+    radials = [f for f in feats if f["properties"]["kind"] == "radial"]
+    assert len(rings) == 2 and len(radials) == 4 and lay["labels"]["field"] == "label"
+    lng, lat = mc.from_mgrs("32P LR 31452 03665")
+    for f in rings:
+        want = f["properties"]["range_m"]
+        for x, y in f["geometry"]["coordinates"][::30]:
+            assert abs(G.inv(lng, lat, x, y)[2] - want) < 0.5
+    assert {f["properties"]["bearing"] for f in radials} == {0, 90, 180, 270}
+    assert {f["properties"]["origin"] for f in feats} == {"Gun 1"}
+    # an interval and a count, in nautical miles, from a point layer
+    pts = vector(pro, P, "ships", [{"type": "Point", "coordinates": [3.4, 6.4]}, {"type": "Point", "coordinates": [3.5, 6.3]}])
+    r = pro.post(f"/projects/{P['id']}/tools/range_rings", json={"params": {"origin": "layer", "input": pts["id"], "how": "interval", "interval": 1.5,
+                                                                         "count": 3, "unit": "nmi", "radials": 0}})
+    assert r.status_code == 201, r.text
+    assert sorted({x["props"]["range"] for x in _rows(pro, r.json()["layer"])}) == [1.5, 3.0, 4.5]
+    assert r.json()["layer"]["feature_count"] == 6
+
+
+def test_bearing_lines_in_degrees_and_mils(pro, P):
+    r = pro.post(f"/projects/{P['id']}/tools/bearing_lines", json={"params": {"origin_text": "9.0765, 7.4664", "bearings": "1600, 3200", "angle": "mil",
+                                                                           "distance": 10, "unit": "km"}})
+    assert r.status_code == 201, r.text
+    feats = sorted(_geo(pro, r.json()["layer"]), key=lambda f: f["properties"]["bearing"])
+    assert [f["properties"]["bearing"] for f in feats] == [90, 180]
+    assert [f["properties"]["bearing_mils"] for f in feats] == [1600, 3200]
+    for f in feats:
+        (x1, y1), (x2, y2) = f["geometry"]["coordinates"][0], f["geometry"]["coordinates"][-1]
+        az, back, d = G.inv(x1, y1, x2, y2)
+        assert abs(d - 10_000) < 0.5 and abs((az % 360) - f["properties"]["bearing"]) < 1e-3
+        assert abs((back % 360) - f["properties"]["back_bearing"]) < 1e-3
+
+
+def test_distance_and_bearing_between_points(pro, P):
+    r = pro.post(f"/projects/{P['id']}/tools/distance_bearing", json={"params": {"origin_text": "Lagos: 6.4550, 3.3841", "dest_text": "Abuja: 9.0765, 7.4664\nKano: 12.0022, 8.5920",
+                                                                              "unit": "km"}})
+    assert r.status_code == 201, r.text
+    rows = {x["props"]["destination"]: x["props"] for x in _rows(pro, r.json()["layer"])}
+    az, back, d = G.inv(3.3841, 6.4550, 7.4664, 9.0765)
+    assert abs(rows["Abuja"]["distance_m"] - d) < 0.01 and abs(rows["Abuja"]["bearing"] - az % 360) < 1e-3
+    assert abs(rows["Abuja"]["back_bearing"] - back % 360) < 1e-3 and 520 < rows["Abuja"]["distance"] < 540
+    assert set(rows) == {"Abuja", "Kano"}
+    r = pro.post(f"/projects/{P['id']}/tools/distance_bearing", json={"params": {"origin_text": "Lagos: 6.4550, 3.3841", "dest_text": "here"}})
+    assert r.status_code == 422 and "destinations" in r.json()["detail"]
+
+
+def test_ellipse_axes_and_orientation(pro, P):
+    r = pro.post(f"/projects/{P['id']}/tools/ellipse", json={"params": {"origin_text": "9.0765, 7.4664", "major": 10, "minor": 4, "axes": "full",
+                                                                     "orientation": 45, "unit": "km"}})
+    assert r.status_code == 201, r.text
+    f = _geo(pro, r.json()["layer"])[0]
+    ring_ = f["geometry"]["coordinates"][0]
+    ds = [(G.inv(7.4664, 9.0765, x, y)[2], G.inv(7.4664, 9.0765, x, y)[0] % 360) for x, y in ring_]
+    far = max(ds)
+    assert abs(far[0] - 5000) < 1 and abs(far[1] - 45) < 1.5 or abs(far[1] - 225) < 1.5
+    assert abs(min(d for d, _ in ds) - 2000) < 1
+    assert f["properties"]["major"] == 10 and f["properties"]["minor"] == 4
+
+
+def test_typed_origins_must_be_readable(pro, P):
+    r = pro.post(f"/projects/{P['id']}/tools/range_rings", json={"params": {"origin_text": "32P LR 31452 03665\nsomewhere", "ranges": "1"}})
+    assert r.status_code == 422 and "line 2" in r.json()["detail"]
+    r = pro.post(f"/projects/{P['id']}/tools/range_rings", json={"params": {"origin": "layer", "ranges": "1"}})
+    assert r.status_code == 422

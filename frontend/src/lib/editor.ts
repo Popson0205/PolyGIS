@@ -14,7 +14,7 @@ const INK = "#1b2b5e", GO = "#00a0c8";
 export class Editor {
   private draw: TerraDraw;
   private onDone?: (g: GeoJSON.Geometry) => void;
-  private onMeasure?: (text: { length?: number; area?: number }) => void;
+  private onMeasure?: (text: { length?: number; area?: number; points?: [number, number][] }) => void;
   private shapeId: string | null = null;
   constructor(private map: MapLibre, snapTo: () => { on: boolean; features: GeoJSON.Feature[] }) {
     const custom: SnapToCustom = (event) => {
@@ -57,7 +57,9 @@ export class Editor {
 
   private ensure() { if (!this.draw.enabled) this.draw.start(); }
   private measure(f: GeoJSONStoreFeatures) {
-    if (f.geometry.type === "LineString" && (f.geometry.coordinates as unknown[]).length > 1) this.onMeasure?.({ length: length(f as GeoJSON.Feature, { units: "meters" }) });
+    if (f.geometry.type === "LineString" && (f.geometry.coordinates as unknown[]).length > 1) {
+      this.onMeasure?.({ length: length(f as GeoJSON.Feature, { units: "meters" }), points: (f.geometry.coordinates as [number, number][]).map((c) => [c[0], c[1]]) });
+    }
     if (f.geometry.type === "Polygon") {
       const ring = f.geometry.coordinates[0] as GeoJSON.Position[];
       const perim = length({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: ring } }, { units: "meters" });
@@ -94,7 +96,7 @@ export class Editor {
   }
 
   /** Measure a distance (a line) or an area (a polygon); `show` gets the numbers as they change. */
-  measureWith(kind: "linestring" | "polygon", show: (m: { length?: number; area?: number }) => void) {
+  measureWith(kind: "linestring" | "polygon", show: (m: { length?: number; area?: number; points?: [number, number][] }) => void) {
     this.ensure();
     this.reset();
     this.onMeasure = show;

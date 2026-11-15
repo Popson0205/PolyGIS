@@ -233,3 +233,277 @@ def gars_grid(params, layers, args, a):
 
     return Built(None, args, "Polygon", [{"name": "gars", "type": "string"}, {"name": "label", "type": "string"}], f"GARS grid {lv} minutes", compute,
                  GRID_STYLE, GRID_LABELS)
+
+
+# ================= distance and direction =================
+from pyproj import Geod  # noqa: E402
+
+GEOD = Geod(ellps="WGS84")
+UNITS = {"m": 1.0, "km": 1000.0, "mi": 1609.344, "nmi": 1852.0, "ft": 0.3048, "yd": 0.9144}
+UNIT_CHOICES = [["m", "metres"], ["km", "kilometres"], ["mi", "miles"], ["nmi", "nautical miles"], ["ft", "feet"], ["yd", "yards"]]
+ANGLES = {"deg": 1.0, "mil": 360 / 6400}            # NATO mils: 6400 to the circle
+ANGLE_CHOICES = [["deg", "degrees"], ["mil", "mils (6400)"]]
+MILS = 6400 / 360
+
+
+def _origin_params(label="Origins"):
+    return [
+        _p("origin", f"{label} from", "choice", default="typed", choices=[["typed", "coordinates I type"], ["layer", "a point layer"]]),
+        _p("origin_text", f"{label}, one per line (any notation; a name and a colon may go first)", "text", lines=True, default="",
+           when={"origin": "typed"}),
+        _p("input", f"{label} layer", "layer", geometry=["Point"], optional=True, when={"origin": "layer"}),
+    ]
+
+
+def read_lines(text: str, how: str = "auto", order: str = "latlon", what: str = "coordinates") -> list[tuple[str | None, float, float]]:
+    """(name, longitude, latitude) for each line; any line that can't be read stops it, with the line number."""
+    lines = [x.strip() for x in str(text or "").splitlines() if x.strip()]
+    out, bad = [], []
+    for i, line in enumerate(lines, 1):
+        try:
+            lng, lat, _ = mc.parse(line, how, order)
+            out.append((None, lng, lat))
+        except mc.CoordError as e:
+            head, _, tail = line.partition(":")
+            try:
+                if not tail.strip():
+                    raise e
+                lng, lat, _ = mc.parse(tail, how, order)
+                out.append((head.strip()[:120], lng, lat))
+            except mc.CoordError:
+                bad.append(f"line {i} ({line[:40]}): {e}")
+    if bad:
+        raise Problem(422, f"{len(bad)} of the {what} could not be read: " + "; ".join(bad[:3]) + ("…" if len(bad) > 3 else ""), code="validation")
+    if len(out) > 2000:
+        raise Problem(422, f"Up to 2,000 {what} at a time.", code="validation")
+    return out
+
+
+def _origins(params, args, label="origins", text_key="origin_text", choice_key="origin", layer_key="input"):
+    """async (conn) -> [(name, lng, lat, props)] from typed coordinates or a point layer."""
+    if params.get(choice_key) == "layer":
+        if not args.get(layer_key):
+            raise Problem(422, f"Choose the {label} layer.", code="validation", fields={"params": [layer_key]})
+
+        async def from_layer(conn):
+            cur = await conn.execute(f"SELECT id, ST_X(ST_PointOnSurface(geom)) AS x, ST_Y(ST_PointOnSurface(geom)) AS y, props FROM features "
+                                     f"WHERE layer_id = layer_data(%s) AND (%s::bigint[] IS NULL OR id = ANY(%s::bigint[])) ORDER BY id",
+                                     (args[layer_key], args.get(f"{layer_key}_ids"), args.get(f"{layer_key}_ids")))
+            return [(str(r["props"].get("name") or r["id"]) if r["props"] else str(r["id"]), r["x"], r["y"], r["props"] or {})
+                    for r in await cur.fetchall()]
+        return from_layer
+    pts = read_lines(params.get(text_key), what=label)
+    if not pts:
+        raise Problem(422, f"Type the {label}: one position per line.", code="validation", fields={"params": [text_key]})
+
+    async def typed(conn):
+        return [(n or f"{label.rstrip('s').capitalize()} {i}", x, y, {}) for i, (n, x, y) in enumerate(pts, 1)]
+    return typed
+
+
+def _unwrap(lngs):
+    """Longitudes made continuous across 180° (a ring around a point near the date line stays whole)."""
+    out = [lngs[0]]
+    for v in lngs[1:]:
+        d = v - out[-1]
+        out.append(out[-1] + d - 360 * round(d / 360))
+    return out
+
+
+def ring(lng, lat, r_m, n=180):
+    az = [360 * k / n for k in range(n + 1)]
+    xs, ys, _ = GEOD.fwd([lng] * len(az), [lat] * len(az), az, [r_m] * len(az))
+    return shapely.LineString(list(zip(_unwrap(list(xs)), ys)))
+
+
+def geo_line(lng, lat, az, dist_m, n=32):
+    """A geodesic from a point along an azimuth, as a line with its curve kept."""
+    d = [dist_m * k / n for k in range(n + 1)]
+    xs, ys, _ = GEOD.fwd([lng] * len(d), [lat] * len(d), [az] * len(d), d)
+    return shapely.LineString(list(zip(_unwrap(list(xs)), ys)))
+
+
+def between(x1, y1, x2, y2, step_m=2000):
+    """The geodesic between two points, densified."""
+    _, _, dist = GEOD.inv(x1, y1, x2, y2)
+    n = int(min(256, max(0, dist // step_m)))
+    pts = [(x1, y1)] + [tuple(p) for p in GEOD.npts(x1, y1, x2, y2, n)] + [(x2, y2)] if n else [(x1, y1), (x2, y2)]
+    xs = _unwrap([p[0] for p in pts])
+    return shapely.LineString(list(zip(xs, [p[1] for p in pts])))
+
+
+def _az(v):
+    return round(v % 360, 4)
+
+
+@tool("range_rings", "Range rings", "Military",
+      "Rings at set ranges around each origin, measured on the ellipsoid, with radials (spokes) if wanted: weapon, sensor or "
+      "travel ranges. Ranges are a list, or an interval and a number of rings.",
+      *_origin_params(),
+      _p("how", "Ranges", "choice", default="list", choices=[["list", "a list of ranges"], ["interval", "an interval and a number of rings"]]),
+      _p("ranges", "Ranges (separated by commas)", "text", default="1, 2, 5", when={"how": "list"}),
+      _p("interval", "Interval", "number", min=0.001, default=1, when={"how": "interval"}),
+      _p("count", "Number of rings", "number", min=1, default=4, when={"how": "interval"}),
+      _p("unit", "Unit", "choice", default="km", choices=UNIT_CHOICES),
+      _p("radials", "Radials (0 for none)", "number", min=0, default=8))
+def range_rings(params, layers, args, a):
+    from .tools import Built
+    from .tools_more import numbers
+    from .tools import number
+    unit = params.get("unit") or "km"
+    if unit not in UNITS:
+        raise Problem(422, "Choose the unit.", code="validation", fields={"params": ["unit"]})
+    if params.get("how") == "interval":
+        step = number(params, "interval", 0.001, 1e6, "Interval")
+        k = int(number(params, "count", 1, 100, "Number of rings"))
+        ranges = [step * i for i in range(1, k + 1)]
+    else:
+        ranges = numbers(params, "ranges", "Ranges", lo=0.001, hi=1e6, most=50)
+    if max(ranges) * UNITS[unit] > 10_000_000:
+        raise Problem(422, "Ranges go up to 10,000 km.", code="validation", fields={"params": ["ranges"]})
+    radials = int(number(params, "radials", 0, 360, "Radials"))
+    origins = _origins(params, args)
+
+    async def compute(conn):
+        made = []
+        for name, x, y, _ in await origins(conn):
+            for r in ranges:
+                made.append((ring(x, y, r * UNITS[unit]), {"origin": name, "kind": "ring", "range": r, "unit": unit, "range_m": round(r * UNITS[unit], 3),
+                                                            "bearing": None, "label": f"{r:g} {unit}"}))
+            for i in range(radials):
+                az = 360 * i / radials
+                made.append((geo_line(x, y, az, max(ranges) * UNITS[unit]), {"origin": name, "kind": "radial", "range": max(ranges), "unit": unit,
+                                                                               "range_m": round(max(ranges) * UNITS[unit], 3), "bearing": round(az, 3),
+                                                                               "label": f"{az:g}°"}))
+        if len(made) > 50_000:
+            raise Problem(422, "That makes more than 50,000 rings and radials: use fewer origins or ranges.", code="too_many")
+        return made
+
+    fields = [{"name": "origin", "type": "string"}, {"name": "kind", "type": "string"}, {"name": "range", "type": "number"}, {"name": "unit", "type": "string"},
+              {"name": "range_m", "type": "number"}, {"name": "bearing", "type": "number"}, {"name": "label", "type": "string"}]
+    return Built(None, args, "LineString", fields, "Range rings", compute,
+                 {"type": "single", "color": "#c0262d", "stroke": "#c0262d", "width": 1.6, "size": 6, "opacity": 0.95},
+                 {"field": "label", "size": 11, "color": "#7a1218", "halo": "#ffffff", "halo_width": 1.6, "font": "bold", "line_placement": "along"})
+
+
+@tool("bearing_lines", "Bearing lines", "Military",
+      "Lines from each origin along bearings (true north, degrees or mils) for a distance, following the ellipsoid: "
+      "lines of fire, sight lines, intercept bearings.",
+      *_origin_params(),
+      _p("bearings", "Bearings (separated by commas)", "text", default="0, 45, 90"),
+      _p("angle", "Bearings in", "choice", default="deg", choices=ANGLE_CHOICES),
+      _p("distance", "Length", "number", min=0.001, default=10),
+      _p("unit", "Unit", "choice", default="km", choices=UNIT_CHOICES))
+def bearing_lines(params, layers, args, a):
+    from .tools import Built, number
+    from .tools_more import numbers
+    angle = params.get("angle") or "deg"
+    if angle not in ANGLES:
+        raise Problem(422, "Choose degrees or mils.", code="validation", fields={"params": ["angle"]})
+    top = 6400 if angle == "mil" else 360
+    bearings = numbers(params, "bearings", "Bearings", lo=-top, hi=top, most=100)
+    unit = params.get("unit") or "km"
+    if unit not in UNITS:
+        raise Problem(422, "Choose the unit.", code="validation", fields={"params": ["unit"]})
+    dist = number(params, "distance", 0.001, 1e7, "Length") * UNITS[unit]
+    if dist > 20_000_000:
+        raise Problem(422, "A bearing line is at most 20,000 km.", code="validation", fields={"params": ["distance"]})
+    origins = _origins(params, args)
+
+    async def compute(conn):
+        made = []
+        for name, x, y, _ in await origins(conn):
+            for b in bearings:
+                az = b * ANGLES[angle]
+                line = geo_line(x, y, az, dist)
+                end = line.coords[-1]
+                back = GEOD.inv(end[0], end[1], x, y)[0]
+                made.append((line, {"origin": name, "bearing": _az(az), "bearing_mils": round((az % 360) * MILS, 1), "back_bearing": _az(back),
+                                    "distance": round(dist / UNITS[unit], 6), "unit": unit, "label": f"{_az(az):g}°"}))
+        return made
+
+    fields = [{"name": "origin", "type": "string"}, {"name": "bearing", "type": "number"}, {"name": "bearing_mils", "type": "number"},
+              {"name": "back_bearing", "type": "number"}, {"name": "distance", "type": "number"}, {"name": "unit", "type": "string"},
+              {"name": "label", "type": "string"}]
+    return Built(None, args, "LineString", fields, "Bearing lines", compute,
+                 {"type": "single", "color": "#1d3557", "stroke": "#1d3557", "width": 1.8, "size": 6, "opacity": 0.95})
+
+
+@tool("distance_bearing", "Distance and bearing between points", "Military",
+      "From each origin to each destination: the geodesic line, its length, the bearing out (true, degrees and mils) and "
+      "the back bearing.",
+      *_origin_params(),
+      _p("dest", "Destinations from", "choice", default="typed", choices=[["typed", "coordinates I type"], ["layer", "a point layer"]]),
+      _p("dest_text", "Destinations, one per line", "text", lines=True, default="", when={"dest": "typed"}),
+      _p("targets", "Destinations layer", "layer", geometry=["Point"], optional=True, when={"dest": "layer"}),
+      _p("unit", "Unit", "choice", default="km", choices=UNIT_CHOICES))
+def distance_bearing(params, layers, args, a):
+    from .tools import Built
+    unit = params.get("unit") or "km"
+    if unit not in UNITS:
+        raise Problem(422, "Choose the unit.", code="validation", fields={"params": ["unit"]})
+    origins = _origins(params, args)
+    dests = _origins(params, args, "destinations", "dest_text", "dest", "targets")
+
+    async def compute(conn):
+        os_, ds = await origins(conn), await dests(conn)
+        if len(os_) * len(ds) > 20_000:
+            raise Problem(422, "That is more than 20,000 pairs: use fewer origins or destinations.", code="too_many")
+        made = []
+        for on, x1, y1, _ in os_:
+            for dn, x2, y2, _ in ds:
+                if (x1, y1) == (x2, y2):
+                    continue
+                fwd, back, dist = GEOD.inv(x1, y1, x2, y2)
+                made.append((between(x1, y1, x2, y2), {"origin": on, "destination": dn, "distance": round(dist / UNITS[unit], 6), "unit": unit,
+                                                       "distance_m": round(dist, 3), "bearing": _az(fwd), "bearing_mils": round((fwd % 360) * MILS, 1),
+                                                       "back_bearing": _az(back), "label": f"{dist / UNITS[unit]:,.2f} {unit} · {_az(fwd):.1f}°"}))
+        return made
+
+    fields = [{"name": "origin", "type": "string"}, {"name": "destination", "type": "string"}, {"name": "distance", "type": "number"},
+              {"name": "unit", "type": "string"}, {"name": "distance_m", "type": "number"}, {"name": "bearing", "type": "number"},
+              {"name": "bearing_mils", "type": "number"}, {"name": "back_bearing", "type": "number"}, {"name": "label", "type": "string"}]
+    return Built(None, args, "LineString", fields, "Distance and bearing", compute,
+                 {"type": "single", "color": "#6b3fa0", "stroke": "#6b3fa0", "width": 2, "size": 6, "opacity": 0.95},
+                 {"field": "label", "size": 11, "color": "#3b1f5e", "halo": "#ffffff", "halo_width": 1.6, "line_placement": "along"})
+
+
+@tool("ellipse", "Ellipses", "Military",
+      "An ellipse around each origin from its major and minor axes and the bearing of the major axis, on the ellipsoid: "
+      "target areas, error ellipses, footprints.",
+      *_origin_params("Centres"),
+      _p("major", "Major axis", "number", min=0.001, default=4), _p("minor", "Minor axis", "number", min=0.001, default=2),
+      _p("axes", "The axes are", "choice", default="full", choices=[["full", "full lengths (diameters)"], ["semi", "half lengths (radii)"]]),
+      _p("orientation", "Bearing of the major axis (degrees)", "number", default=0),
+      _p("unit", "Unit", "choice", default="km", choices=UNIT_CHOICES))
+def ellipse(params, layers, args, a):
+    from .tools import Built, number
+    unit = params.get("unit") or "km"
+    if unit not in UNITS:
+        raise Problem(422, "Choose the unit.", code="validation", fields={"params": ["unit"]})
+    half = 0.5 if (params.get("axes") or "full") == "full" else 1.0
+    A = number(params, "major", 0.001, 1e7, "Major axis") * UNITS[unit] * half
+    B = number(params, "minor", 0.001, 1e7, "Minor axis") * UNITS[unit] * half
+    if B > A:
+        A, B = B, A
+    if A > 5_000_000:
+        raise Problem(422, "An ellipse is at most 10,000 km across.", code="validation", fields={"params": ["major"]})
+    theta = number(params, "orientation", -360, 360, "Bearing of the major axis")
+    origins = _origins(params, args, "centres")
+
+    async def compute(conn):
+        made = []
+        ts = [2 * math.pi * k / 180 for k in range(181)]
+        az = [theta + math.degrees(math.atan2(B * math.sin(t), A * math.cos(t))) for t in ts]
+        rr = [math.hypot(A * math.cos(t), B * math.sin(t)) for t in ts]
+        for name, x, y, _ in await origins(conn):
+            xs, ys, _ = GEOD.fwd([x] * len(ts), [y] * len(ts), az, rr)
+            poly = shapely.Polygon(list(zip(_unwrap(list(xs)), ys)))
+            made.append((poly, {"centre": name, "major": round(2 * A / UNITS[unit], 6), "minor": round(2 * B / UNITS[unit], 6), "unit": unit,
+                                "orientation": _az(theta), "area_km2": round(math.pi * A * B / 1e6, 4)}))
+        return made
+
+    fields = [{"name": "centre", "type": "string"}, {"name": "major", "type": "number"}, {"name": "minor", "type": "number"},
+              {"name": "unit", "type": "string"}, {"name": "orientation", "type": "number"}, {"name": "area_km2", "type": "number"}]
+    return Built(None, args, "Polygon", fields, "Ellipses", compute,
+                 {"type": "single", "color": "#e07a10", "stroke": "#b35c00", "width": 1.6, "size": 6, "opacity": 0.15})

@@ -55,6 +55,8 @@ async def run(project_id: UUID, tool: str, body: RunIn,
     for p in spec["params"]:
         v = params.get(p["name"])
         if p["type"] == "layer":
+            if not v and p.get("optional"):
+                continue
             if not v:
                 raise Problem(422, f"Choose the {p['label'].lower()}.", code="validation", fields={"params": [p["name"]]})
             lay = await layer_of(conn, v, user)
