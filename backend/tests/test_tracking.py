@@ -397,3 +397,42 @@ def test_geohub_patrol_checkins_and_sightings(pro, P, monkeypatch):
     assert kinds == [("new", None), ("urgent", "Alpha 2: Emergency (Medical evacuation, 2 casualties)"),
                      ("urgent", "Hostile sighting: 3 × Vehicle, moving, reported by Cpl Ada")]
     assert len(sent) == 1 and "🚨 Alpha 2: Emergency" in sent[0] and "🚨 Hostile sighting" in sent[0] and "New device: Alpha 2" in sent[0]
+
+
+def test_feeds_are_asked_in_the_background(pro, P, client, monkeypatch):
+    from app import feedjob
+    asked = []
+
+    def answer(req: httpx.Request):
+        asked.append(req.url.host)
+        return httpx.Response(200, json={"ac": [{"hex": "bg0001", "flight": "BG1", "lat": 9.0, "lon": 7.3}]} if req.url.host == "api.adsb.lol" else {"ac": []})
+    monkeypatch.setattr(tracking, "TRANSPORT", httpx.MockTransport(answer))
+    for t in pro.get(f"/projects/{P['id']}/trackers").json():          # only this test's trackers
+        pro.patch(f"/trackers/{t['id']}", json={"active": False})
+    a = new(pro, P, "adsb", config={"bbox": AREA})
+    off = new(pro, P, "adsb", config={"bbox": AREA, "background": False})
+    form = "44444444-5555-6666-7777-888888888888"
+    HUB.hub_features[form] = [{"id": "b1", "seq": 1, "status": "submitted", "created_by_name": "Sgt Musa", "created_at": datetime.now(timezone.utc).isoformat(),
+                               "geometry": {"type": "Point", "coordinates": [7.4, 9.0]}, "properties": {"callsign": "Bravo 1", "patrol_status": "Need support",
+                                                                                                     "support_needed": ["Supplies"]}}]
+    nokey = new(pro, P, "geohub", config={"form_id": form})
+    keyed = new(pro, P, "geohub", config={"form_id": form}, secret={"geohub_key": "ghk_test"})
+    assert keyed["secret_set"] == ["geohub_key"]
+    assert client.portal.call(feedjob.once) == 2                        # the aircraft and the keyed form; not the others
+    ts = {t["id"]: t for t in pro.get(f"/projects/{P['id']}/trackers").json()}
+    assert ts[a["id"]]["last_seen"] == 1 and ts[keyed["id"]]["asked_at"] and not ts[off["id"]]["asked_at"] and not ts[nokey["id"]]["asked_at"]
+    assert any(x["kind"] == "urgent" and x["zone"].startswith("Bravo 1: Need support") for x in live(pro, P)["alerts"])
+    assert client.portal.call(feedjob.once) == 0                        # not due again for a minute
+    _rewind(a["id"])
+    assert client.portal.call(feedjob.once) == 1
+    for t in (a, off, nokey, keyed):
+        pro.delete(f"/trackers/{t['id']}")
+
+
+def _rewind(tid):
+    import psycopg
+
+    from app.config import settings
+    with psycopg.connect(settings.database_url, autocommit=True) as c:
+        c.execute(f'SET search_path TO "{settings.db_schema}", public')
+        c.execute("UPDATE trackers SET refreshed_at = now() - interval '5 minutes' WHERE id = %s", (tid,))

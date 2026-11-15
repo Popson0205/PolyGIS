@@ -67,7 +67,7 @@ class TrackerPatch(BaseModel):
 
 def _config_ok(kind: str, cfg: dict) -> dict:
     out = {k: v for k, v in cfg.items() if k in ("bbox", "source", "form_id", "form_label", "geofence_layer_id", "geofence_field", "keep_days",
-                                                    "trail_minutes", "after", "notify")}
+                                                    "trail_minutes", "after", "notify", "background")}
     if kind in ("adsb", "ais"):
         try:
             w, s, e, n = (float(x) for x in out.get("bbox") or [])
@@ -82,6 +82,8 @@ def _config_ok(kind: str, cfg: dict) -> dict:
         raise Problem(422, "The ADS-B source is adsb.lol or opensky.", code="validation")
     if kind == "geohub" and not out.get("form_id"):
         raise Problem(422, "Choose the Geohub form.", code="validation", fields={"config.form_id": ["missing"]})
+    if "background" in out:
+        out["background"] = out["background"] is not False
     if out.get("notify"):
         out["notify"] = _notify_ok(out["notify"])
     out["keep_days"] = max(1, min(365, int(out.get("keep_days") or 7)))
@@ -351,19 +353,26 @@ def _token(request: Request) -> str | None:
 
 @router.post("/trackers/{tracker_id}/refresh", summary="Ask the tracker's feed for the latest positions (ADS-B, AIS, Geohub)")
 async def refresh(tracker_id: UUID, request: Request, user=Depends(need())):
-    """No database connection is held while the feed is asked (AIS listens for some seconds, and the pool is small):
-    one short connection reads the tracker, another keeps what came back."""
     async with pool.connection() as conn:
         t = await tracker_of(conn, tracker_id, user)
-        if t["kind"] == "device":
-            return {"received": 0, "note": "Devices send their positions themselves."}
-        if not t["active"]:
-            return {"received": 0, "note": "Paused."}
+    return await ask(t, _token(request) or (t["secret"] or {}).get("geohub_key"))
+
+
+async def ask(t: dict, geohub_token: str | None) -> dict:
+    """Asks the tracker's feed once and keeps what came back: from a page with Live on (geohub_token: the person's own
+    sign-in) and from the background job (a Geohub API key). No database connection is held while the feed is asked
+    (AIS listens for some seconds, and the pool is small): one short connection claims the ask, another keeps the result."""
+    tracker_id = t["id"]
+    if t["kind"] == "device":
+        return {"received": 0, "note": "Devices send their positions themselves."}
+    if not t["active"]:
+        return {"received": 0, "note": "Paused."}
+    async with pool.connection() as conn:
         now = datetime.now(timezone.utc)
         if t["refreshed_at"] and (now - t["refreshed_at"]).total_seconds() < tracking.MIN_REFRESH[t["kind"]]:
             return {"received": 0, "note": "Asked a moment ago."}
-        # claimed for this ask, so that other open pages do not ask the feed at the same time
-        cur = await conn.execute("UPDATE trackers SET refreshed_at = now() WHERE id = %s AND (refreshed_at IS NULL OR refreshed_at < now() - make_interval(secs => %s)) "
+        # claimed for this ask, so that other open pages (and the background job) do not ask the feed at the same time
+        cur = await conn.execute("UPDATE trackers SET refreshed_at = now() WHERE id = %s AND active AND (refreshed_at IS NULL OR refreshed_at < now() - make_interval(secs => %s)) "
                                  "RETURNING id", (tracker_id, tracking.MIN_REFRESH[t["kind"]]))
         if not await cur.fetchone():
             return {"received": 0, "note": "Asked a moment ago."}
@@ -375,9 +384,9 @@ async def refresh(tracker_id: UUID, request: Request, user=Depends(need())):
         elif t["kind"] == "ais":
             positions = await tracking.ais(cfg, sec)
         else:
-            token = _token(request)
+            token = geohub_token
             if not token:
-                raise Problem(401, "Sign in again to read Geohub.", code="unauthenticated")
+                raise Problem(401, "Sign in again to read Geohub, or give the tracker a Geohub API key.", code="unauthenticated")
             feats, after = [], int(cfg.get("after") or 0)
             g = identity.client()
             for _ in range(10):

@@ -129,6 +129,35 @@ function AddTracker({ projectId, layers, view, onDone }: { projectId: string; la
   );
 }
 
+/** How often the server asks each feed by itself, in minutes (pages with Live on ask more often). */
+const BG_MIN: Record<string, number> = { adsb: 1, ais: 2, geohub: 1 };
+
+/** Whether the server keeps asking the feed when no one has PolyGIS open, so positions are kept and alerts go out.
+ *  Geohub forms need a Geohub API key for that: with no one signed in, the form is read with the key. */
+function Background({ t, canEdit, act }: { t: Tracker; canEdit: boolean; act: (f: () => Promise<unknown>, done?: string) => Promise<void> }) {
+  const [key, setKey] = useState("");
+  const on = t.config.background !== false;
+  const keyed = t.kind !== "geohub" || t.secret_set.includes("geohub_key");
+  return (
+    <div className="trk-bg">
+      <label className="trk-check"><input type="checkbox" checked={on} disabled={!canEdit}
+        onChange={() => void act(() => api.updateTracker(t.id, { config: { background: !on } }), on ? "Asked only while Live is on." : "Asked in the background too.")} />
+        Keep asking when no one has PolyGIS open</label>
+      <p className="ws-muted">{!on ? "Asked only while someone has Live on: alerts wait until then."
+        : keyed ? `Asked every ${BG_MIN[t.kind]} min by the server, so alerts go out at any hour (more often while Live is on).`
+        : "Needs a Geohub API key to be read with no one signed in: until then, only while Live is on."}</p>
+      {t.kind === "geohub" && on && canEdit && <>
+        <div className="mil-in"><input value={key} onChange={(e) => setKey(e.target.value)} type="password" autoComplete="off"
+          placeholder={t.secret_set.includes("geohub_key") ? "Geohub API key set; a new one…" : "Geohub API key (ghk_…)"} aria-label="Geohub API key" />
+          <Button onClick={() => void act(() => api.updateTracker(t.id, { secret: { geohub_key: key.trim() } }).then(() => setKey("")), "Key saved.")}
+            disabled={!key.trim().startsWith("ghk_")}>Save</Button></div>
+        {!t.secret_set.includes("geohub_key") && <p className="ws-muted">In Geohub: Settings → Security → API keys → make a <strong>read-only</strong> key
+          (for example “PolyGIS tracking”) and paste it here. It reads only what you can open; revoke it there at any time.</p>}
+      </>}
+    </div>
+  );
+}
+
 /** Across the area, in km (the narrower way). */
 const km = (b: [number, number, number, number]) => Math.round(Math.min((b[2] - b[0]) * 111 * Math.cos(((b[1] + b[3]) / 2) * Math.PI / 180), (b[3] - b[1]) * 111));
 const small = (b: [number, number, number, number]) => km(b) < 60;
@@ -212,7 +241,8 @@ function TrackerDetail({ t, layers, canEdit, view, act, onLayer }: {
           </dl>
         </details>
       </>}
-      {t.kind === "geohub" && <p className="ws-muted">Form: {t.config.form_label ?? t.config.form_id}. New submissions come in while the picture is live, read as you.</p>}
+      {t.kind === "geohub" && <p className="ws-muted">Form: {t.config.form_label ?? t.config.form_id}.</p>}
+      {t.kind !== "device" && <Background t={t} canEdit={canEdit} act={act} />}
       {(t.kind === "adsb" || t.kind === "ais") && <p className="ws-muted">Area: {t.config.bbox?.map((v) => v.toFixed(2)).join(", ")}{t.kind === "adsb" ? ` · ${t.config.source ?? "adsb.lol"}` : ""}
         {t.asked_at && ` · last asked ${ago(t.asked_at)}: ${t.last_seen ?? 0} in the area`}</p>}
       {(t.kind === "adsb" || t.kind === "ais") && t.config.bbox && small(t.config.bbox) && <p className="trk-err">

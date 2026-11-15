@@ -21,6 +21,7 @@ if env_file.exists():
             k, _, v = line.partition("=")
             os.environ.setdefault(k.strip(), v.strip())
 
+os.environ.setdefault("BACKGROUND_FEEDS", "false")     # tests ask the feeds themselves (feedjob.once)
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app import identity  # noqa: E402
