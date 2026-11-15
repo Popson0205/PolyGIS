@@ -816,7 +816,7 @@ h2.ct-heading, .ct-heading { margin: 0; color: var(--c-ink); padding: 10px 12px 
 .lb-on input, .aa-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .aa-track { position: relative; width: 34px; height: 18px; border-radius: 999px; background: #c3cad6; flex: none; transition: background .15s; }
 .aa-track span { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--c-pane); transition: transform .15s; }
-input:checked + .aa-track { background: #2f6db5; }
+input:checked + .aa-track { background: var(--c-violet); }
 input:checked + .aa-track span { transform: translateX(16px); }
 input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offset: 2px; }
 .lb-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--c-line); }
@@ -1161,3 +1161,20 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 .fl-row button { flex: 1; min-width: 0; padding: 4px 0; border: 0; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fl-row button.is-on { font-weight: 600; color: var(--c-violet-ink); }
 .fl-swatch { flex: none; width: 14px; height: 10px; border-radius: 3px; }
+
+/* Layers: text views, the map's name in the header, an eye, the symbol beside the name */
+.ct-mapname { min-width: 0; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--c-pane-2); border: 1px solid var(--c-line-2); font-size: 11.5px; color: var(--c-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.ct .ws-pane-head > strong { flex: 0 0 auto; } .ct .ws-pane-head > .ct-mapname + * { margin-left: auto; }
+.ct-views { gap: 2px; padding: 6px 10px 8px; border-bottom: 1px solid var(--c-line); }
+.ct-views button { width: auto; flex: 1; height: 28px; padding: 0 6px; border-radius: 7px; font: 500 12.5px var(--ge-font); color: var(--c-muted); background: none; }
+.ct-views button[aria-selected="true"] { background: var(--c-violet-50); color: var(--c-violet-ink); font-weight: 600; }
+.ct-views button[aria-selected="true"]::after { display: none; }
+.ct-layers { padding: 4px 6px 0; }
+.ct-row { min-height: 36px; gap: 6px; padding: 0 4px 0 4px; border-radius: 8px; }
+.ct-eye { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 6px; background: none; color: var(--c-muted); cursor: pointer; }
+.ct-eye:hover { background: var(--c-hover); color: var(--c-ink); } .ct-eye.is-off { color: var(--c-faint); opacity: .7; }
+.ct-layer.is-hidden .ct-name span { color: var(--c-faint); }
+.ct-sw { flex: none; display: grid; place-items: center; width: 20px; }
+.ct-n { margin-left: auto; padding-left: 6px; font-size: 11.5px; color: var(--c-faint); font-weight: 400; white-space: nowrap; }
+.ct-name { display: flex; align-items: center; gap: 4px; }
+.ct-legend { margin-left: 34px; }
