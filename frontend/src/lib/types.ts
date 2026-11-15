@@ -144,3 +144,12 @@ export interface Tracker {
 }
 export interface TrackAlert { id: number; tracker_id: string; tracker: string; device: string; name: string | null; kind: "enter" | "exit"; zone: string; ts: string; x: number; y: number }
 export interface TrackingLive { positions: GeoJSON.FeatureCollection; trails: GeoJSON.FeatureCollection; alerts: TrackAlert[]; at: string }
+
+/** An imagery service the organization added (or a built-in free one): tiles (XYZ, WMS) or a STAC catalogue of scenes. */
+export interface OrgImagery {
+  id: string; name: string; kind: "xyz" | "wms" | "stac"; url: string; enabled: boolean; builtin: boolean; auth_mode: "none" | "query" | "header" | "basic"; key_set: boolean;
+  config: { attribution?: string; max_zoom?: number; layers?: string; format?: string; collections?: string[]; asset?: string; cloud_property?: string; hosts?: string[]; notes?: string };
+  tiles?: string;
+}
+export interface OrgScene { id: string; collection: string | null; datetime: string | null; cloud: number | null; gsd: number | null; platform: string | null;
+  geometry: GeoJSON.Geometry | null; bbox: number[] | null; thumbnail: string | null; has_image: boolean }
