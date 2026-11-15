@@ -1,9 +1,9 @@
 import maplibregl, { type Map as MapLibre, type MapGeoJSONFeature } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
-  ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
+  ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scan, Scissors, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn, ChevronLeft, Hand, Database, PenLine, Image as ImageIcon,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scissors, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, ZoomIn, ChevronLeft, Hand, Database, PenLine, Image as ImageIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -14,6 +14,7 @@ import { AddData, CrsPicker, Dialog, Export, NewLayer, SelectByAttributes, Selec
 import Geoprocessing from "../components/Geoprocessing";
 import { AskBar } from "../components/AskBar";
 import { ToolCards } from "../components/ToolCards";
+import { Inspector, SelectionBar } from "../components/Inspector";
 import type { AskHit, Command } from "../lib/ask";
 import type { Tool as GpTool } from "../lib/types";
 import PolyEarth, { useEarthJobs } from "../components/PolyEarth";
@@ -428,12 +429,12 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     zoomTo([Math.min(...xy.map((p) => p[0])), Math.min(...xy.map((p) => p[1])), Math.max(...xy.map((p) => p[0])), Math.max(...xy.map((p) => p[1]))]);
   }
 
-  async function switchSelection() {
-    if (!active) return;
-    const all = await api.select(active.id, { filters: [] });
-    const now = new Set(sel(active.id));
+  async function switchSelection(of: Layer | null = active) {
+    if (!of) return;
+    const all = await api.select(of.id, { filters: [] });
+    const now = new Set(sel(of.id));
     const ids = all.ids.filter((x) => !now.has(x));
-    setSelection((cur) => ({ ...cur, [active.id]: ids }));
+    setSelection((cur) => ({ ...cur, [of.id]: ids }));
     toast(`${ids.length.toLocaleString("en-GB")} selected.`, "success");
   }
   async function zoomToSelection(l: Layer) {
@@ -802,7 +803,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     const out: Command[] = [];
     document.querySelectorAll<HTMLButtonElement>(".ws-mode-tools button").forEach((b, i) => {
       const label = (b.textContent ?? "").replace(/\s+/g, " ").trim();
-      const mode = (b.closest("[data-mode]") as HTMLElement | null)?.dataset.mode ?? "";
+      const raw = (b.closest("[data-mode]") as HTMLElement | null)?.dataset.mode ?? "";
+      const mode = raw === "select-in-explore" ? "map" : raw;
       if (!label || !names[mode]) return;
       const id = `${mode}-${i}`;
       cmdEls.current.set(id, b);
@@ -822,7 +824,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       map.current?.flyTo({ center: [h.lng, h.lat], zoom: Math.max(map.current.getZoom(), 14) });
     } else {
       const b = cmdEls.current.get(h.id);
-      const mode = b?.closest<HTMLElement>("[data-mode]")?.dataset.mode as Tab | undefined;
+      const raw = b?.closest<HTMLElement>("[data-mode]")?.dataset.mode;
+      const mode = (raw === "select-in-explore" ? "map" : raw) as Tab | undefined;
       if (mode) { setTab(mode); setRibbonFolded(false); }
       requestAnimationFrame(() => b?.click());
     }
@@ -923,19 +926,11 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       allowed={me.features.includes("geoprocessing")} rasterAllowed={me.features.includes("raster")} start={gp.start} onClose={() => setGp({ open: false, start: null, query: "" })}
       onDone={(l) => { setLayers((cur) => [...cur, l]); setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); toast(`${l.name} added to the map.`, "success"); }} />
   ) : identify && tool === "explore" ? (
-    <aside className="ws-panel" aria-label="Identify">
-      <div className="ws-pane-head"><Info size={16} aria-hidden="true" className="ws-pane-icon" /><strong>{identify.layer.name}</strong>
-        <IconButton label="Close" onClick={() => setIdentify(null)}><X size={16} /></IconButton></div>
-      <div className="ws-scroll ws-panel-body">
-        <dl className="ws-dl">
-          {identify.layer.geometry_type === "Raster"
-            ? Object.entries(identify.props).map(([k, v]) => <div key={k} className="ws-dl-row"><dt>{k}</dt><dd>{v == null ? <span className="ws-null">no data</span> : String(v)}</dd></div>)
-            : <><dt>ID</dt><dd>{identify.id}</dd>
-              {identify.layer.fields.map((f) => <div key={f.name} className="ws-dl-row"><dt>{f.name}</dt><dd>{identify.props[f.name] == null ? <span className="ws-null">empty</span> : String(identify.props[f.name])}</dd></div>)}</>}
-        </dl>
-        {identify.layer.geometry_type !== "Raster" && <p><button type="button" className="ws-link" onClick={() => void zoomToFeature(identify.layer, identify.id)}><ZoomIn size={14} aria-hidden="true" />Zoom to this feature</button></p>}
-      </div>
-    </aside>
+    <Inspector layer={identify.layer} fid={identify.id} props={identify.props} canEdit={canEdit} selected={sel(identify.layer.id).includes(identify.id)}
+      onClose={() => setIdentify(null)} onZoom={() => void zoomToFeature(identify.layer, identify.id)}
+      onSelect={() => setSelection((s) => { const cur = s[identify.layer.id] ?? []; return { ...s, [identify.layer.id]: cur.includes(identify.id) ? cur.filter((x) => x !== identify.id) : [...cur, identify.id] }; })}
+      onTable={() => setTableId(identify.layer.id)} onStyle={() => openPanel(identify.layer, "symbology")}
+      onEdit={() => { setIdentify(null); startEditing(identify.layer.id); }} />
   ) : newFeature && editLayer ? (
     <NewFeatureForm layer={editLayer} fid={newFeature.id} onDone={() => { setNewFeature(null); void refreshLayer(editLayer.id); }} />
   ) : active?.geometry_type === "Raster" ? (
@@ -950,7 +945,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     </aside>
   );
   /** The modes down the left: each brings its own tools into the tool row. */
-  const tabs: [Tab, string, ReactNode][] = [["map", "Explore", <Compass key="i" />], ["insert", "Data", <Database key="i" />], ["select", "Select", <MousePointerClick key="i" />],
+  const tabs: [Tab, string, ReactNode][] = [["map", "Explore", <Compass key="i" />], ["insert", "Data", <Database key="i" />],
     ["edit", "Edit", <PenLine key="i" />], ["analysis", "Analyse", <Wrench key="i" />], ...(me.features.includes("raster") ? [["imagery", "Imagery", <ImageIcon key="i" />] as [Tab, string, ReactNode]] : []),
     ["military", "Defence", <Shield key="i" />], ["earth", "Earth", <Earth key="i" />], ["share", "Publish", <UploadCloud key="i" />]];
   const modeName = tabs.find(([t]) => t === tab)?.[1] ?? "";
@@ -1030,6 +1025,14 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => setDialog("crs")} icon={<Globe2 />} label={crs ? shortCrs(crs.name) : `EPSG:${project.display_epsg}`} />
             </Group>
           </div>
+          <div className="ws-mode-tools" data-mode="select-in-explore" hidden={tab !== "map"}>
+            <Group name="Select">
+              <Tb on={tool === "select"} onClick={() => chooseTool("select")} icon={<MousePointerClick />} label="Select" disabled={!active || active.geometry_type === "Raster"} />
+              <Tb on={tool === "select-area"} onClick={() => chooseTool("select-area")} icon={<Lasso />} label="By shape" disabled={!active || active.geometry_type === "Raster"} />
+              <Tb onClick={() => setDialog("attr")} icon={<ListFilter />} label="Filter by values" disabled={!active || active.geometry_type === "Raster"} />
+              <Tb onClick={() => setDialog("loc")} icon={<LocateFixed />} label="By place" disabled={!active || active.geometry_type === "Raster"} />
+            </Group>
+          </div>
           <div className="ws-mode-tools" data-mode="insert" hidden={tab !== "insert"}>
             <Group name="Data">
               <Tb onClick={() => setDialog("add")} icon={<FilePlus2 />} label="Add data" disabled={!canEdit} />
@@ -1055,21 +1058,6 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             </Group>
             <Group name="Export">
               <Tb onClick={() => setDialog("export")} icon={<Download />} label="Export layer" disabled={!active || active.geometry_type === "Raster"} />
-            </Group>
-          </div>
-          <div className="ws-mode-tools" data-mode="select" hidden={tab !== "select"}>
-            <Group name="Interactive">
-              <Tb on={tool === "select"} onClick={() => chooseTool("select")} icon={<MousePointerClick />} label="Select" disabled={!active || active.geometry_type === "Raster"} />
-              <Tb on={tool === "select-area"} onClick={() => chooseTool("select-area")} icon={<Lasso />} label="By shape" disabled={!active || active.geometry_type === "Raster"} />
-            </Group>
-            <Group name="Queries">
-              <Tb onClick={() => setDialog("attr")} icon={<ListFilter />} label="Filter by values" disabled={!active || active.geometry_type === "Raster"} />
-              <Tb onClick={() => setDialog("loc")} icon={<LocateFixed />} label="By place" disabled={!active || active.geometry_type === "Raster"} />
-            </Group>
-            <Group name="Selection">
-              <Tb onClick={() => void switchSelection()} icon={<ArrowLeftRight />} label="Invert" disabled={!active || active.geometry_type === "Raster"} />
-              <Tb onClick={() => setSelection({})} icon={<Eraser />} label="Clear" disabled={!totalSel} />
-              <Tb onClick={() => active && void zoomToSelection(active)} icon={<Scan />} label="Zoom to" disabled={!active || !sel(active.id).length} />
             </Group>
           </div>
           <div className="ws-mode-tools" data-mode="edit" hidden={tab !== "edit"}>
@@ -1259,6 +1247,10 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
         {leftOpen && <Resizer axis="x" value={leftW} min={200} max={480} onChange={setLeftW} label="Resize Layers" className="rs-left" />}
         <div className="ws-map-wrap">
           <div ref={mapEl} className={`ws-map tool-${tool}`} />
+          {totalSel > 0 && <SelectionBar selection={selection} layers={layers}
+            onFilter={(l) => { setActiveId(l.id); setDialog("attr"); }} onPlace={(l) => { setActiveId(l.id); setDialog("loc"); }} onInvert={(l) => void switchSelection(l)}
+            onZoom={(l) => void zoomToSelection(l)} onTable={(l) => setTableId(l.id)} onExport={(l) => { setActiveId(l.id); setDialog("export"); }}
+            onClear={() => setSelection({})} onPick={(l) => setActiveId(l.id)} activeId={activeId} />}
           {tab === "analysis" && tool === "explore" && !onLayout && <ToolCards tools={allTools.filter((t) => t.kind !== "raster")} onOpen={(t) => openTool(t.id)}
             onAll={() => openTool(null)} onFlows={() => (me.features.includes("geoprocessing") ? setModelsOpen(true) : setDialog("plan"))} />}
           {tool !== "explore" && hint[tool] && <div className="ws-hintbar" role="status"><span>{hint[tool]}</span>
@@ -1284,7 +1276,6 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
         <button type="button" className="ws-crs" onClick={() => setDialog("crs")} title="Change the coordinate system">{coordFmt === "crs" ? "Change…" : (crs ? crs.name : `EPSG:${project.display_epsg}`)}</button>
         <span title="Map scale at the centre">1:{niceScale(scale)}</span>
         <span className="ws-zoom">Zoom {zoom.toFixed(1)}</span>
-        {totalSel > 0 && <button type="button" className="ws-sel" onClick={() => setSelection({})} title="Clear the selection">{totalSel.toLocaleString("en-GB")} selected <X size={12} aria-hidden="true" /></button>}
         {measure && <span className="ws-measure">{measure}</span>}
         <span className="ge-spacer" />
         {!canEdit && <span>{me.can_write ? "Viewer: read-only" : "Read-only licence"}</span>}
