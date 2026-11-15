@@ -900,3 +900,4 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 .mil-mark::before, .mil-mark::after { content: ""; position: absolute; background: #c0262d; }
 .mil-mark::before { left: 50%; top: -9px; bottom: -9px; width: 1.5px; transform: translateX(-50%); }
 .mil-mark::after { top: 50%; left: -9px; right: -9px; height: 1.5px; transform: translateY(-50%); }
+.mil-from { align-items: center; gap: 12px; font-size: 12.5px; }

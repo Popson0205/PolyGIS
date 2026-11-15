@@ -6,8 +6,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CoordError, NOTATIONS, NOTATION_NAMES, parseCoordinate, writeCoordinate, type Notation } from "../lib/milcoords";
 import { Button, IconButton, useToast } from "./ui";
 
-export default function CoordinatePane({ map, onClose, onPoints }: {
+export default function CoordinatePane({ map, onClose, onPoints, onTool }: {
   map: MapLibre | null; onClose: () => void;
+  /** Open a Military tool with this position (or the kept list) as its origins. */
+  onTool?: (tool: "range_rings" | "bearing_lines" | "ellipse" | "distance_bearing", origins: string) => void;
   /** Keep the positions as points (they go to the Coordinates to points tool). */
   onPoints?: (text: string) => void;
 }) {
@@ -96,6 +98,13 @@ export default function CoordinatePane({ map, onClose, onPoints }: {
             <Button onClick={() => { const s = writeCoordinate("usng", at.lng, at.lat) ?? writeCoordinate("dd", at.lng, at.lat)!; setKept((k) => (k.includes(s) ? k : [...k, s])); }}>
               <MapPin size={15} aria-hidden="true" />Keep in the list</Button>
           </div>
+          {onTool && <div className="mil-acts mil-from" aria-label="From here">
+            <span className="ws-muted">From here:</span>
+            <button type="button" className="ws-link" onClick={() => onTool("range_rings", writeCoordinate("usng", at.lng, at.lat) ?? writeCoordinate("dd", at.lng, at.lat)!)}>Range rings</button>
+            <button type="button" className="ws-link" onClick={() => onTool("bearing_lines", writeCoordinate("usng", at.lng, at.lat) ?? writeCoordinate("dd", at.lng, at.lat)!)}>Bearing lines</button>
+            <button type="button" className="ws-link" onClick={() => onTool("ellipse", writeCoordinate("usng", at.lng, at.lat) ?? writeCoordinate("dd", at.lng, at.lat)!)}>Ellipse</button>
+            <button type="button" className="ws-link" onClick={() => onTool("distance_bearing", writeCoordinate("usng", at.lng, at.lat) ?? writeCoordinate("dd", at.lng, at.lat)!)}>Distance to…</button>
+          </div>}
         </>}
         {kept.length > 0 && <section className="mil-kept" aria-label="Kept positions">
           <h3>Kept ({kept.length})</h3>
@@ -103,6 +112,7 @@ export default function CoordinatePane({ map, onClose, onPoints }: {
             <IconButton label={`Remove ${k}`} onClick={() => setKept((x) => x.filter((y) => y !== k))}><X size={13} /></IconButton></li>)}</ol>
           <div className="mil-acts">
             {onPoints && <Button variant="primary" onClick={() => onPoints(kept.join("\n"))}>Make them points…</Button>}
+            {onTool && <Button onClick={() => onTool("range_rings", kept.join("\n"))}>Range rings…</Button>}
             <Button onClick={() => copy(kept.join("\n"))}><Copy size={14} aria-hidden="true" />Copy all</Button>
           </div>
         </section>}

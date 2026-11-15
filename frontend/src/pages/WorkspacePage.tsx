@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -18,6 +18,7 @@ import LayoutView from "../components/LayoutView";
 import Catalog, { ViewTabs, isNewLayout, viewKey, type ViewTab } from "../components/Catalog";
 import CoordinatePane from "../components/Military";
 import { NOTATIONS, NOTATION_NAMES, writeCoordinate, type Notation } from "../lib/milcoords";
+import { bearingText } from "../lib/geodesy";
 import Georeference from "../components/Georeference";
 import ModelBuilder from "../components/ModelBuilder";
 import Scenarios from "../components/Scenarios";
@@ -35,7 +36,7 @@ import { BASEMAPS, GLOBAL_TERRAIN, GLYPHS, allIds, basemapStyle, ids as layerIds
 import type { CrsDef, GisMap, Layer, Me, Project, Selection, VectorType, View } from "../lib/types";
 
 type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "imagery" | "military" | "earth" | "share";
-type Tool = "explore" | "select" | "select-area" | "measure-line" | "measure-area" | "create" | "reshape" | "pick-reshape";
+type Tool = "explore" | "select" | "select-area" | "measure-line" | "measure-area" | "measure-bearing" | "create" | "reshape" | "pick-reshape";
 type DialogName = "add" | "imagery" | "new" | "attr" | "loc" | "export" | "crs" | "plan" | "share" | "publish" | "linked" | null;
 const DRAW = { Point: "point", LineString: "linestring", Polygon: "polygon" } as const;
 
@@ -385,6 +386,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       editor.current?.measureWith(t === "measure-line" ? "linestring" : "polygon", (m) =>
         setMeasure([m.area != null ? `Area ${squareMetres(m.area)}` : "", m.length != null ? `${m.area != null ? "Perimeter" : "Length"} ${metres(m.length)}` : ""].filter(Boolean).join(" · ")));
     }
+    if (t === "measure-bearing") editor.current?.measureWith("linestring", (m) => setMeasure(m.points ? bearingText(m.points) : ""));
     if (t === "select-area") {
       const target = layers.find((l) => l.id === activeId);
       if (!target) { toast("Choose a layer in Contents first.", "info"); setTool("explore"); return; }
@@ -721,13 +723,15 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     select: <>Click features of <strong>{active?.name}</strong> to select them. Shift-click adds or removes.</>,
     "select-area": <>Draw a shape around the features of <strong>{active?.name}</strong>: click the corners, then the first one again.</>,
     "measure-line": <>{measure ? <strong>{measure}</strong> : "Click along the line"}; click the last point again to finish.</>,
+    "measure-bearing": <>{measure ? <strong>{measure}</strong> : "Click where you are, then the target"} (true bearings on the ellipsoid; grid is UTM grid north); click the last point again to finish.</>,
     "measure-area": <>{measure ? <strong>{measure}</strong> : "Click the corners"}; click the first one again to finish.</>,
     create: <>Drawing {kindWord} in <strong>{editLayer?.name}</strong>: {editLayer?.geometry_type === "Point" ? "click to place one" : "click each corner, then the last (or first) point again"}.{snap ? " Snapping is on." : ""}</>,
     "pick-reshape": <>Click the feature of <strong>{editLayer?.name}</strong> to reshape.</>,
     reshape: <>Drag a vertex to move it, a midpoint to add one; right-click a vertex to remove it.</>,
   };
   const right = coordsOpen ? (
-    <CoordinatePane map={map.current} onClose={() => setCoordsOpen(false)} onPoints={canEdit ? (text) => openTool("points_from_coordinates", "", { coordinates: text }) : undefined} />
+    <CoordinatePane map={map.current} onClose={() => setCoordsOpen(false)} onPoints={canEdit ? (text) => openTool("points_from_coordinates", "", { coordinates: text }) : undefined}
+      onTool={canEdit ? (t, text) => openTool(t, "", { origin: "typed", origin_text: text }) : undefined} />
   ) : catalogOpen ? (
     <Catalog maps={maps} layouts={savedLayouts} mapId={mapId} current={viewNow} canEdit={canEdit} layoutsAllowed={layoutsAllowed}
       onOpenMap={(m) => void openMap(m)} onNewMap={() => void newMap()} onCopyMap={(m) => void newMap(m)} onRenameMap={(m, n) => void renameMap(m, n)} onDeleteMap={(m) => void deleteMap(m)}
@@ -988,6 +992,13 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
                 <select id="mil-fmt" value={coordFmt} onChange={(e) => setCoordFmt(e.target.value as "crs" | Notation)}>
                   <option value="crs">The project's system</option>{NOTATIONS.map((n) => <option key={n} value={n}>{NOTATION_NAMES[n]}</option>)}</select>
               </div>
+            </Group>
+            <Group name="Distance & direction">
+              <Tb on={tool === "measure-bearing"} onClick={() => chooseTool(tool === "measure-bearing" ? "explore" : "measure-bearing")} icon={<Compass />} label="Bearing" />
+              <Tb onClick={() => openTool("range_rings")} icon={<Radar />} label="Range rings" />
+              <Tb onClick={() => openTool("bearing_lines")} icon={<MoveUpRight />} label="Bearing lines" />
+              <Tb onClick={() => openTool("distance_bearing")} icon={<Route />} label="Distance & bearing" />
+              <Tb onClick={() => openTool("ellipse")} icon={<Orbit />} label="Ellipse" />
             </Group>
             <Group name="Grids">
               <Tb onClick={() => openTool("mgrs_grid")} icon={<Grid3x3 />} label="MGRS grid" />
