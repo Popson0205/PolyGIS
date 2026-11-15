@@ -15,6 +15,7 @@ const extraImagery = import.meta.env.VITE_IMAGERY_URL as string | undefined;
 export const BASEMAPS: { id: string; name: string; style: string | StyleSpecification }[] = [
   { id: "streets", name: "Streets", style: "https://tiles.openfreemap.org/styles/liberty" },
   { id: "light", name: "Light grey", style: "https://tiles.openfreemap.org/styles/positron" },
+  { id: "night", name: "Night", style: "https://tiles.openfreemap.org/styles/fiord" },
   { id: "satellite", name: "Satellite (Sentinel-2, 10 m)", style: raster("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg",
     '<a href="https://s2maps.eu">Sentinel-2 cloudless – https://s2maps.eu by EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2016)', 15) },
   ...(extraImagery ? [{ id: "imagery", name: "Imagery (high resolution)", style: raster(extraImagery, import.meta.env.VITE_IMAGERY_ATTRIBUTION ?? "") }] : []),
