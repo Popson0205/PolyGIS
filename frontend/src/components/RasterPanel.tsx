@@ -36,7 +36,7 @@ export default function RasterPanel({ layer, canEdit, canExport, onChange, initi
     <aside className="ws-panel" aria-label={`${layer.name}: properties`}>
       <div className="ws-pane-head"><strong title={layer.name}>{layer.name}</strong></div>
       <div className="ws-tabs" role="tablist">
-        {(["symbology", "source"] as Tab[]).map((t) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}
+        {(["symbology", "source"] as Tab[]).map((t) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t === "symbology" ? "Style" : "Source"}</button>)}
       </div>
       <div className="ws-panel-body">
         {layer.raster?.unplaced && <div className="ws-callout ws-unplaced" role="note">

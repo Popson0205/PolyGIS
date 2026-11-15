@@ -19,7 +19,7 @@ export default function LayerPanel({ layer, canEdit, selected, onChange, onExpor
       <div className="ws-pane-head"><h2 className="ws-pane-title" title={layer.name}>{layer.name}</h2></div>
       <div className="ws-tabs" role="tablist">
         {(["symbology", "labels", "fields", "source"] as Tab[]).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>
+          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t === "symbology" ? "Style" : t[0].toUpperCase() + t.slice(1)}</button>
         ))}
       </div>
       <div className="ws-panel-body">

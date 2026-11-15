@@ -56,14 +56,14 @@ export default function Geoprocessing({ projectId, layers, selection, activeId, 
   const searching = q.trim().length > 0;
 
   return (
-    <aside className="ws-panel" aria-label="Geoprocessing">
+    <aside className="ws-panel" aria-label="Tools">
       <div className="ws-pane-head">
         {tool ? <IconButton label="All tools" onClick={() => setTool(null)}><ArrowLeft size={16} /></IconButton> : <Wrench size={16} aria-hidden="true" className="ws-pane-icon" />}
-        <h2 className="ws-pane-title">{tool ? tool.name : "Geoprocessing"}</h2>
+        <h2 className="ws-pane-title">{tool ? tool.name : "Tools"}</h2>
         <IconButton label="Close geoprocessing" onClick={onClose}><X size={16} /></IconButton>
       </div>
       {!allowed ? (
-        <div className="ws-empty-state"><Wrench size={22} aria-hidden="true" /><span>Geoprocessing tools are in <b>PolyGIS Advanced</b>. Ask GeoEstate NIG Limited to move your organization to Advanced.</span></div>
+        <div className="ws-empty-state"><Wrench size={22} aria-hidden="true" /><span>Analysis tools are in <b>PolyGIS Advanced</b>. Ask GeoEstate NIG Limited to move your organization to Advanced.</span></div>
       ) : tool ? (
         <ToolForm key={tool.id} tool={tool} projectId={projectId} layers={layers} selection={selection} activeId={activeId} canEdit={canEdit} mapView={mapView} preset={tool.id === start ? preset : undefined}
           starred={stars.includes(tool.id)} onStar={() => setStars(stars.includes(tool.id) ? stars.filter((x) => x !== tool.id) : [...stars, tool.id])} onDone={onDone} />

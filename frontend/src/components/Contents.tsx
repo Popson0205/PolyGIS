@@ -110,14 +110,14 @@ export default function Contents({ projectName, layers, activeId, editingId, can
       { label: "Paste properties", icon: <ClipboardPaste size={15} />, hint: "Ctrl+Shift+V", disabled: !canEdit || !pasteable(l), onSelect: () => copied.current && onPaste(l, copied.current) },
       ...(canEdit ? [{ label: "Remove", icon: <Trash2 size={15} />, hint: "Delete", danger: true, onSelect: () => onRemove(l) }] : []),
       { label: "", divider: true },
-      ...(!raster ? [{ label: "Attribute table", icon: <Table2 size={15} />, hint: "Ctrl+T", onSelect: () => onTable(l) }, { label: "", divider: true }] : []),
+      ...(!raster ? [{ label: "Table", icon: <Table2 size={15} />, hint: "Ctrl+T", onSelect: () => onTable(l) }, { label: "", divider: true }] : []),
       { label: "Zoom to layer", icon: <ZoomIn size={15} />, onSelect: () => onZoom(l), disabled: !l.bbox },
       ...(raster ? [{ label: "Zoom to source resolution", icon: <Ratio size={15} />, onSelect: () => onSourceResolution(l), disabled: !l.raster }] : []),
       { label: "", divider: true },
       ...(!raster ? [{ label: "Selection", icon: <MousePointerSquareDashed size={15} />, items: sel }, { label: "", divider: true },
         { label: "Label", icon: <Tag size={15} />, checked: !!l.labels, disabled: !canEdit, onSelect: () => onLabels(l, !l.labels) },
         { label: "Labeling properties…", icon: <Tags size={15} />, onSelect: () => onPanel(l, "labels") }, { label: "", divider: true }] : []),
-      { label: "Symbology", icon: <SlidersHorizontal size={15} />, onSelect: () => onPanel(l, "symbology") },
+      { label: "Style", icon: <SlidersHorizontal size={15} />, onSelect: () => onPanel(l, "symbology") },
       ...(!raster && canEdit && l.id !== editingId && !l.source.linked ? [{ label: "Edit features", icon: <PenLine size={15} />, onSelect: () => onEdit(l) }] : []),
       ...(l.source.linked && canEdit ? [{ label: `Refresh from ${l.source.linked.app_name}`, icon: <RefreshCw size={15} />, onSelect: () => onRefresh(l) }] : []),
       ...(canEdit && onAddToMap && otherMaps.length ? [{ label: "Add to another map", icon: <MapIcon size={15} />, items: [
@@ -173,11 +173,11 @@ export default function Contents({ projectName, layers, activeId, editingId, can
     ["selection", "List by selection", <SquareMousePointer size={17} />], ["labels", "List by labeling", <Tags size={17} />]];
 
   return (
-    <aside className="ws-contents ct" aria-label="Contents">
+    <aside className="ws-contents ct" aria-label="Layers">
       <div className="ws-pane-head">
-        <strong>Contents</strong>
+        <strong>Layers</strong>
         {canEdit && <IconButton label="Add data" onClick={onAdd}><FilePlus2 size={16} /></IconButton>}
-        <IconButton label="Hide Contents" onClick={onCollapse}><PanelLeftClose size={16} /></IconButton>
+        <IconButton label="Hide Layers" onClick={onCollapse}><PanelLeftClose size={16} /></IconButton>
       </div>
       <div className="ct-search">
         <IconButton label="Show which layers" on={show !== "all"} onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setFilterMenu({ x: r.left, y: r.bottom + 2 }); }}><Filter size={15} /></IconButton>
@@ -195,7 +195,7 @@ export default function Contents({ projectName, layers, activeId, editingId, can
           </div>
         ) : view === "order" ? (
           <>
-            <h2 className="ct-heading">Drawing Order</h2>
+            <h2 className="ct-heading">Top to bottom</h2>
             <div className="ct-map">
               <button type="button" className="ct-tw" aria-expanded={mapOpen} aria-label={mapOpen ? "Fold the map" : "Unfold the map"} onClick={() => setMapOpen(!mapOpen)}><Tri open={mapOpen} /></button>
               <MapIcon size={16} className="ct-map-icon" aria-hidden="true" /><span title={`${mapName} (${projectName})`}>{mapName}</span>

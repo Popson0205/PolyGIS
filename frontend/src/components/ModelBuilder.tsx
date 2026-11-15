@@ -70,10 +70,10 @@ export default function ModelBuilder({ projectId, layers, canEdit, rasterAllowed
   }
 
   return (
-    <div className="lo mb" role="dialog" aria-modal="true" aria-label="Model builder">
+    <div className="lo mb" role="dialog" aria-modal="true" aria-label="Flows">
       <div className="lo-bar">
         <Workflow size={18} aria-hidden="true" />
-        <strong>Model builder</strong>
+        <strong>Flows</strong>
         <select className="lo-pick" value={current?.id ?? ""} onChange={(e) => open(e.target.value)} aria-label="Saved models">
           <option value="">{saved.length ? "New model" : "New model (none saved yet)"}</option>
           {saved.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}

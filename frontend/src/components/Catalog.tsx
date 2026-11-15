@@ -16,7 +16,7 @@ export function ViewTabs({ tabs, current, maps, layouts, onPick, onClose, onNewM
   onPick: (v: ViewTab) => void; onClose: (v: ViewTab) => void; onNewMap: () => void; onNewLayout: () => void; canEdit: boolean; layoutsAllowed: boolean;
 }) {
   const name = (v: ViewTab) => v.kind === "map" ? maps.find((m) => m.id === v.id)?.name ?? "Map"
-    : isNewLayout(v.id) ? `Layout${v.id === "new:1" ? "" : v.id.slice(4)}` : layouts.find((l) => l.id === v.id)?.name ?? "Layout";
+    : isNewLayout(v.id) ? `Print sheet${v.id === "new:1" ? "" : v.id.slice(4)}` : layouts.find((l) => l.id === v.id)?.name ?? "Print sheet";
   const mapTabs = tabs.filter((t) => t.kind === "map").length;
   return (
     <div className="vt" role="tablist" aria-label="Open maps and layouts">
@@ -36,7 +36,7 @@ export function ViewTabs({ tabs, current, maps, layouts, onPick, onClose, onNewM
       <Menu align="start" label="Insert a map or layout" trigger={<span className="vt-add" title="New map or layout"><Plus size={14} aria-hidden="true" /></span>}
         items={[
           { label: "New map", icon: <MapIcon size={15} />, disabled: !canEdit, onSelect: onNewMap },
-          { label: "New layout", icon: <Printer size={15} />, disabled: !layoutsAllowed, onSelect: onNewLayout },
+          { label: "New print sheet", icon: <Printer size={15} />, disabled: !layoutsAllowed, onSelect: onNewLayout },
         ]} />
     </div>
   );
@@ -58,8 +58,8 @@ export default function Catalog({ maps, layouts, mapId, current, canEdit, layout
       onKeyDown={(e) => { if (e.key === "Enter") finish(save, name); if (e.key === "Escape") setRenaming(null); }} />
     : <span className="cat-name">{name}</span>;
   return (
-    <aside className="ws-panel cat" aria-label="Catalog">
-      <div className="ws-pane-head"><strong>Catalog</strong><span className="ge-spacer" /><IconButton label="Close the Catalog" onClick={onClose}><X size={16} /></IconButton></div>
+    <aside className="ws-panel cat" aria-label="Library">
+      <div className="ws-pane-head"><strong>Library</strong><span className="ge-spacer" /><IconButton label="Close the Library" onClick={onClose}><X size={16} /></IconButton></div>
       <div className="ws-scroll cat-body">
         <section>
           <div className="cat-head"><MapIcon size={15} aria-hidden="true" /><h3>Maps</h3><span className="cat-n">{maps.length}</span><span className="ge-spacer" />
