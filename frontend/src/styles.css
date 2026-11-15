@@ -1093,3 +1093,30 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 .tc-open { position: absolute; z-index: 5; left: 50%; bottom: 34px; transform: translateX(-50%); height: 36px; display: flex; align-items: center; gap: 6px; padding: 0 14px;
   border: 1px solid var(--c-line); border-radius: 999px; background: #fff; box-shadow: 0 6px 20px rgba(16, 24, 40, .14); font: 600 13px var(--ge-font); color: var(--c-ink); cursor: pointer; }
 @media (max-width: 720px) { .tc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tc-head > span { display: none; } }
+
+/* the Inspector: what was clicked, named, with what to do next */
+.insp-head { padding: 12px 14px 10px; border-bottom: 1px solid var(--c-line); }
+.insp-kind { display: block; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--c-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.insp-title { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.insp-title h2 { flex: 1; min-width: 0; margin: 0; font: 600 19px/1.25 var(--c-head-font); color: var(--c-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.insp-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.insp-acts button { height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--c-line); border-radius: 8px; background: #fff; font: 500 12.5px var(--ge-font); color: var(--c-ink); cursor: pointer; }
+.insp-acts button:hover { border-color: var(--c-violet); color: var(--c-violet); }
+.insp-acts button[aria-pressed="true"] { background: var(--c-violet-50); border-color: var(--c-violet-100); color: var(--c-violet-ink); }
+.insp-dl { margin: 0; } .insp-dl > div { display: grid; grid-template-columns: minmax(90px, 38%) minmax(0, 1fr); gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--c-line-2); font-size: 13px; }
+.insp-dl dt { color: var(--c-muted); overflow-wrap: anywhere; } .insp-dl dd { margin: 0; color: var(--c-ink); font-weight: 500; overflow-wrap: anywhere; }
+.insp-empty { margin-top: 10px; font-size: 12.5px; color: var(--c-muted); } .insp-empty summary { cursor: pointer; } .insp-empty p { margin: 6px 0 0; }
+
+/* the selection bar, over the map while anything is selected */
+.selbar { position: absolute; z-index: 6; left: 50%; bottom: 30px; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px); box-sizing: border-box; display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
+  padding: 5px 6px 5px 14px; border-radius: 13px; background: var(--ge-navy, #1b2b5e); color: #fff; box-shadow: 0 10px 30px rgba(16, 24, 40, .28); }
+.selbar-count { display: flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; margin-right: 4px; } .selbar-count strong { font-weight: 600; } .selbar-count > span { color: #c8d0e4; }
+.selbar-count select { height: 28px; max-width: 180px; border: 1px solid rgba(255,255,255,.3); border-radius: 7px; background: transparent; color: #fff; font: 12.5px var(--ge-font); }
+.selbar-count select option { color: var(--c-ink); }
+.selbar-sep { width: 1px; height: 22px; margin: 0 4px; background: rgba(255,255,255,.25); }
+.selbar button { height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 9px; border: 0; border-radius: 8px; background: none; color: #fff; font: 500 12.5px var(--ge-font); white-space: nowrap; cursor: pointer; }
+.selbar button:hover { background: rgba(255,255,255,.12); } .selbar button:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
+.selbar ~ .tc, .selbar ~ .tc-open { bottom: 92px; }
+.ws-map-wrap { container: mapwrap / inline-size; }
+@container mapwrap (max-width: 880px) { .selbar button:not(.selbar-clear) span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); } .selbar button { padding: 0 8px; } }
+@container mapwrap (max-width: 480px) { .selbar-count > span { display: none; } }
