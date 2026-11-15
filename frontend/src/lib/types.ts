@@ -138,7 +138,7 @@ export interface AreaBrief {
 export interface Tracker {
   id: string; project_id: string; name: string; kind: "device" | "adsb" | "ais" | "geohub"; kind_name: string;
   config: { bbox?: [number, number, number, number]; source?: string; form_id?: string; form_label?: string; geofence_layer_id?: string | null;
-    geofence_field?: string; keep_days?: number; trail_minutes?: number; notify?: TrackNotify | null };
+    geofence_field?: string; keep_days?: number; trail_minutes?: number; notify?: TrackNotify | null; background?: boolean };
   secret_set: string[]; layer_id: string | null; active: boolean; last_at: string | null; refreshed_at: string | null; last_error: string | null;
   asked_at?: string | null; last_seen?: number | null; notified_at?: string | null; notify_error?: string | null;
   devices: number; ingest_url?: string; created_at: string;

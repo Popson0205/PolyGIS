@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     farm_api: str = ""                         # FarmScan's API (its routes start /api/); default: its address from Geohub
     linked_max: int = 50_000                   # features in a linked layer
     tool_timeout_s: int = 120                  # the longest a geoprocessing tool may run
+    background_feeds: bool = True              # ask aircraft, ship and Geohub feeds on a schedule, not only while Live is on
 
     # Rasters (elevation models, imagery, results of raster tools) are kept as Cloud-Optimized GeoTIFFs: in an
     # S3-compatible bucket when S3_ENDPOINT is set (e.g. the Cloudflare R2 bucket Geohub uses, under S3_PREFIX),

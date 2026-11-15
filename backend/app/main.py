@@ -20,7 +20,11 @@ async def lifespan(app):
     from .rasters import warn_if_not_kept
     warn_if_not_kept()
     await pool.open()
+    from . import feedjob
+    job = feedjob.start()
     yield
+    if job:
+        job.cancel()
     await pool.close()
 
 
