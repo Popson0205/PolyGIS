@@ -111,7 +111,7 @@ function AddTracker({ projectId, layers, view, onDone }: { projectId: string; la
       <label className="ws-f">Name<input value={name} onChange={(e) => setName(e.target.value)} placeholder={k.name} maxLength={200} /></label>
       {(kind === "adsb" || kind === "ais") && <p className="ws-muted">The feed covers the map as it is now (at most about 20° × 20°): zoom to the area first.</p>}
       {kind === "adsb" && <label className="ws-f">Source<select value={source} onChange={(e) => setSource(e.target.value)}>
-        <option value="adsb.lol">adsb.lol (open data, no key)</option><option value="opensky">OpenSky Network</option></select></label>}
+        <option value="adsb.lol">adsb.lol (open data, no key; recommended)</option><option value="opensky">OpenSky Network (often refuses cloud servers; adsb.lol is used then)</option></select></label>}
       {kind === "ais" && <label className="ws-f">aisstream.io API key<input value={key} onChange={(e) => setKey(e.target.value)} placeholder="Free at aisstream.io" autoComplete="off" /></label>}
       {kind === "geohub" && <label className="ws-f">Form<select value={form} onChange={(e) => setForm(e.target.value)} required>
         <option value="">{forms.length ? "Choose…" : "No Geohub forms you can open"}</option>{forms.map((f) => <option key={f.form_id} value={f.form_id}>{f.label}</option>)}</select></label>}
