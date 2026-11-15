@@ -453,29 +453,29 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
         setCurrent(u); setSaved((x) => [u, ...x.filter((y) => y.id !== u.id)]); onSaved?.(u);
         toast(`${u.name} saved.`, "success");
       } else {
-        const name = window.prompt("Name for this layout", current ? `${current.name} (copy)` : `${project.name}, ${doc.page} ${doc.orientation}`);
+        const name = window.prompt("Name for this print sheet", current ? `${current.name} (copy)` : `${project.name}, ${doc.page} ${doc.orientation}`);
         if (!name?.trim()) return;
         const c = await api.createLayout(project.id, name.trim(), doc);
         setCurrent(c); setSaved((x) => [c, ...x]); onSaved?.(c);
         toast(`${c.name} saved with the project.`, "success");
       }
       setDirty(false);
-    } catch (e) { setError(e instanceof ApiError ? e : new Error("Could not save the layout.")); }
+    } catch (e) { setError(e instanceof ApiError ? e : new Error("Could not save the print sheet.")); }
   }
   async function remove() {
-    if (!current || !window.confirm(`Delete the layout ${current.name}? The project and its layers are not touched.`)) return;
+    if (!current || !window.confirm(`Delete the print sheet ${current.name}? The project and its layers are not touched.`)) return;
     try { await api.deleteLayout(current.id); setSaved((x) => x.filter((y) => y.id !== current.id)); setCurrent(null); onDeleted?.(current.id); }
     catch (e) { setError(e); }
   }
   const open = (lid: string) => {
-    if (dirty && !window.confirm("Leave this layout without saving it?")) return;
+    if (dirty && !window.confirm("Leave this print sheet without saving it?")) return;
     const l = saved.find((x) => x.id === lid) ?? null;
     const c = map.getCenter();
     setCurrent(l);
     setDocState(l ? docFrom(l.settings, { center: [c.lng, c.lat], scale: 10000, title: project.name }) : bind(firstLayout(map, project.name)));
     undo.current = []; redo.current = []; setSel([]); setActive(null); setDirty(false); setPics({});
   };
-  const close = () => { if (dirty && canSave && !window.confirm("Close the layout without saving it?")) return; onClose(); };
+  const close = () => { if (dirty && canSave && !window.confirm("Close the print sheet without saving it?")) return; onClose(); };
 
   // ---------- what is drawn over the page ----------
   const toPx = (r: Rect) => ({ left: r.x * k, top: r.y * k, width: r.w * k, height: r.h * k });
@@ -497,13 +497,13 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
         {canSave && <>
           <Button small onClick={() => void save(false)}><Save size={14} aria-hidden="true" />{current ? (dirty ? "Save" : "Saved") : "Save sheet"}</Button>
           {current && <Button small variant="ghost" onClick={() => void save(true)}>Save as new</Button>}
-          {current && <IconButton label="Delete this layout" onClick={() => void remove()}><Trash2 size={16} /></IconButton>}
+          {current && <IconButton label="Delete this print sheet" onClick={() => void remove()}><Trash2 size={16} /></IconButton>}
         </>}
         <span className="ge-spacer" />
         {busy ? <span className="lo-busy" role="status">{busy}</span> : drawing && <span className="lo-busy" role="status">Drawing the map…</span>}
         <Button small onClick={() => void exportPng()} disabled={!!busy}><ImageIcon size={14} aria-hidden="true" />PNG</Button>
         <Button small variant="primary" onClick={() => void exportPdf()} disabled={!!busy}><FileDown size={14} aria-hidden="true" />Export PDF</Button>
-        <IconButton label="Close the layout" onClick={close}><X size={18} /></IconButton>
+        <IconButton label="Close the print studio" onClick={close}><X size={18} /></IconButton>
       </div>
 
       <div className="ws-ribbon-body lv-ribbon" role="toolbar" aria-label="Print studio tools">

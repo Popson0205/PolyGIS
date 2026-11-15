@@ -126,9 +126,9 @@ export function SelectByAttributes({ layer, onDone, onClose }: { layer: Layer; o
   const [rows, setRows] = useState<Filter[]>([{ field: layer.fields[0]?.name ?? "", op: "=", value: "" }]);
   const [add, setAdd] = useState(false);
   const { busy, run } = useAction();
-  if (!layer.fields.length) return <Dialog title="Select by attributes" onClose={onClose}><p>{layer.name} has no fields.</p></Dialog>;
+  if (!layer.fields.length) return <Dialog title="Filter by values" onClose={onClose}><p>{layer.name} has no fields.</p></Dialog>;
   return (
-    <Dialog title={`Select by attributes: ${layer.name}`} onClose={onClose} wide>
+    <Dialog title={`Filter by values: ${layer.name}`} onClose={onClose} wide>
       <form className="ws-form" onSubmit={(e) => { e.preventDefault(); void run("sel", () => api.select(layer.id, { filters: rows.map((r) => ({ ...r, value: r.value === "" ? null : r.value })) }), "").then((s) => s && onDone(s, add)); }}>
         <p className="ws-muted">Features where every line holds:</p>
         {rows.map((r, k) => (
@@ -151,10 +151,10 @@ export function SelectByLocation({ layer, layers, selection, onDone, onClose }: 
   const others = layers.filter((l) => l.id !== layer.id);
   const [b, setB] = useState({ other: others[0]?.id ?? "", relation: "intersects", distance: 100, onlySel: false, add: false });
   const { busy, run } = useAction();
-  if (!others.length) return <Dialog title="Select by location" onClose={onClose}><p>Add another layer to select against.</p></Dialog>;
+  if (!others.length) return <Dialog title="Select by place" onClose={onClose}><p>Add another layer to select against.</p></Dialog>;
   const otherSel = selection[b.other] ?? [];
   return (
-    <Dialog title={`Select by location: ${layer.name}`} onClose={onClose}>
+    <Dialog title={`Select by place: ${layer.name}`} onClose={onClose}>
       <form className="ws-form" onSubmit={(e) => { e.preventDefault(); void run("loc", () => api.select(layer.id, { other_layer_id: b.other, relation: b.relation, distance_m: b.distance, other_ids: b.onlySel ? otherSel : null }), "").then((s) => s && onDone(s, b.add)); }}>
         <label className="ws-f">Features of {layer.name} that
           <select value={b.relation} onChange={(e) => setB({ ...b, relation: e.target.value })}>

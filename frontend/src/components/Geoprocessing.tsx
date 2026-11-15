@@ -60,7 +60,7 @@ export default function Geoprocessing({ projectId, layers, selection, activeId, 
       <div className="ws-pane-head">
         {tool ? <IconButton label="All tools" onClick={() => setTool(null)}><ArrowLeft size={16} /></IconButton> : <Wrench size={16} aria-hidden="true" className="ws-pane-icon" />}
         <h2 className="ws-pane-title">{tool ? tool.name : "Tools"}</h2>
-        <IconButton label="Close geoprocessing" onClick={onClose}><X size={16} /></IconButton>
+        <IconButton label="Close the tools" onClick={onClose}><X size={16} /></IconButton>
       </div>
       {!allowed ? (
         <div className="ws-empty-state"><Wrench size={22} aria-hidden="true" /><span>Analysis tools are in <b>PolyGIS Advanced</b>. Ask GeoEstate NIG Limited to move your organization to Advanced.</span></div>

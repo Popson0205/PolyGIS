@@ -1,4 +1,4 @@
-/** A layout as ArcGIS Pro keeps one: a page with elements on it (map frames, legends, north arrows, scale bars, text
+/** A print sheet: a page with elements on it (map frames, legends, north arrows, scale bars, text
  *  and rectangles), each in its own box in millimetres, in drawing order (the first is drawn first, at the bottom).
  *  Every element turns into the same simple drawing operations as before (layout.ts), so the preview, the PNG and
  *  the PDF still draw them the same way. Pure: no DOM. */

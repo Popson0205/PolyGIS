@@ -1,4 +1,4 @@
-/** The Coordinate conversion pane (as ArcGIS Pro's): type or paste a position in any notation, or pick it on the map,
+/** The coordinate conversion pane: type or paste a position in any notation, or pick it on the map,
  *  and see it in every notation; go there, copy any of them, or keep it as a point. */
 import maplibregl, { type Map as MapLibre } from "maplibre-gl";
 import { Copy, Crosshair, MapPin, Navigation, X } from "lucide-react";
@@ -123,7 +123,7 @@ export default function CoordinatePane({ map, onClose, onPoints, onTool }: {
   );
 }
 
-/** Line of sight (as ArcGIS Pro's interactive tool): click an observer and a target on the map; the ground between
+/** Line of sight, interactive: click an observer and a target on the map; the ground between
  *  them is drawn green where it can be seen and red where it is hidden, with the terrain profile. */
 export function SightPane({ map, dems, onClose }: { map: MapLibre | null; dems: Layer[]; onClose: () => void }) {
   const toast = useToast();

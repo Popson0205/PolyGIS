@@ -30,7 +30,7 @@ export function setProviderBasemaps(list: { id: string; name: string; tiles: str
 export const allBasemaps = () => [...BASEMAPS.filter((b) => b.id !== "none"), ...PROVIDED, ...BASEMAPS.filter((b) => b.id === "none")];
 export const basemapStyle = (id?: string) => (allBasemaps().find((b) => b.id === id) ?? BASEMAPS[0]).style;
 
-export const SELECT = "#00d5ff";     // the selection colour, as in ArcGIS Pro
+export const SELECT = "#00d5ff";     // the selection colour
 export const src = (l: Layer) => `src-${l.id}`;
 /** Labels read the same tiles through a source of their own: when the label font cannot load, MapLibre fails the
  *  whole tile for every layer on that source, and the features would vanish with their labels. */
@@ -144,7 +144,7 @@ export function labelLayer(l: Pick<Layer, "geometry_type" | "visible">, lb: Labe
   const offsetEm = em(lb.offset ?? 4) + (point ? 0.4 : 0);
   const at: Record<string, [number, number]> = { center: [0, 0], top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0],
     "top-left": [-0.7, -0.7], "top-right": [0.7, -0.7], "bottom-left": [-0.7, 0.7], "bottom-right": [0.7, 0.7] };
-  // ArcGIS's "top" means the label sits above the point: MapLibre names the anchor on the label (its bottom)
+  // a label's "top" means it sits above the point: MapLibre names the anchor on the label (its bottom)
   const flip: Record<string, string> = { center: "center", top: "bottom", bottom: "top", left: "right", right: "left",
     "top-left": "bottom-right", "top-right": "bottom-left", "bottom-left": "top-right", "bottom-right": "top-left" };
   const layout: Record<string, unknown> = {

@@ -99,11 +99,11 @@ export default function Contents({ projectName, layers, activeId, editingId, can
     const sel: PopItem[] = [
       { label: "Select all", icon: <SquareMousePointer size={15} />, onSelect: () => onSelection(l, "all") },
       { label: "Clear selection", icon: <Eraser size={15} />, onSelect: () => onSelection(l, "clear"), disabled: !n },
-      { label: "Switch selection", icon: <ArrowLeftRight size={15} />, onSelect: () => onSelection(l, "switch") },
+      { label: "Invert selection", icon: <ArrowLeftRight size={15} />, onSelect: () => onSelection(l, "switch") },
       { label: "Zoom to selection", icon: <Scan size={15} />, onSelect: () => onSelection(l, "zoom"), disabled: !n },
       { label: "", divider: true },
-      { label: "Select by attributes…", icon: <ListFilter size={15} />, onSelect: () => onSelection(l, "attributes") },
-      { label: "Select by location…", icon: <LocateFixed size={15} />, onSelect: () => onSelection(l, "location") },
+      { label: "Filter by values…", icon: <ListFilter size={15} />, onSelect: () => onSelection(l, "attributes") },
+      { label: "Select by place…", icon: <LocateFixed size={15} />, onSelect: () => onSelection(l, "location") },
     ];
     return [
       { label: "Copy", icon: <Copy size={15} />, hint: "Ctrl+C", onSelect: () => copy(l) },
@@ -279,12 +279,12 @@ function groupOf(l: Layer): string {
   if (s.linked) return "Linked from GeoEstate apps";
   if (s.imagery) return "Satellite imagery";
   if (s.tool?.startsWith("earth:")) return "Poly Earth results";
-  if (s.tool) return "Geoprocessing results";
+  if (s.tool) return "Tool results";
   if (s.filename) return "Imported files";
   return "Made in PolyGIS";
 }
 function BySource({ layers, render }: { layers: Layer[]; render: (l: Layer) => ReactNode }) {
-  const groups = ["Imported files", "Linked from GeoEstate apps", "Satellite imagery", "Poly Earth results", "Geoprocessing results", "Made in PolyGIS"]
+  const groups = ["Imported files", "Linked from GeoEstate apps", "Satellite imagery", "Earth results", "Tool results", "Made in PolyGIS"]
     .map((g) => [g, layers.filter((l) => groupOf(l) === g)] as const).filter(([, ls]) => ls.length);
   return (
     <>
@@ -299,7 +299,7 @@ function BySource({ layers, render }: { layers: Layer[]; render: (l: Layer) => R
   );
 }
 
-/** A layer's legend under its name, as ArcGIS Pro shows it: one symbol; or the field and a symbol for each category or class;
+/** A layer's legend, opened under its name: one symbol; or the field and a symbol for each category or class;
  * for a raster, "Value" with its colour ramp and the two ends, or its classes, or the bands shown as red, green and blue. */
 /** Whether a layer has more to show than its one symbol (classes, categories, a ramp). */
 export function hasLegend(l: Layer): boolean {
