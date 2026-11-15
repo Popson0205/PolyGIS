@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 
-/** A ribbon group: its buttons, with its name under them. */
+/** A group of a mode's tools: its name on top, its buttons under it, two rows high. */
 export function Group({ name, children }: { name: string; children: ReactNode }) {
-  return <div className="ws-group" role="group" aria-label={name}><div className="ws-group-body">{children}</div><div className="ws-group-name">{name}</div></div>;
+  return <div className="ws-group" role="group" aria-label={name}><div className="ws-group-name" aria-hidden="true">{name}</div><div className="ws-group-body">{children}</div></div>;
 }
 /** A large ribbon button: an icon over its label. */
 export function Tb({ icon, label, onClick, on, disabled, title }: { icon: ReactNode; label: string; onClick: () => void; on?: boolean; disabled?: boolean; title?: string }) {

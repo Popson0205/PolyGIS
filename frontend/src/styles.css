@@ -1188,3 +1188,32 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 .wn-moves { margin: 6px 0; } .wn-moves > div { display: grid; grid-template-columns: 42% 1fr; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--c-line-2); }
 .wn-moves dt { color: var(--c-faint); text-decoration: line-through; text-decoration-color: var(--c-line); } .wn-moves dd { margin: 0; font-weight: 600; }
 .wn-acts { display: flex; gap: 8px; margin-top: 10px; }
+
+/* ---------- the mode's tools as a ribbon: every tool in sight, in named groups, two rows high; groups wrap, never scroll ---------- */
+.ws-ribbon { align-items: stretch; }
+.ws-strip-head { align-self: stretch; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px; padding: 0 8px 0 14px; min-width: 92px; box-sizing: border-box; }
+.ws-ribbon-body { height: auto; min-height: 0; flex-wrap: wrap; overflow: visible; align-items: stretch; row-gap: 4px; padding: 6px 6px 7px; }
+.ws-group { flex-direction: column; align-items: flex-start; justify-content: flex-start; height: auto; padding: 0 9px; gap: 3px; }
+.ws-group + .ws-group::before { top: 6px; bottom: 4px; height: auto; transform: none; }
+.ws-group-name { position: static; width: auto; height: auto; overflow: visible; clip: auto; order: 0; padding: 0 2px; font: 600 10.5px/14px var(--ge-font); letter-spacing: .06em; text-transform: uppercase; color: var(--c-faint); white-space: nowrap; }
+.ws-group-body { display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, 32px); grid-auto-columns: max-content; gap: 2px 2px; align-items: center; }
+.ws-group-body > .ws-tb-stack, .ws-group-body > .ws-basemaps { display: contents; }
+.ws-tb, .ws-tb-small { height: 32px; padding: 0 9px; gap: 6px; font-size: 12.5px; border-radius: 8px; }
+.ws-tb .ws-tb-icon svg, .ws-tb-small .ws-tb-icon svg { width: 16px; height: 16px; }
+.ws-basemap { height: 32px; padding: 0 8px 0 5px; font-size: 12.5px; }
+.ws-tb-select { height: 32px; font-size: 12px; } .ws-tb-select select { height: 28px; min-width: 130px; }
+.ws-strip-scroll { display: none; }
+.ws.is-focus > .ws-ribbon { max-height: calc(100vh - 220px); overflow-y: auto; }
+@media (max-width: 720px) { .ws-group-name { display: none; } .ws-strip-head { min-width: 0; } }
+.ws-mode-tools:not([hidden]) + .ws-mode-tools:not([hidden]) > .ws-group:first-child::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 4px; border-left: 1px solid var(--c-line-2); }
+/* three rows high, so every mode fits on one line from 1366 px */
+.ws-group-body { grid-template-rows: repeat(3, 28px); gap: 1px 2px; }
+.ws-tb, .ws-tb-small, .ws-basemap, .ws-tb-select { height: 28px; }
+.ws-tb-select select { height: 26px; }
+.ws-ribbon-body { padding: 5px 4px 6px 8px; }
+.ws-ribbon-fold { flex: none; align-self: flex-start; margin: 6px 6px 0 0; }
+.ws-ribbon.is-folded { align-items: center; } .ws-ribbon.is-folded .ws-ribbon-fold { align-self: center; margin: 4px 6px 4px auto; }
+.ws-ribbon > .ws-strip-name { padding: 0 14px; }
+/* Focus: the floating cards start under the floating ribbon (higher when it is folded) */
+.ws.is-focus .fl, .ws.is-focus .ws-body > .ws-right { top: 146px; }
+.ws.is-focus:has(.ws-ribbon.is-folded) .fl, .ws.is-focus:has(.ws-ribbon.is-folded) .ws-body > .ws-right { top: 74px; }

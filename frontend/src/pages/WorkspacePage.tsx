@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scissors, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, ZoomIn, ChevronLeft, Hand, Maximize2, Minimize2, Moon, Database, PenLine, Image as ImageIcon,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scissors, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, ZoomIn, Hand, Maximize2, Minimize2, Moon, Database, PenLine, Image as ImageIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -136,31 +136,6 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     const t = window.setTimeout(() => { m = map.current; paint(); m?.on("styledata", paint); }, 0);
     return () => { window.clearTimeout(t); m?.off("styledata", paint); };
   }, [theme, project?.id]);
-  // the mode's tools in one row: arrows show when some are out of sight
-  const stripEl = useRef<HTMLDivElement | null>(null);
-  const [stripMore, setStripMore] = useState({ left: false, right: false });
-  const measureStrip = useCallback(() => {
-    const el = stripEl.current;
-    if (!el) return;
-    const next = { left: el.scrollLeft > 4, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 };
-    setStripMore((cur) => (cur.left === next.left && cur.right === next.right ? cur : next));
-  }, []);
-  const stripObs = useRef<ResizeObserver | null>(null);
-  const stripRef = useCallback((el: HTMLDivElement | null) => {          // set when the row appears (after the project loads)
-    stripObs.current?.disconnect();
-    stripEl.current = el;
-    if (!el) return;
-    stripObs.current = new ResizeObserver(measureStrip);
-    stripObs.current.observe(el);
-    measureStrip();
-  }, [measureStrip]);
-  useEffect(() => {
-    const el = stripEl.current;
-    if (!el) return;
-    el.scrollLeft = 0;
-    Array.from(el.children).forEach((c) => stripObs.current?.observe(c));
-    measureStrip();
-  }, [tab, ribbonFolded, measureStrip]);
   // on a wide screen the panes stay docked (and remembered); on a tablet or phone one at a time slides over the map
   const narrow = useNarrow(1100);
   const [leftDocked, setLeftDocked] = useStored("left-open", true);
@@ -997,15 +972,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       </nav>
 
       <section className={`ws-ribbon${ribbonFolded ? " is-folded" : ""}`} aria-label={`${modeName} tools`}>
-        <div className="ws-strip-head">
-          <span className="ws-strip-name">{modeName}{tab === "edit" && editId ? ": editing" : ""}</span>
-          <IconButton label={ribbonFolded ? "Show the tools" : "Fold the tools away"} onClick={() => setRibbonFolded(!ribbonFolded)}>
-            {ribbonFolded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-          </IconButton>
-        </div>
-        {stripMore.left && <button type="button" className="ws-strip-scroll" aria-label="Earlier tools" onClick={() => stripEl.current?.scrollBy({ left: -360 })}><ChevronLeft size={16} /></button>}
-        <div ref={stripRef} className="ws-ribbon-body" role="toolbar" aria-label={`${modeName} tools`} onScroll={measureStrip}
-          onWheel={(e) => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY; }}>
+        {ribbonFolded && <span className="ws-strip-name">{modeName}{tab === "edit" && editId ? ": editing" : ""}</span>}
+        <div className="ws-ribbon-body" role="toolbar" aria-label={`${modeName} tools`}>
           <div className="ws-mode-tools" data-mode="map" hidden={tab !== "map"}>
             <Group name="Navigate">
               <Tb on={tool === "explore"} onClick={() => chooseTool("explore")} icon={<Hand />} label="Pan" />
@@ -1243,7 +1211,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             </Group>
           </div>
         </div>
-        {stripMore.right && <button type="button" className="ws-strip-scroll" aria-label="More tools" onClick={() => stripEl.current?.scrollBy({ left: 360 })}><ChevronRight size={16} /></button>}
+        <IconButton className="ws-ribbon-fold" label={ribbonFolded ? `Show the ${modeName} tools` : "Fold the tools away"} onClick={() => setRibbonFolded(!ribbonFolded)}>
+          {ribbonFolded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+        </IconButton>
       </section>
 
       <ViewTabs tabs={views} current={viewNow} maps={maps} layouts={savedLayouts} onPick={pickView} onClose={closeView}
