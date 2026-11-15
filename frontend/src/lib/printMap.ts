@@ -5,6 +5,7 @@ import { rasterTileUrl, tileUrl } from "./api";
 import { zoomForScale } from "./layout";
 import { GLYPHS, labelSrc, mapLayers, src } from "./mapstyle";
 import type { Layer } from "./types";
+import { attachMilSymbols } from "./milsym";
 
 /** The live map's style, ready to print: no selection highlight, no drawing or measuring layers. */
 export function printableStyle(style: StyleSpecification): StyleSpecification {
@@ -32,6 +33,7 @@ export async function renderMap(r: PrintRequest, signal?: AbortSignal): Promise<
     interactive: false, attributionControl: false, pixelRatio: r.ratio, preserveDrawingBuffer: true, fadeDuration: 0,
     maxCanvasSize: [16384, 16384], maxZoom: 24,
   } as maplibregl.MapOptions & { maxCanvasSize: [number, number] });
+  attachMilSymbols(map, r.ratio);
   try {
     const complete = await new Promise<boolean>((resolve, reject) => {
       const t = setTimeout(() => resolve(false), r.wait ?? 60000);     // how long to wait for every tile

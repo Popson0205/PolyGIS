@@ -1,4 +1,5 @@
 import type { ExpressionSpecification, LayerSpecification, StyleSpecification } from "maplibre-gl";
+import { imageExpr } from "./milsym";
 import type { Labels, Layer, RasterStyle } from "./types";
 
 /** Basemaps that may be used in a paid product without a key: OpenFreeMap (OpenStreetMap data) and Sentinel-2
@@ -85,6 +86,14 @@ export function mapLayers(l: Layer, selected: number[], hidden: number[] = [], f
     out.push({ id: i.line, type: "line", ...base, ...(notHidden ? { filter: notHidden } : {}),
       layout: { visibility: vis, "line-cap": "round", "line-join": "round" }, paint: { "line-color": c, "line-width": Math.max(0.5, s.width), "line-opacity": s.opacity } } as LayerSpecification);
     out.push({ id: i.selLine, type: "line", ...base, filter: sel, paint: { "line-color": SELECT, "line-width": Math.max(3, s.width + 2) } } as LayerSpecification);
+  } else if (s.type === "milsymbol") {
+    // military symbols: a picture per code, made when the map first needs it (milsym.ts); the layer keeps the circle's id
+    // so that clicking and selecting work as for any point layer
+    out.push({ id: i.circle, type: "symbol", ...base, ...(notHidden ? { filter: notHidden } : {}),
+      layout: { visibility: vis, "icon-image": imageExpr(l), "icon-allow-overlap": true, "icon-ignore-placement": true, "icon-anchor": "center" },
+      paint: { "icon-opacity": s.opacity ?? 1 } } as LayerSpecification);
+    out.push({ id: i.selCircle, type: "circle", ...base, filter: sel,
+      paint: { "circle-color": "rgba(0,0,0,0)", "circle-radius": (s.mil?.size ?? 36) / 2 + 6, "circle-stroke-color": SELECT, "circle-stroke-width": 2.5 } } as LayerSpecification);
   } else {
     out.push({ id: i.circle, type: "circle", ...base, ...(notHidden ? { filter: notHidden } : {}),
       paint: { "circle-color": c, "circle-radius": s.size / 2 + 1, "circle-opacity": s.opacity, "circle-stroke-color": s.stroke, "circle-stroke-width": Math.min(2, s.width) } } as LayerSpecification);

@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3, Info,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointer2, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, Flag, Ruler, UploadCloud, Scan, Scissors, Search, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, X, ZoomIn,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -17,6 +17,7 @@ import LayerPanel from "../components/LayerPanel";
 import LayoutView from "../components/LayoutView";
 import Catalog, { ViewTabs, isNewLayout, viewKey, type ViewTab } from "../components/Catalog";
 import CoordinatePane, { SightPane } from "../components/Military";
+import { SymbolsPane } from "../components/MilSymbols";
 import { NOTATIONS, NOTATION_NAMES, writeCoordinate, type Notation } from "../lib/milcoords";
 import { bearingText } from "../lib/geodesy";
 import Georeference from "../components/Georeference";
@@ -34,6 +35,7 @@ import { formatCoords, loadCrs, metres, squareMetres } from "../lib/coords";
 import { Editor } from "../lib/editor";
 import { BASEMAPS, GLOBAL_TERRAIN, GLYPHS, allIds, basemapStyle, ids as layerIds, labelSrc, mapLayers, src } from "../lib/mapstyle";
 import type { CrsDef, GisMap, Layer, Me, Project, Selection, VectorType, View } from "../lib/types";
+import { attachMilSymbols } from "../lib/milsym";
 
 type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "imagery" | "military" | "earth" | "share";
 type Tool = "explore" | "select" | "select-area" | "measure-line" | "measure-area" | "measure-bearing" | "create" | "reshape" | "pick-reshape";
@@ -80,6 +82,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [gp, setGp] = useState<{ open: boolean; start: string | null; query: string; preset?: Record<string, unknown> }>({ open: false, start: null, query: "" });
   const [coordsOpen, setCoordsOpen] = useState(false);
   const [sightOpen, setSightOpen] = useState(false);
+  const [symbolsOpen, setSymbolsOpen] = useState(false);
+  const [placing, setPlacing] = useState(false);
+  const placeProps = useRef<Record<string, unknown> | null>(null);     // attributes each placed symbol gets
   const [coordFmt, setCoordFmt] = useStored<"crs" | Notation>("coord-format", "crs");
   const [earth, setEarth] = useState<{ open: boolean; start: string | null }>({ open: false, start: null });
   const [panelTab, setPanelTab] = useState<{ tab: PanelTab; n: number }>({ tab: "symbology", n: 0 });
@@ -182,6 +187,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     const v = project.view;
     const m = new maplibregl.Map({ container: mapEl.current, style: basemapStyle(v.basemap), center: v.center ?? [8.68, 9.08], zoom: v.zoom ?? 5.5,
       bearing: v.bearing ?? 0, attributionControl: { compact: true }, boxZoom: true, doubleClickZoom: true });
+    attachMilSymbols(m);
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
     m.addControl(new maplibregl.ScaleControl({ unit: "metric", maxWidth: 120 }), "bottom-left");
     m.on("style.load", () => {
@@ -401,10 +407,12 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   function startCreate(l: Layer) {
     setTool("create");
     editor.current?.create(DRAW[l.geometry_type as VectorType], (g) => {
-      void api.addFeature(l.id, g).then(async (f) => {
+      const preset = placeProps.current;
+      void api.addFeature(l.id, g, preset ?? {}).then(async (f) => {
         const fid = Number(f.id);
         const fresh = await refreshLayer(l.id);
         if (fresh) setSelection((s) => ({ ...s, [l.id]: [fid] }));
+        if (preset) return;                                    // a symbol placed from the Symbols pane: on to the next one
         setNewFeature(l.fields.length ? { layerId: l.id, id: fid } : null);
         toast("Added. Draw the next one, or fill in its attributes.", "success");
       }, (e) => toast(e instanceof ApiError ? e.message : "Could not add it.", "error"));
@@ -429,6 +437,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     if (l) startCreate(l);
   }
   function stopEditing() {
+    placeProps.current = null; setPlacing(false);
     editor.current?.reset();
     setEditId(null); setReshaping(null); setNewFeature(null); setTool("explore");
     snapFeatures.current = [];
@@ -716,10 +725,11 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const editable = layers.filter((l) => canEdit && l.geometry_type !== "Raster" && !l.source.linked);
   const totalSel = Object.values(selection).reduce((n, x) => n + x.length, 0);
   const notice = licenceNotice(me.product);
-  const openTool = (t: string | null, q = "", preset?: Record<string, unknown>) => { setEarth({ open: false, start: null }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setGp({ open: true, start: t, query: q, preset }); setRightOpen(true); };
-  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
-  const openCoords = () => { setCatalogOpen(false); setSightOpen(false); setCoordsOpen(true); setRightOpen(true); };
-  const openSight = () => { setCatalogOpen(false); setCoordsOpen(false); setSightOpen(true); setRightOpen(true); if (tool !== "explore") chooseTool("explore"); };
+  const openTool = (t: string | null, q = "", preset?: Record<string, unknown>) => { setEarth({ open: false, start: null }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setGp({ open: true, start: t, query: q, preset }); setRightOpen(true); };
+  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
+  const openCoords = () => { setCatalogOpen(false); setSightOpen(false); setSymbolsOpen(false); setCoordsOpen(true); setRightOpen(true); };
+  const openSymbols = () => { setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(true); setRightOpen(true); };
+  const openSight = () => { setCatalogOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setSightOpen(true); setRightOpen(true); if (tool !== "explore") chooseTool("explore"); };
   const rasterOk = me.features.includes("raster");
   const kindWord = editLayer?.geometry_type === "Point" ? "points" : editLayer?.geometry_type === "LineString" ? "lines" : "polygons";
   const hint: Partial<Record<Tool, ReactNode>> = {
@@ -732,7 +742,34 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     "pick-reshape": <>Click the feature of <strong>{editLayer?.name}</strong> to reshape.</>,
     reshape: <>Drag a vertex to move it, a midpoint to add one; right-click a vertex to remove it.</>,
   };
-  const right = sightOpen ? (
+  // ---------- military symbols ----------
+  function placeSymbols(lid: string, props: Record<string, unknown>) {
+    const l = layers.find((x) => x.id === lid);
+    if (!l) return;
+    placeProps.current = props;
+    if (placing && editId === lid) return;                     // already placing there: the next click uses the new symbol
+    setEditId(lid); setActiveId(lid); state.current.editId = lid; setPlacing(true);
+    startCreate(l);
+  }
+  async function newSymbolLayer(): Promise<Layer | null> {
+    try {
+      const names = layers.map((l) => l.name);
+      let name = "Military symbols", k = 2;
+      while (names.includes(name)) name = `Military symbols ${k++}`;
+      const made = await api.newLayer(id, { name, geometry_type: "Point", fields: [
+        { name: "sidc", type: "string" }, { name: "designation", type: "string" }, { name: "higher_formation", type: "string" }, { name: "remarks", type: "string" }] });
+      const styled = await api.updateLayer(made.id, { style: { ...made.style, type: "milsymbol", field: null,
+        mil: { sidc: "SFGPU----------", sidc_field: "sidc", designation_field: "designation", higher_field: "higher_formation", size: 36 } } });
+      setLayers((cur) => [...cur, styled]); setActiveId(styled.id);
+      toast(`${styled.name} added: choose a symbol and place it on the map.`, "success");
+      return styled;
+    } catch (e) { toast(e instanceof ApiError ? e.message : "Could not add the layer.", "error"); return null; }
+  }
+
+  const right = symbolsOpen ? (
+    <SymbolsPane layers={layers} canEdit={canEdit} placing={placing} onPlace={placeSymbols} onStop={stopEditing}
+      onNewLayer={newSymbolLayer} onClose={() => { if (placing) stopEditing(); setSymbolsOpen(false); }} />
+  ) : sightOpen ? (
     <SightPane map={map.current} dems={layers.filter((l) => l.geometry_type === "Raster" && l.raster && l.raster.count === 1 && !l.raster.missing)} onClose={() => setSightOpen(false)} />
   ) : coordsOpen ? (
     <CoordinatePane map={map.current} onClose={() => setCoordsOpen(false)} onPoints={canEdit ? (text) => openTool("points_from_coordinates", "", { coordinates: text }) : undefined}
@@ -854,7 +891,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => setDialog("add")} icon={<FilePlus2 />} label="Add data" disabled={!canEdit} />
             </Group>
             <Group name="Project">
-              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) setCatalogOpen(false); else { setCoordsOpen(false); setSightOpen(false); setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Catalog" />
+              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) setCatalogOpen(false); else { setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Catalog" />
             </Group>
             <Group name="Coordinates">
               <Tb onClick={() => setDialog("crs")} icon={<Globe2 />} label={crs ? shortCrs(crs.name) : `EPSG:${project.display_epsg}`} />
@@ -1011,6 +1048,10 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => openTool("radial_line_of_sight")} icon={<Sun />} label="Radial" disabled={!rasterOk} />
               <Tb onClick={() => openTool("sector_viewshed")} icon={<Radar />} label="Viewshed" disabled={!rasterOk} />
               <Tb onClick={() => openTool("highest_points")} icon={<MountainSnow />} label="Highest points" disabled={!rasterOk} />
+            </Group>
+            <Group name="Symbols">
+              <Tb on={symbolsOpen && rightOpen} onClick={() => (symbolsOpen ? setSymbolsOpen(false) : openSymbols())} icon={<Shapes />} label="Symbols" />
+              <Tb onClick={() => { openSymbols(); void newSymbolLayer(); }} icon={<Flag />} label="Symbol layer" disabled={!canEdit} />
             </Group>
             <Group name="Grids">
               <Tb onClick={() => openTool("mgrs_grid")} icon={<Grid3x3 />} label="MGRS grid" />
