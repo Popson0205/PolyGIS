@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Layer } from "../lib/types";
 import { Button, ErrorText, useStored } from "./ui";
 
-/** Auto Apply, as in ArcGIS: with it on, every change shows on the map at once (while dragging a slider too) and is
+/** Live changes: with it on, every change shows on the map at once (while dragging a slider too) and is
  *  saved a moment after the last one; with it off, changes wait for Apply. Saving a style does not reload the layer's
  *  data, so the map does not flicker (`keepVersion`). */
 export function useAutoApply<T>({ layer, canEdit, preview, save, keepVersion, onChange }: {
@@ -60,7 +60,7 @@ export function AutoApplyBar({ auto, setAuto, busy, dirty, error, onApply, canEd
       <ErrorText error={error} />
       <div className="aa-row">
         <label className="aa-switch"><input type="checkbox" role="switch" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
-          <span aria-hidden="true" className="aa-track"><span /></span>Auto Apply</label>
+          <span aria-hidden="true" className="aa-track"><span /></span>Live changes</label>
         <span className="aa-state" aria-live="polite">{busy ? "Saving…" : auto ? (dirty ? "" : "Saved") : dirty ? "Not applied yet" : ""}</span>
         {!auto && <Button small variant="primary" busy={busy} disabled={!dirty} onClick={onApply}>Apply</Button>}
       </div>

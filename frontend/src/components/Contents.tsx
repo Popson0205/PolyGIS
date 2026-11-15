@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, ArrowLeftRight, ChevronRight, ClipboardPaste, Copy, Database, Download, Eraser, FilePlus2, Filter, Info, Layers, ListFilter, ListTree,
+  AlertTriangle, ArrowLeftRight, ChevronRight, ClipboardPaste, Copy, Database, Download, Eraser, FilePlus2, Filter, Info, Layers, ListFilter, Eye, EyeOff,
   Link2, LocateFixed, Map as MapIcon, RefreshCw, MousePointerSquareDashed, PanelLeftClose, PenLine, Ratio, Scan, Search, SlidersHorizontal, SquareMousePointer, Table2, Tag,
   Tags, Trash2, X, ZoomIn,
 } from "lucide-react";
@@ -16,8 +16,9 @@ type View = "order" | "source" | "selection" | "labels";
 type Show = "all" | "visible" | "vector" | "raster";
 
 const KIND: Record<string, string> = { Point: "points", LineString: "lines", Polygon: "polygons" };
+const KIND1: Record<string, string> = { Point: "point", LineString: "line", Polygon: "polygon" };
 const size = (l: Layer) => (l.raster ? `Raster, ${l.raster.width.toLocaleString("en-GB")} × ${l.raster.height.toLocaleString("en-GB")} cells`
-  : `${l.feature_count.toLocaleString("en-GB")} ${KIND[l.geometry_type]}`);
+  : `${l.feature_count.toLocaleString("en-GB")} ${l.feature_count === 1 ? KIND1[l.geometry_type] : KIND[l.geometry_type]}`);
 const fmt = (v: number) => (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString("en-GB") : Number(v.toPrecision(4)).toString());
 const broken = (l: Layer) => l.geometry_type === "Raster" && (!l.raster || !!l.raster.missing);
 
@@ -59,8 +60,7 @@ export default function Contents({ projectName, layers, activeId, editingId, can
   const [view, setView] = useStored<View>("contents-view", "order");
   const [show, setShow] = useStored<Show>("contents-show", "all");
   const [q, setQ] = useState("");
-  const [folded, setFolded] = useStored<string[]>("legend-folded", []);
-  const [mapOpen, setMapOpen] = useState(true);
+  const [unfolded, setUnfolded] = useStored<string[]>("legend-open", []);
   const [drag, setDrag] = useState<{ id: string; over: string | null; below: boolean } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; layer: Layer } | null>(null);
   const [filterMenu, setFilterMenu] = useState<{ x: number; y: number } | null>(null);
@@ -162,20 +162,21 @@ export default function Contents({ projectName, layers, activeId, editingId, can
     </button>
   );
   const check = (l: Layer) => (
-    <input type="checkbox" className="ct-check" checked={l.visible} onChange={() => onToggle(l)} aria-label={`Show ${l.name}`} title={l.visible ? "Hide" : "Show"} />
+    <button type="button" className={`ct-eye${l.visible ? "" : " is-off"}`} aria-pressed={l.visible} onClick={() => onToggle(l)} aria-label={`Show ${l.name}`} title={l.visible ? "Hide" : "Show"}>
+      {l.visible ? <Eye size={15} /> : <EyeOff size={15} />}</button>
   );
   const more = (l: Layer) => (
     <IconButton label={`${l.name}: menu`} className="ct-more" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); onActivate(l.id); setMenu({ x: r.left, y: r.bottom + 2, layer: l }); }}>
       <ChevronRight size={14} style={{ transform: "rotate(90deg)" }} /></IconButton>
   );
 
-  const VIEWS: [View, string, ReactNode][] = [["order", "List by drawing order", <ListTree size={17} />], ["source", "List by data source", <Database size={17} />],
-    ["selection", "List by selection", <SquareMousePointer size={17} />], ["labels", "List by labeling", <Tags size={17} />]];
+  const VIEWS: [View, string, string][] = [["order", "Order", "Top to bottom, as they are drawn"], ["source", "Sources", "By where the data comes from"],
+    ["selection", "Selected", "How much of each is selected"], ["labels", "Labels", "Which are labelled"]];
 
   return (
     <aside className="ws-contents ct" aria-label="Layers">
       <div className="ws-pane-head">
-        <strong>Layers</strong>
+        <strong>Layers</strong>{mapName && <span className="ct-mapname" title={`${mapName} (${projectName})`}>{mapName}</span>}
         {canEdit && <IconButton label="Add data" onClick={onAdd}><FilePlus2 size={16} /></IconButton>}
         <IconButton label="Hide Layers" onClick={onCollapse}><PanelLeftClose size={16} /></IconButton>
       </div>
@@ -185,7 +186,7 @@ export default function Contents({ projectName, layers, activeId, editingId, can
           {q ? <button type="button" aria-label="Clear the search" onClick={() => setQ("")}><X size={14} /></button> : <Search size={14} aria-hidden="true" />}</label>
       </div>
       <div className="ct-views" role="tablist" aria-label="List the layers">
-        {VIEWS.map(([v, label, icon]) => <button key={v} role="tab" aria-selected={view === v} title={label} aria-label={label} onClick={() => setView(v)}>{icon}</button>)}
+        {VIEWS.map(([v, label, about]) => <button key={v} type="button" role="tab" aria-selected={view === v} title={about} onClick={() => setView(v)}>{label}</button>)}
       </div>
       <div className="ws-scroll ct-body">
         {top.length === 0 ? (
@@ -195,15 +196,11 @@ export default function Contents({ projectName, layers, activeId, editingId, can
           </div>
         ) : view === "order" ? (
           <>
-            <h2 className="ct-heading">Top to bottom</h2>
-            <div className="ct-map">
-              <button type="button" className="ct-tw" aria-expanded={mapOpen} aria-label={mapOpen ? "Fold the map" : "Unfold the map"} onClick={() => setMapOpen(!mapOpen)}><Tri open={mapOpen} /></button>
-              <MapIcon size={16} className="ct-map-icon" aria-hidden="true" /><span title={`${mapName} (${projectName})`}>{mapName}</span>
-            </div>
-            {mapOpen && (
+            {(
               <ul className="ct-layers" role="tree" aria-label="Layers, top to bottom" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); drop(); }}>
                 {shown.map((l) => {
-                  const open = !folded.includes(l.id);
+                  const legend = hasLegend(l);
+                  const open = legend && unfolded.includes(l.id);
                   const cls = ["ct-layer", l.id === activeId && "is-active", !l.visible && "is-hidden", drag?.id === l.id && "is-dragging",
                     drag?.over === l.id && drag.id !== l.id && (drag.below ? "is-drop-below" : "is-drop-above")].filter(Boolean).join(" ");
                   return (
@@ -212,9 +209,10 @@ export default function Contents({ projectName, layers, activeId, editingId, can
                       onDragOver={(e) => { if (!drag) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setDrag({ ...drag, over: l.id, below: e.clientY > r.top + Math.min(r.height, 30) / 2 }); }}
                       onDragEnd={() => setDrag(null)}>
                       <div className="ct-row" onContextMenu={(e) => openMenu(e, l)}>
-                        <button type="button" className="ct-tw" aria-label={open ? `Fold ${l.name}'s legend` : `Unfold ${l.name}'s legend`} aria-expanded={open}
-                          onClick={() => setFolded(open ? [...folded, l.id] : folded.filter((x) => x !== l.id))}><Tri open={open} /></button>
-                        {check(l)}{name(l)}{more(l)}
+                        {check(l)}<span className="ct-sw"><Swatch layer={l} /></span>{name(l, <small className="ct-n">{size(l)}</small>)}
+                        {legend && <button type="button" className="ct-tw" aria-label={open ? `Fold ${l.name}'s legend` : `Show ${l.name}'s legend`} aria-expanded={open} title={open ? "Fold the legend" : "Legend"}
+                          onClick={() => setUnfolded(open ? unfolded.filter((x) => x !== l.id) : [...unfolded, l.id])}><Tri open={open} /></button>}
+                        {more(l)}
                       </div>
                       {open && <Legend layer={l} />}
                     </li>
@@ -228,7 +226,6 @@ export default function Contents({ projectName, layers, activeId, editingId, can
           <BySource layers={shown} render={(l) => <div className="ct-row ct-flat" onContextMenu={(e) => openMenu(e, l)}>{check(l)}{name(l, <small className="ct-src">{sourceOf(l)}</small>)}{more(l)}</div>} />
         ) : view === "selection" ? (
           <>
-            <h2 className="ct-heading">Selection</h2>
             <ul className="ct-layers">{shown.filter((l) => l.geometry_type !== "Raster").map((l) => {
               const n = selection[l.id]?.length ?? 0;
               return (
@@ -244,7 +241,6 @@ export default function Contents({ projectName, layers, activeId, editingId, can
           </>
         ) : (
           <>
-            <h2 className="ct-heading">Labeling</h2>
             <ul className="ct-layers">{shown.filter((l) => l.geometry_type !== "Raster").map((l) => (
               <li key={l.id} className={`ct-layer${l.id === activeId ? " is-active" : ""}`}>
                 <div className="ct-row ct-flat" onContextMenu={(e) => openMenu(e, l)}>
@@ -305,6 +301,13 @@ function BySource({ layers, render }: { layers: Layer[]; render: (l: Layer) => R
 
 /** A layer's legend under its name, as ArcGIS Pro shows it: one symbol; or the field and a symbol for each category or class;
  * for a raster, "Value" with its colour ramp and the two ends, or its classes, or the bands shown as red, green and blue. */
+/** Whether a layer has more to show than its one symbol (classes, categories, a ramp). */
+export function hasLegend(l: Layer): boolean {
+  if (l.geometry_type === "Raster") return true;
+  const s = l.style;
+  return (s.type === "categorized" && !!s.categories?.length) || (s.type === "graduated" && !!s.classes?.length) || s.type === "milsymbol";
+}
+
 export function Legend({ layer: l }: { layer: Layer }) {
   if (l.geometry_type === "Raster") {
     const rs: RasterStyle = rasterStyle(l);

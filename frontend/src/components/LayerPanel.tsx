@@ -45,7 +45,7 @@ function SchemePicker({ value, onChange, disabled }: { value: string; onChange: 
   return (
     <div className="sy-scheme">
       <button type="button" className="sy-scheme-btn" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}
-        aria-label={`Color scheme: ${value}`}><span style={{ background: swatch(value) }} /><ChevronDown size={14} aria-hidden="true" /></button>
+        aria-label={`Colours: ${value}`}><span style={{ background: swatch(value) }} /><ChevronDown size={14} aria-hidden="true" /></button>
       {open && <ul role="listbox" className="sy-scheme-list">
         {SCHEMES.map((n) => <li key={n} role="option" aria-selected={n === value}>
           <button type="button" onClick={() => { onChange(n); setOpen(false); }}><span style={{ background: swatch(n) }} />{n}</button></li>)}
@@ -124,16 +124,16 @@ function Symbology({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
   return (
     <div className="ws-form sy">
       <fieldset disabled={dis} className="sy-body">
-        <label className="ws-f">Primary symbology
+        <label className="ws-f">Draw as
           <select value={s.type} onChange={(e) => void classify({ ...s, type: e.target.value as Style["type"], ramp: e.target.value === "categorized" ? "Default" : s.type === "categorized" ? "Greens" : s.ramp,
             field: e.target.value === "single" || e.target.value === "milsymbol" ? null : (e.target.value === "graduated" ? numeric[0]?.name : layer.fields[0]?.name) ?? null })}>
-            <option value="single">Single symbol</option>
-            <option value="categorized" disabled={!layer.fields.length}>Unique values</option>
-            <option value="graduated" disabled={!numeric.length}>Graduated colors</option>
+            <option value="single">One style for all</option>
+            <option value="categorized" disabled={!layer.fields.length}>A colour per category</option>
+            <option value="graduated" disabled={!numeric.length}>Colours by value</option>
             {geom === "Point" && <option value="milsymbol">Military symbols (MIL-STD-2525)</option>}
           </select></label>
         {(s.type === "categorized" || s.type === "graduated") && <>
-          <label className="ws-f">Field 1
+          <label className="ws-f">{s.type === "graduated" ? "By the values of" : "Category from"}
             <select value={s.field ?? ""} onChange={(e) => void classify({ ...s, field: e.target.value })}>
               {fieldsFor.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
             </select></label>
@@ -141,16 +141,16 @@ function Symbology({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
             <label className="ws-f">Method
               <select value={s.method === "equal" ? "equal" : "quantile"} onChange={(e) => void classify({ ...s, method: e.target.value as "equal" | "quantile" })}>
                 <option value="quantile">Quantile</option><option value="equal">Equal interval</option></select></label>
-            <label className="ws-f">Classes
+            <label className="ws-f">Ranges
               <input type="number" min={2} max={12} value={n} onChange={(e) => setN(Math.min(12, Math.max(2, Number(e.target.value) || 2)))} onBlur={() => void classify(s)} /></label>
           </div>}
-          <div className="ws-f"><span>Color scheme</span><SchemePicker value={s.ramp || (s.type === "graduated" ? "Greens" : "Default")} onChange={recolour} disabled={dis} /></div>
+          <div className="ws-f"><span>Colours</span><SchemePicker value={s.ramp || (s.type === "graduated" ? "Greens" : "Default")} onChange={recolour} disabled={dis} /></div>
         </>}
         {s.type === "milsymbol" ? (
           <MilSection s={s} layer={layer} onChange={put} />
         ) : s.type === "single" ? (
-          <section className="sy-sec" aria-label="Symbol">
-            <h3>Symbol</h3>
+          <section className="sy-sec" aria-label="Appearance">
+            <h3>Appearance</h3>
             <div className="sy-grid">
               <label>{geom === "LineString" ? "Line colour" : "Fill colour"}<input type="color" value={s.color} onChange={(e) => put({ ...s, color: e.target.value })} /></label>
               {geom !== "LineString" && <label>Outline colour<input type="color" value={s.stroke} onChange={(e) => put({ ...s, stroke: e.target.value })} /></label>}
@@ -160,10 +160,10 @@ function Symbology({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
             </div>
           </section>
         ) : (
-          <section className="sy-sec" aria-label="Classes">
-            <div className="sy-tabs" role="tablist"><span role="tab" aria-selected="true">Classes</span></div>
+          <section className="sy-sec" aria-label={s.type === "graduated" ? "Ranges" : "Categories"}>
+            <div className="sy-tabs" role="tablist"><span role="tab" aria-selected="true">{s.type === "graduated" ? "Ranges" : "Categories"}</span></div>
             <div className="sy-tools">
-              <span className="ws-muted">{s.field} · {rows.length} symbol class{rows.length === 1 ? "" : "es"}</span>
+              <span className="ws-muted">{s.field} · {rows.length} {s.type === "graduated" ? (rows.length === 1 ? "range" : "ranges") : (rows.length === 1 ? "category" : "categories")}</span>
               <span className="ge-spacer" />
               <IconButton label="Classify again (all values)" onClick={() => void classify(s)}><RefreshCw size={14} /></IconButton>
               {s.type === "categorized" && <>
@@ -173,7 +173,7 @@ function Symbology({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
               <IconButton label="Reverse the colours" onClick={reverse}><ArrowDownUp size={14} /></IconButton>
             </div>
             <table className="sy-table">
-              <thead><tr><th>Symbol</th><th>Value</th><th>Label</th></tr></thead>
+              <thead><tr><th>Look</th><th>Value</th><th>Label</th></tr></thead>
               <tbody>
                 {rows.map((c, k) => {
                   const cat = "value" in c;
@@ -260,13 +260,13 @@ function LabelsTab({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
       <label className="lb-on"><input type="checkbox" role="switch" checked={on} disabled={!canEdit} onChange={(e) => void toggle(e.target.checked)} />
         <span aria-hidden="true" className="aa-track"><span /></span>Label features in this layer</label>
       <ErrorText error={offError} />
-      <div className="lb-tabs" role="tablist" aria-label="Label class">
-        {([["class", "Class"], ["symbol", "Symbol"], ["position", "Position"]] as const).map(([k, t]) =>
+      <div className="lb-tabs" role="tablist" aria-label="Label settings">
+        {([["class", "Text"], ["symbol", "Font"], ["position", "Position"]] as const).map(([k, t]) =>
           <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{t}</button>)}
       </div>
       <fieldset disabled={!canEdit} className={`lb-body${on ? "" : " is-off"}`}>
         {tab === "class" && <>
-          <label className="ws-f">Label field
+          <label className="ws-f">Label with
             <select value={lb.field} onChange={(e) => put({ field: e.target.value })}>{layer.fields.map((f) => <option key={f.name}>{f.name}</option>)}</select></label>
           <label className="ws-f">Expression (optional)
             <input value={lb.expression ?? ""} maxLength={500} placeholder={`{${lb.field}}`} onChange={(e) => put({ expression: e.target.value })} />
@@ -274,12 +274,12 @@ function LabelsTab({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
           <label className="ws-f">Insert a field
             <select value="" onChange={(e) => { if (e.target.value) put({ expression: `${lb.expression || ""}{${e.target.value}}` }); }}>
               <option value="">Choose…</option>{layer.fields.map((f) => <option key={f.name}>{f.name}</option>)}</select></label>
-          <Section title="Visibility range" open>
+          <Section title="Shown between" open>
             <div className="ws-row">
-              <label className="ws-f">Out beyond (zoomed out)
+              <label className="ws-f">Hide when zoomed out past
                 <select value={lb.min_zoom ?? 0} onChange={(e) => put({ min_zoom: Number(e.target.value) })}>
                   {ZOOMS.filter(([z]) => z < 24).map(([z, t]) => <option key={z} value={z}>{z === 0 ? "None" : `${t} (${scaleOf(z)})`}</option>)}</select></label>
-              <label className="ws-f">In beyond (zoomed in)
+              <label className="ws-f">Hide when zoomed in past
                 <select value={lb.max_zoom ?? 24} onChange={(e) => put({ max_zoom: Number(e.target.value) })}>
                   {ZOOMS.filter(([z]) => z > 0).map(([z, t]) => <option key={z} value={z}>{z === 24 ? "None" : `${t} (${scaleOf(z)})`}</option>)}</select></label>
             </div>
@@ -288,7 +288,7 @@ function LabelsTab({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
         {tab === "symbol" && <>
           <Section title="Appearance" open>
             <div className="lb-grid">
-              <label>Font name<select value="Noto Sans" disabled><option>Noto Sans</option></select></label>
+              <label>Font<select value="Noto Sans" disabled><option>Noto Sans</option></select></label>
               <label>Font style<select value={lb.font ?? "regular"} onChange={(e) => put({ font: e.target.value as Labels["font"] })}>
                 <option value="regular">Regular</option><option value="bold">Bold</option><option value="italic">Italic</option></select></label>
               <label>Size<select value={lb.size} onChange={(e) => put({ size: Number(e.target.value) })}>
