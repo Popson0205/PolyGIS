@@ -28,6 +28,7 @@ KINDS = ("device", "adsb", "ais", "geohub")
 DEFAULT_SIDC = {"device": "SFGPU----------", "adsb": "SUAPC----------", "ais": "SUSPX----------", "geohub": "SFGPU----------"}
 # the least time between two asks of a feed, in seconds (to be a good neighbour to free services)
 MIN_REFRESH = {"adsb": 5, "ais": 20, "geohub": 15}
+BACKOFF_S = 120                                         # after a feed fails, it is not asked again for this long
 
 
 @dataclass
@@ -176,11 +177,25 @@ def _bbox(cfg: dict) -> tuple[float, float, float, float]:
     return w, s, e, n
 
 
-async def adsb(cfg: dict, secret: dict) -> list[Pos]:
-    """Aircraft over the area, from adsb.lol (default) or the OpenSky Network."""
+FALLBACK_NOTE = ("The OpenSky Network did not answer this server (it refuses many cloud hosts, Railway's among them): "
+                 "adsb.lol was used instead. Choose adsb.lol as the source to stop seeing this.")
+
+
+async def adsb(cfg: dict, secret: dict) -> tuple[list[Pos], str | None]:
+    """Aircraft over the area, from adsb.lol (default) or the OpenSky Network; when OpenSky cannot be reached, from adsb.lol
+    instead, with a note saying so."""
+    if (cfg.get("source") or "adsb.lol") == "opensky":
+        try:
+            return await _adsb(cfg, secret, "opensky"), None
+        except (httpx.HTTPError, ValueError):
+            return await _adsb(cfg, secret, "adsb.lol"), FALLBACK_NOTE
+    return await _adsb(cfg, secret, "adsb.lol"), None
+
+
+async def _adsb(cfg: dict, secret: dict, source: str) -> list[Pos]:
     w, s, e, n = _bbox(cfg)
-    async with httpx.AsyncClient(timeout=20, transport=TRANSPORT, headers={"User-Agent": "PolyGIS tracking"}) as c:
-        if (cfg.get("source") or "adsb.lol") == "opensky":
+    async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=8), transport=TRANSPORT, headers={"User-Agent": "PolyGIS tracking"}) as c:
+        if source == "opensky":
             auth = (secret["user"], secret["password"]) if secret.get("user") and secret.get("password") else None
             r = await c.get("https://opensky-network.org/api/states/all", params={"lamin": s, "lomin": w, "lamax": n, "lomax": e}, auth=auth)
             r.raise_for_status()

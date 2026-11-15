@@ -199,3 +199,25 @@ def test_manage_trackers(pro, P, client):
     assert pro.delete(f"/trackers/{t['id']}").status_code == 204
     assert pro.get(f"/projects/{P['id']}/trackers").json() == []
     assert any(l["id"] == t["layer"]["id"] for l in pro.get(f"/projects/{P['id']}").json()["layers"])    # its layer stays
+
+
+def test_opensky_unreachable_falls_back_and_failing_feeds_rest(pro, P, monkeypatch):
+    def answer(req: httpx.Request):
+        if req.url.host == "opensky-network.org":
+            raise httpx.ConnectTimeout("no answer", request=req)
+        if req.url.host == "api.adsb.lol":
+            return httpx.Response(200, json={"ac": [{"hex": "4b1a2c", "flight": "NGA9", "lat": 9.0, "lon": 7.3, "alt_baro": 9000, "gs": 300, "track": 10}]})
+        return httpx.Response(404)
+    monkeypatch.setattr(tracking, "TRANSPORT", httpx.MockTransport(answer))
+    o = new(pro, P, "adsb", config={"bbox": AREA, "source": "opensky"})
+    r = pro.post(f"/trackers/{o['id']}/refresh").json()
+    assert r["received"] == 1 and "adsb.lol was used" in r["note"]
+    assert "adsb.lol was used" in pro.get(f"/projects/{P['id']}/trackers").json()[0]["last_error"]
+    # a feed that fails is left alone for a while, not asked every few seconds
+    monkeypatch.setattr(tracking, "TRANSPORT", httpx.MockTransport(lambda req: (_ for _ in ()).throw(httpx.ConnectTimeout("x", request=req))))
+    a = new(pro, P, "adsb", config={"bbox": AREA})
+    r = pro.post(f"/trackers/{a['id']}/refresh")
+    assert r.status_code == 502 and "ConnectTimeout" in r.json()["detail"]
+    assert pro.post(f"/trackers/{a['id']}/refresh").json()["note"] == "Asked a moment ago."
+    t = next(x for x in pro.get(f"/projects/{P['id']}/trackers").json() if x["id"] == a["id"])
+    assert "Asked again in 2 minutes" in t["last_error"]

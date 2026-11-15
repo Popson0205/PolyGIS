@@ -140,6 +140,8 @@ async def update(tracker_id: UUID, body: TrackerPatch, user=Depends(EDIT), conn=
         sets.append("secret = %s"); vals.append(Jsonb({k: v for k, v in merged.items() if v}))
     if body.active is not None:
         sets.append("active = %s"); vals.append(body.active)
+    if body.config is not None or body.secret is not None or body.active:
+        sets.append("refreshed_at = NULL")         # new settings (a key, an area): asked again at once, not after a wait
     if sets:
         cur = await conn.execute(f"UPDATE trackers SET {', '.join(sets)}, updated_at = now() WHERE id = %s RETURNING *", (*vals, tracker_id))
         t = await cur.fetchone()
@@ -285,10 +287,10 @@ async def refresh(tracker_id: UUID, request: Request, user=Depends(need())):
         if not await cur.fetchone():
             return {"received": 0, "note": "Asked a moment ago."}
     cfg, sec = t["config"] or {}, t["secret"] or {}
-    after = None
+    after, note = None, None
     try:
         if t["kind"] == "adsb":
-            positions = await tracking.adsb(cfg, sec)
+            positions, note = await tracking.adsb(cfg, sec)
         elif t["kind"] == "ais":
             positions = await tracking.ais(cfg, sec)
         else:
@@ -311,8 +313,9 @@ async def refresh(tracker_id: UUID, request: Request, user=Depends(need())):
             positions = tracking.geohub_positions(feats)
     except (Problem, httpx.HTTPError) as e:
         why = e.detail if isinstance(e, Problem) else f"The feed could not be reached ({e.__class__.__name__}). Try again in a moment."
-        async with pool.connection() as conn:
-            await conn.execute("UPDATE trackers SET last_error = %s WHERE id = %s", (why, tracker_id))
+        async with pool.connection() as conn:     # and not asked again for a while: a failing feed is not hammered
+            await conn.execute("UPDATE trackers SET last_error = %s, refreshed_at = now() + make_interval(secs => %s) WHERE id = %s",
+                               (f"{why} Asked again in {tracking.BACKOFF_S // 60} minutes.", tracking.BACKOFF_S, tracker_id))
         if isinstance(e, Problem):
             raise
         raise Problem(502, why, code="feed") from None
@@ -320,7 +323,9 @@ async def refresh(tracker_id: UUID, request: Request, user=Depends(need())):
         if after is not None:
             await conn.execute("UPDATE trackers SET config = jsonb_set(config, '{after}', to_jsonb(%s::int)) WHERE id = %s", (after, tracker_id))
         n = await ingest(conn, t, positions)
-    return {"received": n, "seen": len(positions)}
+        if note:                                 # kept after ingest, which clears the last error when positions come in
+            await conn.execute("UPDATE trackers SET last_error = %s WHERE id = %s", (note, tracker_id))
+    return {"received": n, "seen": len(positions), **({"note": note} if note else {})}
 
 
 # ---------- the live picture ----------
