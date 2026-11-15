@@ -19,7 +19,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
 from ..audit import audit
-from ..db import get_conn
+from ..db import get_conn, pool
 from ..errors import Problem
 from ..identity import RANK, need
 from .projects import project_of
@@ -52,6 +52,14 @@ def _public(p: dict) -> dict:
 def _admin(user):
     if RANK[user["role"]] < RANK["admin"] or not user["can_write"]:
         raise Problem(403, "Only an organization admin can manage imagery providers.", code="forbidden")
+
+
+async def provider_short(pid: str, user) -> dict:
+    """The provider, read on a connection given back at once: the fetches that follow may take a while."""
+    if pid in BUILTIN:
+        return BUILTIN[pid]
+    async with pool.connection() as conn:
+        return await provider_of(conn, pid, user)
 
 
 async def provider_of(conn, pid: str, user) -> dict:
@@ -216,8 +224,8 @@ def _wms_url(p: dict, z: int, x: int, y: int) -> str:
 
 
 @router.get("/imagery-providers/{pid}/tiles/{z}/{x}/{y}", summary="A tile of a tile service, fetched with the organization's key")
-async def tile(pid: str, z: int, x: int, y: int, user=Depends(need()), conn=Depends(get_conn)):
-    p = await provider_of(conn, pid, user)
+async def tile(pid: str, z: int, x: int, y: int, user=Depends(need())):
+    p = await provider_short(pid, user)
     if p["kind"] not in ("xyz", "wms") or not p.get("enabled", True):
         raise Problem(404, "That provider has no tiles.", code="not_found")
     if not (0 <= z <= 24 and 0 <= x < 2 ** z and 0 <= y < 2 ** z):
@@ -244,8 +252,8 @@ class SearchIn(BaseModel):
 
 
 @router.post("/imagery-providers/{pid}/search", summary="Scenes of a STAC catalogue over an area, between dates, under a cloud cover")
-async def search(pid: str, body: SearchIn, user=Depends(need()), conn=Depends(get_conn)):
-    p = await provider_of(conn, pid, user)
+async def search(pid: str, body: SearchIn, user=Depends(need())):
+    p = await provider_short(pid, user)
     if p["kind"] != "stac":
         raise Problem(422, "Only catalogues (STAC) can be searched.", code="validation")
     cfg = p["config"]
@@ -279,8 +287,8 @@ async def search(pid: str, body: SearchIn, user=Depends(need()), conn=Depends(ge
 
 
 @router.get("/imagery-providers/{pid}/thumbnail", summary="A scene's thumbnail, fetched with the organization's key")
-async def thumbnail(pid: str, href: str, user=Depends(need()), conn=Depends(get_conn)):
-    p = await provider_of(conn, pid, user)
+async def thumbnail(pid: str, href: str, user=Depends(need())):
+    p = await provider_short(pid, user)
     if not _allowed(p, href):
         raise Problem(422, "That picture is not from this provider.", code="validation")
     r = await _get(p, href)
@@ -322,9 +330,10 @@ def _read_window(href: str, bbox, headers: dict, auth, out_path: Path) -> None:
 
 
 @router.post("/projects/{project_id}/imagery-providers/{pid}/add", status_code=201, summary="Add a scene's image, for the area looked at, as a layer")
-async def add_scene(project_id: UUID, pid: str, body: AddSceneIn, user=Depends(need("editor", write=True, feature="raster")), conn=Depends(get_conn)):
-    await project_of(conn, project_id, user)
-    p = await provider_of(conn, pid, user)
+async def add_scene(project_id: UUID, pid: str, body: AddSceneIn, user=Depends(need("editor", write=True, feature="raster"))):
+    async with pool.connection() as conn:
+        await project_of(conn, project_id, user)
+    p = await provider_short(pid, user)
     if p["kind"] != "stac":
         raise Problem(422, "Scenes come from catalogues (STAC).", code="validation")
     w, s, e, n = body.bbox
@@ -354,12 +363,13 @@ async def add_scene(project_id: UUID, pid: str, body: AddSceneIn, user=Depends(n
             raise
         except Exception as ex:  # noqa: BLE001
             raise Problem(502, f"The scene's image could not be read: {ex}", code="provider") from None
-        lay = await rasters_router.import_raster(conn, project_id, out, out.name, None, user)
-    dt = (item.get("properties") or {}).get("datetime", "")[:10]
-    name = (body.name or f"{p['name'].split(' (')[0]} {dt} {body.scene_id}")[:200]
-    await conn.execute("UPDATE layers SET name = %s, source = source || %s WHERE id = %s",
-                       (name, Jsonb({"provider": p["name"], "scene": body.scene_id, "collection": coll, "datetime": dt,
-                                     "attribution": p["config"].get("attribution")}), lay["id"]))
-    await audit(conn, user, "imagery_provider.add_scene", "layer", lay["id"], provider=p["name"], scene=body.scene_id)
-    from .layers import layer_of
-    return await layer_of(conn, lay["id"], user)
+        dt = (item.get("properties") or {}).get("datetime", "")[:10]
+        name = (body.name or f"{p['name'].split(' (')[0]} {dt} {body.scene_id}")[:200]
+        from .layers import layer_of
+        async with pool.connection() as conn:
+            lay = await rasters_router.import_raster(conn, project_id, out, out.name, None, user)
+            await conn.execute("UPDATE layers SET name = %s, source = source || %s WHERE id = %s",
+                               (name, Jsonb({"provider": p["name"], "scene": body.scene_id, "collection": coll, "datetime": dt,
+                                             "attribution": p["config"].get("attribution")}), lay["id"]))
+            await audit(conn, user, "imagery_provider.add_scene", "layer", lay["id"], provider=p["name"], scene=body.scene_id)
+            return await layer_of(conn, lay["id"], user)

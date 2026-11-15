@@ -177,6 +177,7 @@ function TrackerDetail({ t, layers, canEdit, view, act, onLayer }: {
 /** The live picture: polls the positions, asks the feeds in turn, and draws trails and symbols over the map. */
 export function useLiveTracking(map: MapLibre | null, projectId: string, on: boolean, onAlerts: (a: TrackAlert[]) => void) {
   const asked = useRef<Record<string, number>>({});
+  const known = useRef<{ at: number; list: Tracker[] }>({ at: 0, list: [] });   // the trackers, looked up every 30 s
   const popup = useRef<maplibregl.Popup | null>(null);
   useEffect(() => {
     if (!map || !on) return;
@@ -190,7 +191,7 @@ export function useLiveTracking(map: MapLibre | null, projectId: string, on: boo
           paint: { "line-width": 2.2, "line-opacity": 0.75, "line-color": ["match", ["get", "kind"], "adsb", "#7b3294", "ais", "#0571b0", "geohub", "#e66101", "#1a9850"] } });
         map.addLayer({ id: "trk-pos", type: "symbol", source: "trk-pos",
           layout: { "icon-image": ["concat", `${MIL_PREFIX}28|`, ["get", "sidc"], "|", ["coalesce", ["get", "designation"], ""], "|"], "icon-allow-overlap": true, "icon-ignore-placement": true },
-          paint: { "icon-opacity": ["interpolate", ["linear"], ["get", "age_s"], 0, 1, 600, 1, 3600, 0.45] } });
+          paint: { "icon-opacity": ["interpolate", ["linear"], ["to-number", ["coalesce", ["get", "age_s"], 0], 0], 0, 1, 600, 1, 3600, 0.45] } });
       }
       return true;
     };
@@ -207,22 +208,24 @@ export function useLiveTracking(map: MapLibre | null, projectId: string, on: boo
       popup.current = new maplibregl.Popup({ closeButton: true, maxWidth: "280px", className: "trk-pop" }).setLngLat(e.lngLat)
         .setHTML(`<strong>${esc(p.name ?? p.device)}</strong><table>${rows.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("")}</table>`).addTo(map);
     };
+    let running = false;
     const tick = async () => {
-      if (stop) return;
+      if (stop || running) return;              // one update at a time: a slow feed never stacks requests up
+      running = true;
       try {
-        // the feeds PolyGIS asks, each at its own pace
-        const ts = await api.trackers(projectId);
         const now = Date.now() / 1000;
-        await Promise.all(ts.filter((t) => t.active && EVERY[t.kind] && now - (asked.current[t.id] ?? 0) >= EVERY[t.kind]).map((t) => {
+        if (now - known.current.at > 30) known.current = { at: now, list: await api.trackers(projectId) };
+        // the feeds PolyGIS asks, each at its own pace; not waited for (the picture shows what has come in so far)
+        for (const t of known.current.list.filter((x) => x.active && EVERY[x.kind] && now - (asked.current[x.id] ?? 0) >= EVERY[x.kind])) {
           asked.current[t.id] = now;
-          return api.refreshTracker(t.id).catch(() => undefined);
-        }));
+          void api.refreshTracker(t.id).catch(() => undefined);
+        }
         const d: TrackingLive = await api.trackingLive(projectId);
         if (stop || !ensure()) return;
         (map.getSource("trk-trails") as maplibregl.GeoJSONSource).setData(d.trails);
         (map.getSource("trk-pos") as maplibregl.GeoJSONSource).setData(d.positions);
         onAlerts(d.alerts);
-      } catch { /* the next tick tries again */ }
+      } catch { /* the next tick tries again */ } finally { running = false; }
     };
     void tick();
     const timer = setInterval(() => void tick(), 5000);
