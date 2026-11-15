@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api, exportUrl } from "../lib/api";
 import { CATEGORY_COLOURS, RAMPS, breaks, rampColours } from "../lib/mapstyle";
 import type { FieldType, Labels, Layer, Style } from "../lib/types";
+import { SymbolPicker } from "./MilSymbols";
 import { AutoApplyBar, useAutoApply } from "./AutoApply";
 import { Button, ErrorText, IconButton, useAction } from "./ui";
 
@@ -68,6 +69,12 @@ function Symbology({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
 
   async function classify(next: Style) {
     setError(null);
+    if (next.type === "milsymbol") {
+      const guess = (re: RegExp) => layer.fields.find((f) => re.test(f.name))?.name ?? null;
+      put({ ...next, field: null, mil: next.mil ?? { sidc: "SFGPU----------", sidc_field: guess(/^(sidc|symbol|symbol_?code|code)$/i),
+        designation_field: guess(/^(designation|unique_?designation|name|label)$/i), higher_field: guess(/^(higher|higher_?formation|parent)$/i), size: 36 } });
+      return;
+    }
     if (next.type === "single" || !next.field) { put(next); return; }
     try {
       const st = await api.stats(layer.id, next.field, n);
@@ -119,12 +126,13 @@ function Symbology({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
       <fieldset disabled={dis} className="sy-body">
         <label className="ws-f">Primary symbology
           <select value={s.type} onChange={(e) => void classify({ ...s, type: e.target.value as Style["type"], ramp: e.target.value === "categorized" ? "Default" : s.type === "categorized" ? "Greens" : s.ramp,
-            field: e.target.value === "single" ? null : (e.target.value === "graduated" ? numeric[0]?.name : layer.fields[0]?.name) ?? null })}>
+            field: e.target.value === "single" || e.target.value === "milsymbol" ? null : (e.target.value === "graduated" ? numeric[0]?.name : layer.fields[0]?.name) ?? null })}>
             <option value="single">Single symbol</option>
             <option value="categorized" disabled={!layer.fields.length}>Unique values</option>
             <option value="graduated" disabled={!numeric.length}>Graduated colors</option>
+            {geom === "Point" && <option value="milsymbol">Military symbols (MIL-STD-2525)</option>}
           </select></label>
-        {s.type !== "single" && <>
+        {(s.type === "categorized" || s.type === "graduated") && <>
           <label className="ws-f">Field 1
             <select value={s.field ?? ""} onChange={(e) => void classify({ ...s, field: e.target.value })}>
               {fieldsFor.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
@@ -138,7 +146,9 @@ function Symbology({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
           </div>}
           <div className="ws-f"><span>Color scheme</span><SchemePicker value={s.ramp || (s.type === "graduated" ? "Greens" : "Default")} onChange={recolour} disabled={dis} /></div>
         </>}
-        {s.type === "single" ? (
+        {s.type === "milsymbol" ? (
+          <MilSection s={s} layer={layer} onChange={put} />
+        ) : s.type === "single" ? (
           <section className="sy-sec" aria-label="Symbol">
             <h3>Symbol</h3>
             <div className="sy-grid">
@@ -403,5 +413,28 @@ function Source({ layer, onExport }: { layer: Layer; onExport: () => void }) {
         <a className="ge-btn ge-btn-sm" href={exportUrl(layer.id, "geojson")}>GeoJSON</a></p>
       <ErrorText error={null} />
     </div>
+  );
+}
+
+
+/** Military symbols: where each point's code comes from, the text beside it, and the size. */
+function MilSection({ s, layer, onChange }: { s: Style; layer: Layer; onChange: (s: Style) => void }) {
+  const m = s.mil ?? { sidc: "SFGPU----------", size: 36 };
+  const set = (p: Partial<NonNullable<Style["mil"]>>) => onChange({ ...s, mil: { ...m, ...p } });
+  const text = layer.fields.filter((f) => f.type === "string");
+  const pick = (label: string, v: string | null | undefined, k: "sidc_field" | "designation_field" | "higher_field", none: string) => (
+    <label className="ws-f">{label}<select value={v ?? ""} onChange={(e) => set({ [k]: e.target.value || null })}>
+      <option value="">{none}</option>{text.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}</select></label>
+  );
+  return (
+    <section className="sy-sec" aria-label="Military symbols">
+      <h3>Military symbols</h3>
+      {pick("Symbol code from", m.sidc_field, "sidc_field", "One symbol for all")}
+      <div className="ws-f"><span>{m.sidc_field ? "Where the field is empty" : "The symbol"}</span>
+        <SymbolPicker value={m.sidc} onChange={(v) => set({ sidc: v })} compact /></div>
+      {pick("Unique designation from", m.designation_field, "designation_field", "None")}
+      {pick("Higher formation from", m.higher_field, "higher_field", "None")}
+      <label className="ws-f">Size {Math.round(m.size)} px<input type="range" min={16} max={96} step={2} value={m.size} onChange={(e) => set({ size: Number(e.target.value) })} /></label>
+    </section>
   );
 }

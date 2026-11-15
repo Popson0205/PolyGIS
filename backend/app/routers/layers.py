@@ -221,8 +221,18 @@ async def new_layer(project_id: UUID, body: NewLayerIn, user=Depends(need("edito
 
 
 # ---------- changing a layer ----------
+class MilIn(BaseModel):
+    """Military symbols (MIL-STD-2525C / APP-6) on a point layer."""
+    sidc: str = Field("SFGPU----------", pattern=r"^[A-Za-z0-9*-]{10,30}$", description="The code for all features, or where the field is empty")
+    sidc_field: str | None = Field(None, description="The field holding each feature's code")
+    designation_field: str | None = Field(None, description="Unique designation, written to the right of the symbol")
+    higher_field: str | None = Field(None, description="Higher formation, written below the designation")
+    size: float = Field(36, ge=12, le=120)
+
+
 class StyleIn(BaseModel):
-    type: Literal["single", "categorized", "graduated"] = "single"
+    type: Literal["single", "categorized", "graduated", "milsymbol"] = "single"
+    mil: MilIn | None = None
     color: str = Field("#2f6db5", pattern=r"^#[0-9a-fA-F]{6}$")
     stroke: str = Field("#ffffff", pattern=r"^#[0-9a-fA-F]{6}$")
     width: float = Field(1, ge=0, le=20)
@@ -308,7 +318,13 @@ async def update_layer(layer_id: UUID, body: LayerPatch, user=Depends(need("edit
         sets.append("visible = %s"); vals.append(body.visible)
     if body.style is not None:
         st = body.style.model_dump()
-        if st["type"] != "single":
+        if st["type"] == "milsymbol":
+            if layer["geometry_type"] != "Point":
+                raise Problem(422, "Military symbols go on point layers.", code="validation", fields={"style.type": ["points only"]})
+            st["mil"] = st.get("mil") or MilIn().model_dump()
+            for k in ("sidc_field", "designation_field", "higher_field"):
+                _has_field(layer, st["mil"].get(k))
+        elif st["type"] != "single":
             if not st["field"]:
                 raise Problem(422, "Choose the field to style by.", code="validation", fields={"style.field": ["missing"]})
             _has_field(layer, st["field"])

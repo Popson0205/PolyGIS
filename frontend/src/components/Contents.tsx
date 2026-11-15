@@ -8,6 +8,7 @@ import { colour } from "../lib/mapstyle";
 import type { Layer, RasterStyle } from "../lib/types";
 import { gradient, rasterStyle } from "./RasterPanel";
 import { IconButton, PopMenu, useStored, type PopItem } from "./ui";
+import { symbolUrl } from "../lib/milsym";
 
 export type PanelTab = "symbology" | "labels" | "fields" | "source";
 export type SelectionOp = "all" | "clear" | "switch" | "zoom" | "attributes" | "location";
@@ -25,6 +26,7 @@ export function Symbol({ layer, fill, big }: { layer: Layer; fill?: string; big?
   const s = layer.style;
   const c = fill ?? (typeof colour(layer) === "string" ? (colour(layer) as string) : s.categories?.[0]?.color ?? s.classes?.[0]?.color ?? s.color);
   const w = big ? 20 : 18;
+  if (layer.geometry_type === "Point" && s.type === "milsymbol") return <img className="ct-sym ct-milsym" src={symbolUrl(s.mil?.sidc || "SFGPU----------", big ? 22 : 16)} alt="" />;
   if (layer.geometry_type === "Point") return <svg className="ct-sym" width={w} height={w} aria-hidden="true"><circle cx={w / 2} cy={w / 2} r={Math.min(6.5, Math.max(3.5, s.size / 2))} fill={c} stroke={s.stroke} strokeWidth={Math.min(2, Math.max(1, s.width))} /></svg>;
   if (layer.geometry_type === "LineString") return <svg className="ct-sym" width={w} height={w} aria-hidden="true"><line x1="2" y1={w / 2} x2={w - 2} y2={w / 2} stroke={c} strokeWidth={Math.min(4, Math.max(1.5, s.width))} strokeLinecap="round" /></svg>;
   return <svg className="ct-sym" width={w} height={w} aria-hidden="true"><rect x="2" y="3" width={w - 4} height={w - 6} fill={c} fillOpacity={Math.max(0.55, s.opacity)} stroke={s.type === "single" ? s.stroke : "#333"} strokeWidth="1" /></svg>;
@@ -336,5 +338,7 @@ export function Legend({ layer: l }: { layer: Layer }) {
     <ul className="ct-legend">{s.field && <li className="ct-field">{s.field}</li>}
       {s.classes.map((c) => <li key={`${c.min}${c.color}`}><Symbol layer={l} fill={c.color} />{c.label || `${fmt(c.min)} – ${fmt(c.max)}`}</li>)}</ul>
   );
+  if (s.type === "milsymbol") return (
+    <ul className="ct-legend"><li><Symbol layer={l} big /><span>{s.mil?.sidc_field ? `Military symbols (code in ${s.mil.sidc_field})` : "Military symbol"}</span></li></ul>);
   return <ul className="ct-legend"><li><Symbol layer={l} big /></li></ul>;
 }

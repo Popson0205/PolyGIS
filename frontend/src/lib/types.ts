@@ -22,8 +22,10 @@ export interface RasterMeta {
   geographic: boolean; missing?: boolean; unplaced?: boolean; res: [number, number]; res_m: [number, number]; bbox: [number, number, number, number]; bands: RasterBand[]; size_bytes: number;
 }
 export interface ClassBreak { min: number; max: number; color: string; label?: string }
+/** Military symbols on a point layer: the code (SIDC) from a field, or one for all, and the text beside each symbol. */
+export interface MilStyle { sidc: string; sidc_field?: string | null; designation_field?: string | null; higher_field?: string | null; size: number }
 export interface Style {
-  type: "single" | "categorized" | "graduated"; color: string; stroke: string; width: number; size: number; opacity: number;
+  type: "single" | "categorized" | "graduated" | "milsymbol"; mil?: MilStyle | null; color: string; stroke: string; width: number; size: number; opacity: number;
   field?: string | null; categories?: Category[]; classes?: ClassBreak[]; method?: "quantile" | "equal" | "manual"; ramp?: string;
   /** Polygons drawn in 3D: the height from a field (times scale) or a fixed height, in metres. */
   extrude?: { field: string | null; height: number; scale: number; base: number } | null;

@@ -8,6 +8,7 @@ import { ApiError, publicApi, signInUrl, type PublicShare } from "../lib/api";
 import { BASEMAPS, GLYPHS, basemapStyle, ids as layerIds, labelSrc, mapLayers, src } from "../lib/mapstyle";
 import type { Layer } from "../lib/types";
 import { splash } from "../splash";
+import { attachMilSymbols } from "../lib/milsym";
 
 const show = (v: unknown) => (v == null || v === "" ? "–" : typeof v === "number" ? v.toLocaleString("en-GB", { maximumFractionDigits: Math.abs(v) < 1 ? 6 : 3 }) : String(v));
 
@@ -54,6 +55,7 @@ export default function SharePage() {
     const v = share.view;
     const m = new maplibregl.Map({ container: el.current, style: basemapStyle(v.basemap), center: v.center ?? [8.68, 9.08], zoom: v.zoom ?? 5.5,
       bearing: v.bearing ?? 0, attributionControl: { compact: true } });
+    attachMilSymbols(m);
     m.addControl(new maplibregl.NavigationControl(), "top-right");
     m.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
     m.addControl(new maplibregl.FullscreenControl(), "top-right");

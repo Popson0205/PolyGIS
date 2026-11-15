@@ -910,3 +910,33 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 .mil-key { display: inline-block; width: 14px; height: 3px; margin-left: 6px; }
 .mil-key.is-seen { background: #1a9850; } .mil-key.is-hidden { background: #d73027; }
 .mil-key.is-sight { background: repeating-linear-gradient(90deg, #1d3557 0 4px, transparent 4px 7px); height: 2px; }
+.ct-milsym { width: auto; height: 18px; object-fit: contain; }
+
+/* Military symbols: the picker and the Symbols pane */
+.msp { display: flex; flex-direction: column; gap: 10px; }
+.msp-head { display: flex; gap: 12px; align-items: flex-start; }
+.msp-preview { width: 72px; height: 64px; object-fit: contain; flex: none; padding: 4px; border: 1px solid var(--c-line-2); border-radius: 8px; background: #fff; }
+.msp-code { flex: 1; min-width: 0; }
+.msp-code input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+.msp-code input[aria-invalid=true] { border-color: #d73027; }
+.msp-bad { display: block; margin-top: 4px; font-size: 11.5px; color: #a1231b; }
+.msp-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.msp-aff { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px; border: 1px solid var(--c-line); border-radius: 6px; background: #fff;
+  font: 12px var(--ge-font); color: var(--c-ink); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msp-aff img { width: 22px; height: 20px; object-fit: contain; flex: none; }
+.msp-aff:hover { background: var(--c-hover); }
+.msp-aff.is-on { border-color: var(--c-navy); box-shadow: inset 0 0 0 1px var(--c-navy); background: #eef2fb; font-weight: 600; }
+.msp .mil-opts { grid-template-columns: repeat(3, 1fr); }
+.msp.is-compact .mil-opts { grid-template-columns: 1fr 1fr; }
+.msp-search { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--c-line); border-radius: 6px; font: 13px var(--ge-font); }
+.msp-groups { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow: auto; padding-right: 2px; }
+.msp.is-compact .msp-groups { max-height: 240px; }
+.msp-groups h4 { margin: 4px 0; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--c-muted); }
+.msp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 4px; }
+.msp-item { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px; border: 1px solid transparent; border-radius: 6px; background: none;
+  font: 11px/1.2 var(--ge-font); color: var(--c-ink); text-align: center; cursor: pointer; }
+.msp-item img { height: 30px; max-width: 64px; object-fit: contain; }
+.msp-item:hover { background: var(--c-hover); }
+.msp-item.is-on { border-color: var(--c-navy); background: #eef2fb; font-weight: 600; }
+.mil-target { display: flex; gap: 8px; align-items: flex-end; }
+.mil-target .ws-f { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--c-muted); }
