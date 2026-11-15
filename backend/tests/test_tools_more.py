@@ -129,7 +129,8 @@ def test_every_tool_runs(pro, L, tool):
 def test_every_registered_tool_is_covered(pro):
     ids = {t["id"] for t in pro.get("/tools").json()}
     from app.tools import tools_more
-    assert set(tools_more.TOOLS) <= set(EVERY), set(tools_more.TOOLS) - set(EVERY)
+    mine = {k for k, v in tools_more.TOOLS.items() if v["group"] != "Military"}      # those have test_military.py
+    assert mine <= set(EVERY), mine - set(EVERY)
     assert len(ids) >= 100
 
 
