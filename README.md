@@ -6,9 +6,9 @@ Land Registry, LandCheck and FarmScan: one sign-in (GeoEstate ID, through Geohub
 
 ## The interface
 
-- **Modes** down the left: Explore, Data, Edit, Analyse, Imagery, Defence, Earth, Publish. Each opens its ribbon above
-  the map: every tool in sight, in named groups three buttons high (groups wrap onto a second line on a narrow screen,
-  never scroll). Clicking the open mode, or the arrow at the ribbon's end, folds it away.
+- **Modes** down the left: Explore, Data, Select, Edit, Analyse, Imagery, Defence, Earth, Publish. Each opens its
+  ribbon above the map (large buttons, the group's name under them), every mode fitting the width of a 1366 px screen.
+  Clicking the open mode, or Fold tools at the bottom of the rail, folds the ribbon away.
 - **Ask PolyGIS** (top bar, Ctrl K): type what you want. "buffer roads by 500 m" opens Buffer with Roads and 500 m
   filled in; "clip roads to areas" fills both layers; "zoom to checkpoints", "roads table", "hide sightings"; "6.45,
   3.39" flies there; "range rings" or "cloud mask" switches to the mode and presses the button. Worked out in the page

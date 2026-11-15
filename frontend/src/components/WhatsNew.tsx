@@ -3,8 +3,8 @@ import { Sparkles, X } from "lucide-react";
 import { useStored } from "./ui";
 
 const MOVES: [string, string][] = [
-  ["Ribbon tabs", "Modes down the left"], ["Contents", "Layers"], ["Catalog", "Library (Explore)"], ["Geoprocessing", "Tools, and Ask PolyGIS"],
-  ["Model builder", "Flows (Analyse)"], ["Symbology", "Style"], ["Select tab", "The selection bar, and Explore"], ["Military", "Defence"], ["Share", "Publish"],
+  ["Ribbon tabs", "Modes down the left (same ribbons)"], ["Contents", "Layers"], ["Catalog", "Library (Explore)"], ["Geoprocessing", "Tools, and Ask PolyGIS"],
+  ["Model builder", "Flows (Analyse)"], ["Symbology", "Style"], ["Selection tools", "Select, and the selection bar"], ["Military", "Defence"], ["Share", "Publish"],
 ];
 
 export function WhatsNew({ onAsk }: { onAsk: () => void }) {
