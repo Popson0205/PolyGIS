@@ -507,3 +507,102 @@ def ellipse(params, layers, args, a):
               {"name": "unit", "type": "string"}, {"name": "orientation", "type": "number"}, {"name": "area_km2", "type": "number"}]
     return Built(None, args, "Polygon", fields, "Ellipses", compute,
                  {"type": "single", "color": "#e07a10", "stroke": "#b35c00", "width": 1.6, "size": 6, "opacity": 0.15})
+
+
+# ================= geospatial intelligence =================
+import datetime as _dt  # noqa: E402
+
+TREND_STYLE = {"type": "categorized", "field": "trend", "color": "#999999", "stroke": "#444444", "width": 0.6, "size": 6, "opacity": 0.6,
+               "categories": [{"value": "New", "color": "#b2182b", "label": "New activity"},
+                              {"value": "Increase", "color": "#ef8a62", "label": "Increase"},
+                              {"value": "Steady", "color": "#f7f7f7", "label": "Steady"},
+                              {"value": "Decrease", "color": "#67a9cf", "label": "Decrease"},
+                              {"value": "Stopped", "color": "#2166ac", "label": "Stopped"}]}
+
+
+def _day(params, key, label) -> _dt.date:
+    v = str(params.get(key) or "").strip()[:10]
+    try:
+        return _dt.date.fromisoformat(v)
+    except ValueError:
+        raise Problem(422, f"{label}: a date like 2026-01-31.", code="validation", fields={"params": [key]}) from None
+
+
+@tool("activity_change", "Activity change between periods", "Military",
+      "Where dated events (incidents, sightings, reports) grew, fell, began or stopped between two periods, counted in "
+      "square or hexagon cells: New, Increase, Steady, Decrease, Stopped.",
+      _p("input", "Events (points)", "layer", geometry=["Point"]),
+      _p("date_field", "Date field", "field", of="input"),
+      _p("a_from", "Before: from", "date"), _p("a_to", "Before: to", "date"),
+      _p("b_from", "After: from", "date"), _p("b_to", "After: to", "date"),
+      _p("size", "Cell size", "number", unit="m", min=10, default=1000),
+      _p("shape", "Cells", "choice", default="hexagon", choices=[["hexagon", "Hexagons"], ["square", "Squares"]]),
+      _p("steady", "Counts within this share are Steady (%)", "number", min=0, default=20))
+def activity_change(params, layers, args, a):
+    from .tools import Built, number
+    from .tools_more import _cells_ok, field_of
+    f = field_of(a, params.get("date_field"), "Date field")
+    a1, a2, b1, b2 = (_day(params, k, lbl) for k, lbl in (("a_from", "Before: from"), ("a_to", "Before: to"), ("b_from", "After: from"), ("b_to", "After: to")))
+    if a1 > a2 or b1 > b2:
+        raise Problem(422, "Each period must start before it ends.", code="validation", fields={"params": ["a_to"]})
+    args.update(f=f, a1=a1, a2=a2, b1=b1, b2=b2, size=number(params, "size", 10, 1_000_000, "Cell size"),
+                st=number(params, "steady", 0, 100, "Steady share") / 100)
+    _cells_ok(a, args["size"])
+    fn = "ST_SquareGrid" if params.get("shape") == "square" else "ST_HexagonGrid"
+    from .tools import src
+    sql = (f"WITH s AS (SELECT geom, left(props->>%(f)s, 10)::date AS d FROM {src('input')} x "
+           f"  WHERE props->>%(f)s ~ '^\\d{{4}}-\\d{{2}}-\\d{{2}}'), "
+           f"s2 AS (SELECT geom, d, (d BETWEEN %(a1)s AND %(a2)s) AS ina, (d BETWEEN %(b1)s AND %(b2)s) AS inb FROM s), "
+           f"e AS (SELECT ST_Transform(ST_Envelope(ST_Collect(geom)), 3857) AS env, cos(radians(ST_Y(ST_Centroid(ST_Envelope(ST_Collect(geom)))))) AS k "
+           f"  FROM s2 WHERE ina OR inb), "
+           f"c AS (SELECT ST_Transform(c.geom, 4326) AS g, count(*) FILTER (WHERE s2.ina) AS na, count(*) FILTER (WHERE s2.inb) AS nb "
+           f"  FROM e, {fn}(%(size)s / e.k, e.env) c JOIN s2 ON (s2.ina OR s2.inb) AND ST_Intersects(s2.geom, ST_Transform(c.geom, 4326)) GROUP BY c.geom) "
+           f"SELECT g, jsonb_build_object('before', na, 'after', nb, 'change', nb - na, "
+           f"  'change_pct', CASE WHEN na > 0 THEN round(100.0 * (nb - na) / na, 1) END, "
+           f"  'trend', CASE WHEN na = 0 THEN 'New' WHEN nb = 0 THEN 'Stopped' "
+           f"    WHEN abs(nb - na) <= %(st)s * greatest(na, nb) THEN 'Steady' WHEN nb > na THEN 'Increase' ELSE 'Decrease' END) AS p FROM c")
+    fields = [{"name": "before", "type": "integer"}, {"name": "after", "type": "integer"}, {"name": "change", "type": "integer"},
+              {"name": "change_pct", "type": "number"}, {"name": "trend", "type": "string"}]
+    return Built(sql, args, "Polygon", fields, f"{a['name']} activity change", style=TREND_STYLE)
+
+
+@tool("weapon_ranges", "Weapon and sensor ranges", "Military",
+      "Range rings around each feature from its own range field (a weapon's reach, a radar's or a camera's cover), with "
+      "an optional minimum range, as polygons that can be filled: threat and coverage areas.",
+      _p("input", "Weapons or sensors (points)", "layer", geometry=["Point"]),
+      _p("range_field", "Maximum range field", "field", of="input", numeric=True),
+      _p("min_field", "Minimum range field (optional)", "field", of="input", numeric=True, optional=True),
+      _p("unit", "The ranges are in", "choice", default="km", choices=UNIT_CHOICES))
+def weapon_ranges(params, layers, args, a):
+    from .tools import Built
+    from .tools_more import field_of
+    rf = field_of(a, params.get("range_field"), "Maximum range field", numeric=True)
+    mf = field_of(a, params.get("min_field"), "Minimum range field", numeric=True, optional=True)
+    unit = params.get("unit") or "km"
+    if unit not in UNITS:
+        raise Problem(422, "Choose the unit.", code="validation", fields={"params": ["unit"]})
+
+    async def compute(conn):
+        cur = await conn.execute("SELECT id, ST_X(ST_PointOnSurface(geom)) AS x, ST_Y(ST_PointOnSurface(geom)) AS y, props FROM features "
+                                 "WHERE layer_id = layer_data(%s) AND (%s::bigint[] IS NULL OR id = ANY(%s::bigint[])) ORDER BY id",
+                                 (args["input"], args["input_ids"], args["input_ids"]))
+        made = []
+        for r in await cur.fetchall():
+            p = r["props"] or {}
+            try:
+                hi = float(p.get(rf)) * UNITS[unit]
+                lo = float(p.get(mf) or 0) * UNITS[unit] if mf else 0.0
+            except (TypeError, ValueError):
+                continue
+            if not 0 < hi <= 5_000_000 or lo < 0 or lo >= hi:
+                continue
+            outer = shapely.Polygon(ring(r["x"], r["y"], hi).coords)
+            shape = outer.difference(shapely.Polygon(ring(r["x"], r["y"], lo).coords)) if lo > 0 else outer
+            made.append((shape, {**p, "range_max": round(hi / UNITS[unit], 6), "range_min": round(lo / UNITS[unit], 6), "range_unit": unit}))
+        return made
+
+    taken = {f["name"] for f in a["fields"]}
+    fields = a["fields"] + [f for f in ({"name": "range_max", "type": "number"}, {"name": "range_min", "type": "number"},
+                                        {"name": "range_unit", "type": "string"}) if f["name"] not in taken]
+    return Built(None, args, "Polygon", fields, f"{a['name']} ranges", compute,
+                 {"type": "single", "color": "#d73027", "stroke": "#a50f15", "width": 1.4, "size": 6, "opacity": 0.12})

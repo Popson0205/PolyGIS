@@ -1,6 +1,6 @@
 import type { LayoutSettings } from "./layout";
 import type { LayoutDoc } from "./layoutDoc";
-import type { SightResult, Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
+import type { AreaBrief, SightResult, Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
@@ -150,6 +150,8 @@ export const api = {
     req<{ run: Run; layer: Layer }>("POST", `/projects/${projectId}/raster-tools/${tool}`, { params, output_name: output_name || null }),
   rasterStyle: (id: string, style: RasterStyle) => req<Layer>("PUT", `/layers/${id}/raster-style`, style),
   rasterValue: (id: string, lng: number, lat: number) => req<{ values: (number | null)[] | null; bands: string[] }>("GET", `/layers/${id}/raster/value?lng=${lng}&lat=${lat}`),
+  areaBrief: (projectId: string, b: { geometry?: GeoJSON.Geometry; layer_id?: string; feature_id?: number; dem_id?: string | null; name?: string }) =>
+    req<AreaBrief>("POST", `/projects/${projectId}/area-brief`, b),
   lineOfSight: (demId: string, b: { observer: [number, number]; target: [number, number]; height: number; target_height: number; curvature: boolean }) =>
     req<SightResult>("POST", `/layers/${demId}/line-of-sight`, b),
   histogram: (id: string, band: number) => req<{ counts: number[]; edges: number[] }>("GET", `/layers/${id}/raster/histogram?band=${band}`),

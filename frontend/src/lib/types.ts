@@ -120,3 +120,16 @@ export interface SightResult {
   profile: { d: number; z: number | null; seen: boolean; sight: number | null }[];
   segments: GeoJSON.FeatureCollection;
 }
+
+/** What lies inside an area of interest (an intelligence summary). */
+export interface AreaBrief {
+  name: string; project: string; area_km2: number; perimeter_km: number;
+  centre: { lng: number; lat: number } & Record<string, string | number | null>;
+  extent: { south_west: string | null; north_east: string | null };
+  ground: null | { dem: string; covered: boolean; share_covered?: number; min_m?: number; max_m?: number; mean_m?: number; relief_m?: number;
+    mean_slope_deg?: number; steep_share?: number; very_steep_share?: number; highest?: { elevation_m: number; position: string; lng: number; lat: number } };
+  layers: { id: string; name: string; kind: "Point" | "LineString" | "Polygon"; features: number; measure: number | null; unit: string | null }[];
+  units: { layer: string; sidc: string; affiliation: string; designation: string | null; higher: string | null; position: string }[];
+  unit_counts: Record<string, number>;
+  geometry: GeoJSON.Geometry;
+}

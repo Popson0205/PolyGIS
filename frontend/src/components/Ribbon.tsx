@@ -8,3 +8,8 @@ export function Group({ name, children }: { name: string; children: ReactNode })
 export function Tb({ icon, label, onClick, on, disabled, title }: { icon: ReactNode; label: string; onClick: () => void; on?: boolean; disabled?: boolean; title?: string }) {
   return <button type="button" className={`ws-tb${on ? " is-on" : ""}`} onClick={onClick} disabled={disabled} aria-pressed={on} title={title}><span aria-hidden="true" className="ws-tb-icon">{icon}</span>{label}</button>;
 }
+
+/** A small ribbon button (icon and label on one line), stacked three high beside the large ones. */
+export function Ts({ icon, label, onClick, on, disabled, title }: { icon: ReactNode; label: string; onClick: () => void; on?: boolean; disabled?: boolean; title?: string }) {
+  return <button type="button" className={`ws-tb-small${on ? " is-on" : ""}`} onClick={onClick} disabled={disabled} aria-pressed={on} title={title}><span aria-hidden="true" className="ws-tb-icon">{icon}</span>{label}</button>;
+}
