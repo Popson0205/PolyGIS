@@ -12,11 +12,13 @@
   "dependencies": {
     "@turf/area": "7.2.0",
     "@turf/length": "7.2.0",
+    "@types/qrcode": "^1.5.6",
     "jspdf": "4.2.1",
     "lucide-react": "0.454.0",
     "maplibre-gl": "^4.7.1",
     "milsymbol": "^3.0.5",
     "proj4": "2.15.0",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.2",

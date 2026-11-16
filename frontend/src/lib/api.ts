@@ -1,6 +1,6 @@
 import type { LayoutSettings } from "./layout";
 import type { LayoutDoc } from "./layoutDoc";
-import type { OrgImagery, OrgScene, AreaBrief, SightResult, Tracker, TrackingLive, Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View } from "./types";
+import type { OrgImagery, OrgScene, AreaBrief, SightResult, Tracker, TrackingLive, Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View, Camera } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
@@ -168,6 +168,11 @@ export const api = {
     req<Tracker>("PATCH", `/trackers/${id}`, b),
   deleteTracker: (id: string) => req<void>("DELETE", `/trackers/${id}`),
   trackerToken: (id: string) => req<Tracker>("POST", `/trackers/${id}/token`),
+  cameras: (projectId: string) => req<Camera[]>("GET", `/projects/${projectId}/cameras`),
+  addCamera: (projectId: string, name: string) => req<Camera>("POST", `/projects/${projectId}/cameras`, { name }),
+  updateCamera: (id: string, body: { name?: string; new_address?: boolean }) => req<Camera>("PATCH", `/cameras/${id}`, body),
+  deleteCamera: (id: string) => req<void>("DELETE", `/cameras/${id}`),
+  cameraLive: (id: string, n = 0) => `${BASE}/cameras/${id}/live.mjpg?n=${n}`,
   notifyTest: (id: string) => req<{ sent: boolean; to: string }>("POST", `/trackers/${id}/notify/test`),
   refreshTracker: (id: string) => req<{ received: number; seen?: number; note?: string }>("POST", `/trackers/${id}/refresh`),
   trackingLive: (projectId: string) => req<TrackingLive>("GET", `/projects/${projectId}/tracking/live`),
