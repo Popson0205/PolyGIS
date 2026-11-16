@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     background_feeds: bool = True              # ask aircraft, ship and Geohub feeds on a schedule, not only while Live is on
 
     # Rasters (elevation models, imagery, results of raster tools) are kept as Cloud-Optimized GeoTIFFs: in an
-    # S3-compatible bucket when S3_ENDPOINT is set (e.g. the Cloudflare R2 bucket Geohub uses, under S3_PREFIX),
+    # S3-compatible bucket when S3_ENDPOINT is set (Supabase Storage, Cloudflare R2, AWS S3…, under S3_PREFIX),
     # with RASTER_DIR as the local copy the map tiles and tools read; without a bucket, RASTER_DIR alone (give it a
     # persistent volume then).
     raster_dir: str = "./data/rasters"
