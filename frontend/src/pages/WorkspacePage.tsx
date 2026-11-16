@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scissors, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, ZoomIn, Hand, Maximize2, Scan, Minimize2, Moon, Database, PenLine, Image as ImageIcon,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scissors, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, ZoomIn, Hand, Maximize2, Scan, Video, Minimize2, Moon, Database, PenLine, Image as ImageIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -15,6 +15,7 @@ import Geoprocessing from "../components/Geoprocessing";
 import { AskBar } from "../components/AskBar";
 import { ToolCards } from "../components/ToolCards";
 import { WhatsNew } from "../components/WhatsNew";
+import { CameraWall, CamerasPane, useCameras } from "../components/Cameras";
 import { FocusLayers, Inspector, SelectionBar } from "../components/Inspector";
 import type { AskHit, Command } from "../lib/ask";
 import type { Tool as GpTool } from "../lib/types";
@@ -95,6 +96,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [symbolsOpen, setSymbolsOpen] = useState(false);
   const [briefOpen, setBriefOpen] = useState(false);
   const [trackingOpen, setTrackingOpen] = useState(false);
+  const [camerasOpen, setCamerasOpen] = useState(false);
+  const [watching, setWatching] = useState<string[]>([]);
   const [providersOpen, setProvidersOpen] = useState(false);
   const [providerTick, setProviderTick] = useState(0);
   const providerApplied = useRef(false);
@@ -771,6 +774,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     return formatCoords(crs, lng, lat);
   }, [pointer, crs, coordFmt]);
 
+  // live cameras: asked for while their pane is open or one is being watched; drawn on the map
+  const [cams, setCams] = useCameras(id, map, camerasOpen || watching.length > 0, (cid) => { setWatching((w) => (w.includes(cid) ? w : [...w, cid].slice(-4))); });
   // Ask PolyGIS: the analysis tools it knows, and the buttons it found (by id) to press
   const [allTools, setAllTools] = useState<GpTool[]>([]);
   useEffect(() => {
@@ -821,7 +826,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
   const openCoords = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setCoordsOpen(true); setRightOpen(true); };
   const openProviders = () => { setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(true); setRightOpen(true); };
-  const openTracking = () => { setProvidersOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(true); setRightOpen(true); };
+  const openCameras = () => { setProvidersOpen(false); setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setCamerasOpen(true); setRightOpen(true); };
+  const openTracking = () => { setCamerasOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(true); setRightOpen(true); };
   const openBrief = () => { setTrackingOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(true); setRightOpen(true); };
   const openSymbols = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(true); setRightOpen(true); };
   const openSight = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setSightOpen(true); setRightOpen(true); if (tool !== "explore") chooseTool("explore"); };
@@ -883,6 +889,10 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       onAlertsSeen={() => void api.alertsSeen(id).then(() => setAlerts([]))} view={() => (map.current ? mapBox() : null)}
       onLayer={(l) => { setLayers((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? l : x)) : [...cur, l])); }}
       onZoom={(x, y) => map.current?.flyTo({ center: [x, y], zoom: Math.max(map.current.getZoom(), 14) })} onClose={() => setTrackingOpen(false)} />
+  ) : camerasOpen ? (
+    <CamerasPane projectId={id} cams={cams} setCams={setCams} canEdit={canEdit} watching={watching}
+      onWatch={(cid) => setWatching((w) => (w.includes(cid) ? w.filter((x) => x !== cid) : [...w, cid].slice(-4)))}
+      onZoom={(c) => map.current?.flyTo({ center: [c.lng!, c.lat!], zoom: Math.max(map.current.getZoom(), 16) })} onClose={() => setCamerasOpen(false)} />
   ) : briefOpen ? (
     <BriefPane projectId={id} dems={layers.filter((l) => l.geometry_type === "Raster" && l.raster && l.raster.count === 1 && !l.raster.missing)}
       selectedPolygon={selectedPolygon} onDraw={drawArea} onClose={() => setBriefOpen(false)} />
@@ -1195,6 +1205,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             </Group>
             <Group name="Tracking">
               <Tb on={trackingOpen && rightOpen} onClick={() => (trackingOpen ? setTrackingOpen(false) : openTracking())} icon={<Radio />} label="Tracking" />
+              <Tb on={camerasOpen && rightOpen} onClick={() => (camerasOpen ? setCamerasOpen(false) : openCameras())} icon={<Video />} label="Cameras" />
               <div className="ws-tb-stack">
                 <Ts on={liveOn} onClick={() => setLiveOn(!liveOn)} icon={<Play size={16} />} label={liveOn ? "Live: on" : "Live"} />
                 <Ts onClick={() => { openTracking(); }} icon={<BellRing size={16} />} label={alerts.length ? `Alerts (${alerts.length})` : "Alerts"} />
@@ -1253,6 +1264,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
         <div className="ws-map-wrap">
           <div ref={mapEl} className={`ws-map tool-${tool}`} />
           {!onLayout && <WhatsNew onAsk={() => { commandEl.current?.focus(); }} />}
+          {!onLayout && <CameraWall cams={cams} watching={watching} onClose={(cid) => setWatching((w) => w.filter((x) => x !== cid))} />}
           {focus && !onLayout && <FocusLayers layers={layers} activeId={activeId} onToggle={(l) => void toggle(l)}
             onPick={(l) => { setActiveId(l.id); setIdentify(null); setRightOpen(true); }} onAdd={() => setDialog("add")} canAdd={canEdit} onLeave={() => setFocus(false)} />}
           {totalSel > 0 && <SelectionBar selection={selection} layers={layers}

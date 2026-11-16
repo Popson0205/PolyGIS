@@ -154,6 +154,11 @@ the plan; a model with raster steps needs PolyGIS Advanced.
 - **In the background**: the server asks aircraft and Geohub feeds every minute and ships every two, so alerts go out
   when no one has PolyGIS open (`BACKGROUND_FEEDS=false` turns this off). A Geohub form is read with a read-only Geohub
   API key pasted into its tracker (Geohub › Settings › Security › API keys).
+- **Live cameras** (Defence › Cameras): add a camera, open its secret link (or scan its code) on a phone and press Start:
+  the phone's browser sends a few pictures a second and its GPS position, with no app. People of the organization watch it
+  live in the pane and in a video wall over the map (up to four), and see it as a point on the map (green while live).
+  A demo built into PolyGIS (MJPEG through the server, no media server): fine for a few cameras. Real IP cameras
+  (RTSP/ONVIF), recordings and sub-second video come next through a media server (MediaMTX).
 - **Imagery sources** (Imagery › Sources): an organization's commercial or private imagery, as XYZ/WMS tiles or a STAC
   catalogue, added once with its key kept on the server and used as a basemap or searched for scenes.
 

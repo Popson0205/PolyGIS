@@ -156,3 +156,7 @@ export interface OrgImagery {
 }
 export interface OrgScene { id: string; collection: string | null; datetime: string | null; cloud: number | null; gsd: number | null; platform: string | null;
   geometry: GeoJSON.Geometry | null; bbox: number[] | null; thumbnail: string | null; has_image: boolean }
+
+/** A live camera (Defence › Cameras): a phone or camera sending pictures, with where it is. */
+export interface Camera { id: string; project_id: string; name: string; live: boolean; last_at: string | null; lng: number | null; lat: number | null;
+  accuracy: number | null; heading: number | null; located_at: string | null; created_at: string; send_url: string }
