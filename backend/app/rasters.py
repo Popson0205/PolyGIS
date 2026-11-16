@@ -102,8 +102,21 @@ def warn_if_not_kept() -> None:
     Fly without a volume) they are lost then. Say so in the log at start."""
     if not settings.s3_endpoint:
         log.warning("Rasters are kept only in %s (no S3_ENDPOINT). Unless that folder is on a persistent volume, every raster "
-                    "is lost when the service is redeployed. Set S3_* (e.g. the Cloudflare R2 bucket) or mount a volume there.",
-                    Path(settings.raster_dir).resolve())
+                    "is lost when the service is redeployed. Set S3_* (a Supabase Storage or other S3-compatible bucket) or "
+                    "mount a volume there.", Path(settings.raster_dir).resolve())
+        return
+    threading.Thread(target=_check_bucket, daemon=True).start()   # in the background: start-up never waits on it
+
+
+def _check_bucket() -> None:
+    """Say at start whether the bucket answers, so a wrong setting shows in the log."""
+    try:
+        _bucket().head_bucket(Bucket=settings.s3_bucket)
+        log.info("Rasters are stored in bucket %r at %s (under %s).", settings.s3_bucket, settings.s3_endpoint, settings.s3_prefix)
+    except Exception as e:  # noqa: BLE001
+        log.error("The raster bucket %r at %s does not answer (%s). Rasters cannot be saved. Check S3_ENDPOINT, S3_BUCKET "
+                  "(the bucket must exist), the keys, and S3_REGION (for Supabase: the project's region, e.g. eu-west-2; "
+                  "S3_ENDPOINT https://<project-ref>.supabase.co/storage/v1/s3).", settings.s3_bucket, settings.s3_endpoint, e)
 
 
 def _keep(path: Path) -> str:

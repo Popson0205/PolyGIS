@@ -157,8 +157,12 @@ the plan; a model with raster steps needs PolyGIS Advanced.
 - **Live cameras** (Defence › Cameras): add a camera, open its secret link (or scan its code) on a phone and press Start:
   the phone's browser sends a few pictures a second and its GPS position, with no app. People of the organization watch it
   live in the pane and in a video wall over the map (up to four), and see it as a point on the map (green while live).
-  A demo built into PolyGIS (MJPEG through the server, no media server): fine for a few cameras. Real IP cameras
-  (RTSP/ONVIF), recordings and sub-second video come next through a media server (MediaMTX).
+  A demo built into PolyGIS (MJPEG through the server, no media server): fine for a few cameras.
+  **CCTV / IP cameras**: run `tools/cctv_relay.py` on any computer on the camera's network (Python and ffmpeg). It
+  reads the camera's RTSP stream and sends it to a camera's link like a phone, with a fixed position:
+  `python cctv_relay.py "rtsp://user:pass@192.168.1.64:554/..." "https://<polygis>/cam/<token>" --lat 6.52 --lng 3.38`.
+  Only outgoing HTTPS, so no router changes; it reconnects by itself. Recordings and sub-second video would come
+  through a media server (MediaMTX).
 - **Imagery sources** (Imagery › Sources): an organization's commercial or private imagery, as XYZ/WMS tiles or a STAC
   catalogue, added once with its key kept on the server and used as a basemap or searched for scenes.
 
@@ -250,8 +254,11 @@ restart or redeploy stops them.
    `DATABASE_URL` (Geohub's database), `APP_URL`, `GEOHUB_URL`, `GEOHUB_API`, `ID_CLIENT=gis`, `ID_SECRET` (the same
    secret). The `gis` schema is made on start-up. Optional: `MAX_UPLOAD_MB` (200), `MAX_FEATURES` (500000),
    `VITE_IMAGERY_URL` and `VITE_IMAGERY_ATTRIBUTION`.
-   Rasters: set `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `S3_BUCKET` (Geohub's R2 bucket works; files go
-   under `S3_PREFIX`, `polygis/rasters/`), and `RASTER_DIR` is then only a local copy. Without a bucket, mount a
+   Rasters: set `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET` and `S3_REGION` (files go under
+   `S3_PREFIX`, `polygis/rasters/`), and `RASTER_DIR` is then only a local copy. With Supabase Storage (Project
+   settings › Storage › S3 connection): `S3_ENDPOINT=https://<project-ref>.supabase.co/storage/v1/s3`, `S3_REGION` the
+   project's region (e.g. `eu-west-2`), the S3 access key pair made there, and an existing bucket; raise Storage ›
+   Settings › Upload file size limit for large rasters. The log says at start whether the bucket answers. Without a bucket, mount a
    Railway volume at `RASTER_DIR` (default `./data/rasters`), or rasters are lost when the service restarts.
    Optional: `MAX_RASTER_MB` (1000), `MAX_RASTER_CELLS` (60 million), `MAX_HYDRO_CELLS` (16 million).
 3. Give an organization PolyGIS in Geohub's staff console (Products), or from a paid CRM invoice.
