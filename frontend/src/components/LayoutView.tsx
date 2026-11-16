@@ -15,7 +15,7 @@ import { canvasMeasure, drawCanvas, drawPdf, type MapPictures } from "../lib/lay
 import { basemapStyle } from "../lib/mapstyle";
 import { printableStyle, renderMap, styleOfMap } from "../lib/printMap";
 import type { CrsDef, GisMap, Layer, Me, Project } from "../lib/types";
-import { Group, Tb } from "./Ribbon";
+import { Group, Tb, RibbonBody } from "./Ribbon";
 import { Button, ErrorText, IconButton, Menu, useToast } from "./ui";
 
 interface Picture { canvas: HTMLCanvasElement; key: string; center: XY; scale: number; w: number; h: number }
@@ -506,7 +506,7 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
         <IconButton label="Close the print studio" onClick={close}><X size={18} /></IconButton>
       </div>
 
-      <div className="ws-ribbon-body lv-ribbon" role="toolbar" aria-label="Print studio tools">
+      <RibbonBody label="Print studio tools" className="lv-ribbon">
         <Group name="Insert">
           <Tb icon={<MapIcon />} label="Map frame" on={tool?.kind === "map"} onClick={() => insert("map")} title="Draw a map frame on the page" />
           <Tb icon={<Rows />} label="Legend" on={tool?.kind === "legend"} onClick={() => insert("legend")} />
@@ -566,7 +566,7 @@ export default function LayoutView({ project, layers, crs, me, map, canSave, onC
           <Tb icon={<Undo2 />} label="Undo" disabled={!undo.current.length} onClick={back} />
           <Tb icon={<Redo2 />} label="Redo" disabled={!redo.current.length} onClick={fwd} />
         </Group>
-      </div>
+      </RibbonBody>
 
       <div className="lv-body">
         <aside className="lv-contents ws-scroll" aria-label="Page items">

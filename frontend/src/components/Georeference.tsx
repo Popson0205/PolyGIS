@@ -8,7 +8,7 @@ import { fromDms, parsePoints, pointsText, suggest, toDms } from "../lib/georef"
 import { BASEMAPS, basemapStyle } from "../lib/mapstyle";
 import type { CrsDef, GeorefFit, GeorefMethod, GeorefPoint, GeorefSource, Layer } from "../lib/types";
 import { CrsPicker, Dialog } from "./Dialogs";
-import { Group, Tb } from "./Ribbon";
+import { Group, Tb, RibbonBody } from "./Ribbon";
 import { Button, ErrorText, IconButton, useStored, useToast } from "./ui";
 
 type Pending = { col: number; row: number; lng?: undefined } | { lng: number; lat: number; col?: undefined } | null;
@@ -220,7 +220,7 @@ export default function Georeference({ projectId, layers, canEdit, view, file, l
         <span className="ge-spacer" />
         <IconButton label="Close georeferencing" onClick={onClose}><X size={18} /></IconButton>
       </div>
-      {src && <div className="ws-ribbon gr-ribbon"><div className="ws-ribbon-body" role="toolbar" aria-label="Georeference">
+      {src && <div className="ws-ribbon gr-ribbon"><RibbonBody label="Georeference">
         <Group name="Prepare">
           <Tb icon={<Maximize />} label="Fit to display" onClick={() => setFitSignal((n) => n + 1)} title="Show the whole image, and the map at the points" />
           <Tb icon={<Globe2 />} label="Set SRS" onClick={() => setSrsOpen(true)} title={`Coordinate system: EPSG:${srs.epsg} ${srs.name}`} />
@@ -253,7 +253,7 @@ export default function Georeference({ projectId, layers, canEdit, view, file, l
           <Tb icon={<X />} label="Close Georeference" onClick={onClose} />
         </Group>
         <input ref={importRef} type="file" className="sr-only" accept=".txt,.csv,.tsv,.pts" onChange={(e) => { const f = e.target.files?.[0]; if (f) void importPoints(f); e.target.value = ""; }} />
-      </div></div>}
+      </RibbonBody></div>}
       {src && <div className="gr-stepbar" role="status"><Crosshair size={14} aria-hidden="true" />{step}
         {pending?.col !== undefined && canEdit && <Button small variant="ghost" onClick={() => setTyping(true)}><Keyboard size={14} aria-hidden="true" />Type coordinates</Button>}
         {pending && <Button small variant="ghost" onClick={() => setPending(null)}><RotateCcw size={14} aria-hidden="true" />Cancel this point (Esc)</Button>}

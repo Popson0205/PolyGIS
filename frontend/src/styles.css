@@ -1223,3 +1223,13 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 .camwall-wait img { flex: none; width: 96px; height: 96px; border-radius: 6px; background: #fff; padding: 3px; }
 .camwall-wait p { margin: 0; } .camwall-wait strong { display: block; font-size: 13.5px; margin-bottom: 2px; } .camwall-wait span { display: block; margin-top: 6px; color: #c3cbe0; }
 .camwall.n2 .camwall-wait img, .camwall.n3 .camwall-wait img, .camwall.n4 .camwall-wait img { width: 64px; height: 64px; }
+
+/* ribbons never scroll: groups that do not fit fold into one button each, which opens their tools in a panel below */
+.ws-ribbon-body { overflow: hidden; }
+.ws-group-fold { display: none; }
+.ws-group[data-folded] > .ws-group-fold { display: flex; }
+.ws-group[data-folded] > .ws-group-body { display: none; }
+.ws-group[data-folded].is-open > .ws-group-body { display: flex; position: fixed; z-index: 90; max-width: min(640px, calc(100vw - 16px)); flex-wrap: wrap; height: auto; padding: 6px;
+  background: var(--c-pane); border: 1px solid var(--c-line); border-radius: 12px; box-shadow: 0 14px 36px rgba(16, 24, 40, .2); }
+.ws-group[data-folded].is-open > .ws-group-fold { background: var(--c-violet-50); color: var(--c-violet-ink); }
+.ws-group-fold-arrow { margin-top: -2px; color: var(--c-faint); }
