@@ -96,7 +96,7 @@ export function CamerasPane({ projectId, cams, setCams, canEdit, watching, onWat
               <div className="cams-row">
                 <span className={`cams-dot${c.live ? " is-live" : ""}`} aria-hidden="true" />
                 <button type="button" className="cams-name" onClick={() => setOpen(open === c.id ? null : c.id)} aria-expanded={open === c.id}>
-                  <strong>{c.name}</strong><span>{c.live ? "Live" : `Last picture ${ago(c.last_at)}`}</span></button>
+                  <strong>{c.name}</strong><span>{c.live ? "Live" : c.last_at ? `Not sending · last picture ${ago(c.last_at)}` : "Not sending yet: open its link on the phone"}</span></button>
                 <IconButton label={watching.includes(c.id) ? `Stop watching ${c.name}` : `Watch ${c.name}`} onClick={() => onWatch(c.id)}><Eye size={16} /></IconButton>
                 {c.lng != null && <IconButton label={`Find ${c.name} on the map`} onClick={() => onZoom(c)}><MapPin size={16} /></IconButton>}
               </div>
@@ -125,6 +125,19 @@ export function CamerasPane({ projectId, cams, setCams, canEdit, watching, onWat
   );
 }
 
+/** A camera being watched that sends nothing yet: how to start it, with its code to scan. It turns live by itself. */
+function Waiting({ cam }: { cam: Camera }) {
+  const [qr, setQr] = useState<string | null>(null);
+  useEffect(() => { void QRCode.toDataURL(cam.send_url, { margin: 1, width: 160 }).then(setQr).catch(() => setQr(null)); }, [cam.send_url]);
+  return (
+    <div className="camwall-wait">
+      {qr && <img src={qr} alt="Code of the camera's link" width={96} height={96} />}
+      <p><strong>Waiting for {cam.name}</strong>{cam.last_at ? `Last picture ${ago(cam.last_at)}.` : "No picture yet."}
+        <span>Scan this on the phone (or open the camera's link), then press <em>Start sending</em>. The video appears here by itself.</span></p>
+    </div>
+  );
+}
+
 /** The video wall: the cameras being watched, live, over the map (up to four). */
 export function CameraWall({ cams, watching, onClose }: { cams: Camera[]; watching: string[]; onClose: (id: string) => void }) {
   const shown = watching.map((id) => cams.find((c) => c.id === id)).filter(Boolean).slice(0, 4) as Camera[];
@@ -133,7 +146,7 @@ export function CameraWall({ cams, watching, onClose }: { cams: Camera[]; watchi
     <section className={`camwall n${shown.length}`} aria-label="Live cameras">
       {shown.map((c) => (
         <figure key={c.id}>
-          <img src={api.cameraLive(c.id)} alt={`Live from ${c.name}`} />
+          {c.live ? <img src={api.cameraLive(c.id)} alt={`Live from ${c.name}`} /> : <Waiting cam={c} />}
           <figcaption><span className={`cams-dot${c.live ? " is-live" : ""}`} aria-hidden="true" /><Video size={13} aria-hidden="true" />{c.name}
             {!c.live && <em> · not sending</em>}
             <button type="button" aria-label={`Close ${c.name}`} onClick={() => onClose(c.id)}><X size={14} /></button></figcaption>

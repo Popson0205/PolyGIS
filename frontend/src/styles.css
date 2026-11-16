@@ -1219,3 +1219,7 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
   background: linear-gradient(rgba(0, 0, 0, .55), transparent); } .camwall figcaption em { font-weight: 400; opacity: .8; }
 .camwall figcaption button { margin-left: auto; width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 6px; background: rgba(0, 0, 0, .35); color: #fff; cursor: pointer; }
 .ws.is-focus .camwall { bottom: 104px; } .selbar ~ .camwall { bottom: 92px; }
+.camwall-wait { position: absolute; inset: 0; display: flex; align-items: center; gap: 12px; padding: 34px 14px 12px; box-sizing: border-box; color: #e8ecf5; font-size: 12.5px; line-height: 1.45; }
+.camwall-wait img { flex: none; width: 96px; height: 96px; border-radius: 6px; background: #fff; padding: 3px; }
+.camwall-wait p { margin: 0; } .camwall-wait strong { display: block; font-size: 13.5px; margin-bottom: 2px; } .camwall-wait span { display: block; margin-top: 6px; color: #c3cbe0; }
+.camwall.n2 .camwall-wait img, .camwall.n3 .camwall-wait img, .camwall.n4 .camwall-wait img { width: 64px; height: 64px; }
