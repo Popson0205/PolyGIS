@@ -1,5 +1,6 @@
 """Layers: importing files, empty layers to draw in, styling and labels, fields, the attribute table, selection,
 vector tiles for the map, and export."""
+import json
 import re
 import shutil
 import tempfile
@@ -202,6 +203,68 @@ def _fields_ok(fields: list[dict]) -> list[dict]:
             raise Problem(422, f"There are two fields called {f['name']}.", code="validation", fields={"fields": ["twice"]})
         seen.add(f["name"].lower())
     return fields
+
+
+async def _feature_collection(conn, layer_id, limit: int) -> dict:
+    """A layer's features as a GeoJSON FeatureCollection (for handing to the notebook as a GeoDataFrame)."""
+    cur = await conn.execute(
+        "SELECT id, ST_AsGeoJSON(geom) AS g, props FROM features WHERE layer_id = layer_data(%s) ORDER BY id LIMIT %s",
+        (layer_id, limit + 1))
+    rows = await cur.fetchall()
+    truncated = len(rows) > limit
+    feats = [{"type": "Feature", "id": r["id"], "geometry": json.loads(r["g"]) if r["g"] else None, "properties": r["props"]}
+             for r in rows[:limit]]
+    return {"type": "FeatureCollection", "features": feats}, truncated
+
+
+async def _insert_layer(conn, project_id, org_id, name: str, lay, actor, filename: str) -> UUID:
+    """Create one layer from a parsed gisdata layer (geoms + props), as import does."""
+    pos = await _next_position(conn, project_id)
+    cur = await conn.execute(
+        "INSERT INTO layers (project_id, org_id, name, geometry_type, fields, style, position, source, created_by) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+        (project_id, org_id, name[:200], lay.geometry_type, Jsonb(lay.fields),
+         Jsonb(default_style(lay.geometry_type, pos)), pos, Jsonb({"filename": filename, "crs": lay.crs, "dropped": lay.dropped}), actor))
+    lid = (await cur.fetchone())["id"]
+    await _copy_features(conn, lid, lay.geoms, lay.props, actor)
+    return lid
+
+
+class NotebookIn(BaseModel):
+    code: str = Field(min_length=1, max_length=100_000)
+    layer_id: UUID | None = Field(None, description="Load this layer as `gdf` (else `gdf` is empty)")
+    output_name: str | None = Field(None, max_length=200, description="Name for the layer made from `result`")
+
+
+@router.post("/projects/{project_id}/notebook/run", summary="Run Python against a layer, server-side")
+async def notebook_run(project_id: UUID, body: NotebookIn, user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
+    from .. import notebook
+    if not notebook.enabled():
+        raise Problem(403, "The notebook is turned off on this server.", code="disabled")
+    await project_of(conn, project_id, user)
+    fc, truncated = ({"type": "FeatureCollection", "features": []}, False)
+    if body.layer_id:
+        await layer_of(conn, body.layer_id, user)                 # the user may read this layer
+        fc, truncated = await _feature_collection(conn, body.layer_id, settings.max_features)
+    res = await anyio.to_thread.run_sync(lambda: notebook.run(body.code, fc))
+    res["input_truncated"] = truncated
+    if res.get("kind") == "layer" and res.get("geojson"):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "result.geojson"
+            p.write_text(res.pop("geojson"))
+            try:
+                read = await anyio.to_thread.run_sync(lambda: gisdata.read_file(p, "result.geojson", None, settings.max_features))
+            except gisdata.ReadError as e:
+                res["kind"] = "none"; res["error"] = f"The result could not be read back as a layer: {e}"
+                return res
+            name = (body.output_name or "Notebook result").strip()[:200]
+            lid = await _insert_layer(conn, project_id, user["org_id"], name, read[0], user["id"], "notebook")
+            await _touch(conn, lid, project_id)
+            await audit(conn, user, "notebook.layer", "layer", lid, name=name, features=len(read[0].geoms))
+            res["layer"] = await layer_of(conn, lid, user)
+    else:
+        await audit(conn, user, "notebook.run", "project", project_id, kind=res.get("kind"))
+    return res
 
 
 @router.post("/projects/{project_id}/layers", status_code=201, summary="Add an empty layer to draw in")

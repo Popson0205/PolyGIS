@@ -1,6 +1,6 @@
 import type { LayoutSettings } from "./layout";
 import type { LayoutDoc } from "./layoutDoc";
-import type { OrgImagery, OrgScene, AreaBrief, SightResult, Tracker, TrackingLive, Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View, Camera } from "./types";
+import type { OrgImagery, OrgScene, AreaBrief, SightResult, Tracker, TrackingLive, Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, NotebookResult, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View, Camera } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
@@ -147,6 +147,8 @@ export const api = {
     req<ModelRun>("POST", `/projects/${projectId}/models/${id}/run`, { inputs, keep }),
   runTool: (projectId: string, tool: string, params: Record<string, unknown>, output_name?: string) =>
     req<{ run: Run; layer: Layer }>("POST", `/projects/${projectId}/tools/${tool}`, { params, output_name: output_name || null }),
+  notebookRun: (projectId: string, b: { code: string; layer_id?: string | null; output_name?: string | null }) =>
+    req<NotebookResult>("POST", `/projects/${projectId}/notebook/run`, b),
   rasterTools: () => req<Tool[]>("GET", "/raster-tools"),
   runRasterTool: (projectId: string, tool: string, params: Record<string, unknown>, output_name?: string) =>
     req<{ run: Run; layer: Layer }>("POST", `/projects/${projectId}/raster-tools/${tool}`, { params, output_name: output_name || null }),

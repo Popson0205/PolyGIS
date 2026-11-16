@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scissors, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, ZoomIn, Hand, Maximize2, Scan, Video, Minimize2, Moon, Database, PenLine, Image as ImageIcon,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scissors, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, ZoomIn, Hand, Maximize2, Scan, Video, Minimize2, Moon, Database, PenLine, Image as ImageIcon, TerminalSquare,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -14,6 +14,7 @@ import { AddData, CrsPicker, Dialog, Export, NewLayer, SelectByAttributes, Selec
 import Geoprocessing from "../components/Geoprocessing";
 import { AskBar } from "../components/AskBar";
 import { ToolCards } from "../components/ToolCards";
+import Notebook from "../components/Notebook";
 import { WhatsNew } from "../components/WhatsNew";
 import { CameraWall, CamerasPane, useCameras } from "../components/Cameras";
 import { FocusLayers, Inspector, SelectionBar } from "../components/Inspector";
@@ -113,6 +114,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [modelsOpen, setModelsOpen] = useState(false);
   const [georefOpen, setGeorefOpen] = useState(false);
   const [scenariosOpen, setScenariosOpen] = useState(false);
+  const [notebookOpen, setNotebookOpen] = useState(false);
   const [georefFile, setGeorefFile] = useState<File | null>(null);
   const [georefLayer, setGeorefLayer] = useState<string | null>(null);
   // the 3D view: tilted, on terrain from an elevation model in the project or the open global one
@@ -822,8 +824,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       requestAnimationFrame(() => b?.click());
     }
   }
-  const openTool = (t: string | null, q = "", preset?: Record<string, unknown>) => { setEarth({ open: false, start: null }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setGp({ open: true, start: t, query: q, preset }); setRightOpen(true); };
-  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
+  const openTool = (t: string | null, q = "", preset?: Record<string, unknown>) => { setEarth({ open: false, start: null }); setScenariosOpen(false); setNotebookOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setGp({ open: true, start: t, query: q, preset }); setRightOpen(true); };
+  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setNotebookOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
+  const openNotebook = () => { setGp({ open: false, start: null, query: "" }); setEarth({ open: false, start: null }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setNotebookOpen(true); setRightOpen(true); };
   const openCoords = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setCoordsOpen(true); setRightOpen(true); };
   const openProviders = () => { setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(true); setRightOpen(true); };
   const openCameras = () => { setProvidersOpen(false); setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setCamerasOpen(true); setRightOpen(true); };
@@ -908,6 +911,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     <Catalog maps={maps} layouts={savedLayouts} mapId={mapId} current={viewNow} canEdit={canEdit} layoutsAllowed={layoutsAllowed}
       onOpenMap={(m) => void openMap(m)} onNewMap={() => void newMap()} onCopyMap={(m) => void newMap(m)} onRenameMap={(m, n) => void renameMap(m, n)} onDeleteMap={(m) => void deleteMap(m)}
       onOpenLayout={openLayoutTab} onNewLayout={newLayout} onRenameLayout={(l, n) => void renameLayout(l, n)} onDeleteLayout={(l) => void deleteLayout(l)} onClose={() => setCatalogOpen(false)} />
+  ) : notebookOpen ? (
+    <Notebook projectId={id} layers={layers} activeId={activeId} onClose={() => setNotebookOpen(false)}
+      onLayer={(l) => { setLayers((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? l : x)) : [...cur, l])); setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); }} />
   ) : scenariosOpen ? (
     <Scenarios projectId={id} layers={layers} canEdit={canEdit} onClose={() => setScenariosOpen(false)}
       onLayer={(l, show) => {
@@ -1112,6 +1118,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             </Group>
             <Group name="Models">
               <Tb onClick={() => (me.features.includes("geoprocessing") ? setModelsOpen(true) : setDialog("plan"))} icon={<Workflow />} label="Flows" />
+              {canEdit && me.features.includes("geoprocessing") && <Tb on={notebookOpen && rightOpen} onClick={() => (notebookOpen ? setNotebookOpen(false) : openNotebook())} icon={<TerminalSquare />} label="Notebook" />}
             </Group>
             <Group name="Satellite">
               <Tb onClick={() => { setTab("earth"); openEarth(null); }} icon={<Earth />} label="Earth" />
