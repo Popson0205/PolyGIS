@@ -1233,3 +1233,10 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
   background: var(--c-pane); border: 1px solid var(--c-line); border-radius: 12px; box-shadow: 0 14px 36px rgba(16, 24, 40, .2); }
 .ws-group[data-folded].is-open > .ws-group-fold { background: var(--c-violet-50); color: var(--c-violet-ink); }
 .ws-group-fold-arrow { margin-top: -2px; color: var(--c-faint); }
+
+/* Attribute table: field and calculate menus, and the single-scroll loading rows */
+.ws-table-tools { display: flex; align-items: center; gap: 6px; flex: none; }
+.ws-table-tools .menu-wrap > .ib { display: inline-flex; align-items: center; gap: 5px; width: auto; height: 26px; padding: 0 9px; border: 1px solid var(--c-line); border-radius: var(--r-s); background: var(--c-pane); font: 12px var(--ge-font); color: var(--c-ink); white-space: nowrap; }
+.ws-table-tools .menu-wrap > .ib:hover { background: var(--c-pane-2); }
+.ws-loading-row { padding: 10px 12px; color: var(--c-faint); font-size: 13px; }
+.ws-warn { margin: 2px 0 0; padding: 7px 10px; border-radius: var(--r-s); background: var(--c-amber-50, #fff7ed); color: var(--c-amber-ink, #9a3412); font-size: 12.5px; }

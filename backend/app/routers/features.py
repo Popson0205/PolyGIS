@@ -223,6 +223,54 @@ async def calculate(layer_id: UUID, body: CalcIn, user=Depends(need("editor", wr
     return {"changed": n}
 
 
+# What each measure works out, and which geometry it needs. Lengths and areas are on the geography (true metres).
+_MEASURES = {
+    "area_m2": ("Polygon", "round(ST_Area(geom::geography)::numeric, 2)"),
+    "area_ha": ("Polygon", "round((ST_Area(geom::geography) / 10000)::numeric, 4)"),
+    "perimeter_m": ("Polygon", "round(ST_Perimeter(geom::geography)::numeric, 2)"),
+    "length_m": ("LineString", "round(ST_Length(geom::geography)::numeric, 2)"),
+    "longitude": (None, "round(ST_X(ST_PointOnSurface(geom))::numeric, 8)"),
+    "latitude": (None, "round(ST_Y(ST_PointOnSurface(geom))::numeric, 8)"),
+}
+
+
+class GeomCalcIn(BaseModel):
+    field: str
+    measure: str = Field(description="One of: " + ", ".join(_MEASURES))
+    ids: list[int] | None = Field(None, max_length=100000, description="Only these features (else all)")
+
+
+@router.post("/layers/{layer_id}/calculate-geometry", summary="Write a geometry measure (area, length, lon/lat) into a field")
+async def calculate_geometry(layer_id: UUID, body: GeomCalcIn, user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
+    layer = await layer_of(conn, layer_id, user, lock=True)
+    not_linked(layer)
+    field = next((f for f in layer["fields"] if f["name"] == body.field), None)
+    if field is None:
+        raise Problem(422, f"{layer['name']} has no field called {body.field}.", code="validation", fields={"field": ["unknown"]})
+    if field["type"] not in ("number", "integer"):
+        raise Problem(422, f"{body.field} is not a number field.", code="validation", fields={"field": ["not_numeric"]})
+    want = _MEASURES.get(body.measure)
+    if not want:
+        raise Problem(422, f"No such measure: {body.measure}.", code="validation", fields={"measure": ["unknown"]})
+    need_geom, expr = want
+    gtype = layer["geometry_type"]
+    base = gtype.replace("Multi", "")
+    if need_geom and base != need_geom:
+        raise Problem(422, f"{body.measure} needs a {need_geom.lower()} layer, but {layer['name']} is {gtype}.",
+                      code="validation", fields={"measure": ["wrong_geometry"]})
+    where, vals = "layer_id = layer_data(%s)", [layer_id]
+    if body.ids is not None:
+        where += " AND id = ANY(%s)"; vals.append(body.ids)
+    cur = await conn.execute(
+        f"UPDATE features SET props = props || jsonb_build_object(%s::text, {expr}), updated_by = %s, updated_at = now() "
+        f"WHERE {where} AND geom IS NOT NULL", (body.field, user["id"], *vals))
+    n = cur.rowcount
+    await _touch(conn, layer_id, layer["project_id"])
+    from ..audit import audit
+    await audit(conn, user, "field.calculate_geometry", "layer", layer_id, field=body.field, measure=body.measure, features=n)
+    return {"changed": n}
+
+
 @router.post("/layers/{layer_id}/undo", summary="Undo your latest edit on this layer")
 async def undo(layer_id: UUID, user=Depends(need("editor", write=True)), conn=Depends(get_conn)):
     layer = await layer_of(conn, layer_id, user, lock=True)

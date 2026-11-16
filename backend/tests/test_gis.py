@@ -142,6 +142,25 @@ def test_table_stats_styles_and_fields(editor, project):
     assert editor.post(f"/layers/{lid}/calculate", json={"field": "checked", "value": "yes", "ids": [t["rows"][0]["id"]] if t["rows"] else None}).status_code == 200
 
 
+def test_calculate_geometry_writes_measures_into_a_field(editor, project):
+    layers = upload(editor, project["id"], "f.geojson", json.dumps(GEOJSON).encode()).json()
+    pts = next(l for l in layers if l["geometry_type"] == "Point")["id"]
+    line = next(l for l in layers if l["geometry_type"] == "LineString")["id"]
+    # the field must exist and be numeric
+    assert editor.post(f"/layers/{pts}/calculate-geometry", json={"field": "nope", "measure": "longitude"}).status_code == 422
+    editor.post(f"/layers/{pts}/fields", json={"op": "add", "name": "lon", "type": "number"})
+    r = editor.post(f"/layers/{pts}/calculate-geometry", json={"field": "lon", "measure": "longitude"})
+    assert r.status_code == 200 and r.json()["changed"] == 3
+    t = editor.post(f"/layers/{pts}/rows", json={"sort": "lon"}).json()
+    assert round(t["rows"][0]["props"]["lon"], 2) == 7.47    # Wuse market, 7.4664
+    # a point layer cannot have area; a line layer can have length
+    assert editor.post(f"/layers/{pts}/calculate-geometry", json={"field": "lon", "measure": "area_m2"}).status_code == 422
+    editor.post(f"/layers/{line}/fields", json={"op": "add", "name": "len", "type": "number"})
+    r = editor.post(f"/layers/{line}/calculate-geometry", json={"field": "len", "measure": "length_m"})
+    assert r.status_code == 200 and r.json()["changed"] == 1
+    assert editor.post(f"/layers/{line}/rows", json={}).json()["rows"][0]["props"]["len"] > 5000
+
+
 def test_editing_with_undo(person, editor, project):
     lay = editor.post(f"/projects/{project['id']}/layers", json={"name": "Plots", "geometry_type": "Polygon",
                                                                   "fields": [{"name": "plot", "type": "string"}, {"name": "area", "type": "number"}]}).json()

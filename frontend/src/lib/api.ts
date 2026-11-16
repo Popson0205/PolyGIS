@@ -134,6 +134,8 @@ export const api = {
     req<GeoJSON.Feature>("PATCH", `/layers/${layerId}/features/${fid}`, b),
   deleteFeatures: (layerId: string, ids: number[]) => req<{ deleted: number }>("POST", `/layers/${layerId}/features/delete`, { ids }),
   calculate: (layerId: string, b: { field: string; value?: unknown; from_field?: string; ids?: number[] | null }) => req<{ changed: number }>("POST", `/layers/${layerId}/calculate`, b),
+  calculateGeometry: (layerId: string, b: { field: string; measure: string; ids?: number[] | null }) => req<{ changed: number }>("POST", `/layers/${layerId}/calculate-geometry`, b),
+  changeFields: (layerId: string, b: { op: "add" | "rename" | "delete"; name: string; to?: string; type?: string }) => req<Layer>("POST", `/layers/${layerId}/fields`, b),
   undo: (layerId: string) => req<{ undone: string; feature_id: number }>("POST", `/layers/${layerId}/undo`),
 
   tools: () => req<Tool[]>("GET", "/tools"),
