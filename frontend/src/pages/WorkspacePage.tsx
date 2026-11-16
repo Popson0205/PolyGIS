@@ -34,7 +34,7 @@ import { bearingText } from "../lib/geodesy";
 import Georeference from "../components/Georeference";
 import ModelBuilder from "../components/ModelBuilder";
 import Scenarios from "../components/Scenarios";
-import { Group, Tb, Ts } from "../components/Ribbon";
+import { Group, Tb, Ts, RibbonBody } from "../components/Ribbon";
 import ShareDialog from "../components/ShareDialog";
 import PublishDialog from "../components/PublishDialog";
 import LinkedDialog from "../components/LinkedDialog";
@@ -795,7 +795,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     cmdEls.current.clear();
     const names = Object.fromEntries(tabs.map(([t, n]) => [t, n]));
     const out: Command[] = [];
-    document.querySelectorAll<HTMLButtonElement>(".ws-mode-tools button").forEach((b, i) => {
+    document.querySelectorAll<HTMLButtonElement>(".ws-mode-tools button:not(.ws-group-fold)").forEach((b, i) => {
       const label = (b.textContent ?? "").replace(/\s+/g, " ").trim();
       const mode = (b.closest("[data-mode]") as HTMLElement | null)?.dataset.mode ?? "";
       if (!label || !names[mode]) return;
@@ -985,7 +985,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
 
       <section className={`ws-ribbon${ribbonFolded ? " is-folded" : ""}`} aria-label={`${modeName} tools`}>
         {ribbonFolded && <span className="ws-strip-name">{modeName}{tab === "edit" && editId ? ": editing" : ""}</span>}
-        <div className="ws-ribbon-body" role="toolbar" aria-label={`${modeName} tools`}>
+        <RibbonBody label={`${modeName} tools`}>
           <div className="ws-mode-tools" data-mode="map" hidden={tab !== "map"}>
             <Group name="Navigate">
               <Tb on={tool === "explore"} onClick={() => chooseTool("explore")} icon={<Hand />} label="Pan" />
@@ -1240,7 +1240,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => openEarth("zonal_index")} icon={<Table2 />} label="By polygon" />
             </Group>
           </div>
-        </div>
+        </RibbonBody>
       </section>
 
       <ViewTabs tabs={views} current={viewNow} maps={maps} layouts={savedLayouts} onPick={pickView} onClose={closeView}
