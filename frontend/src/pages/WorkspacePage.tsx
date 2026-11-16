@@ -1271,7 +1271,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             onFilter={(l) => { setActiveId(l.id); setDialog("attr"); }} onPlace={(l) => { setActiveId(l.id); setDialog("loc"); }} onInvert={(l) => void switchSelection(l)}
             onZoom={(l) => void zoomToSelection(l)} onTable={(l) => setTableId(l.id)} onExport={(l) => { setActiveId(l.id); setDialog("export"); }}
             onClear={() => setSelection({})} onPick={(l) => setActiveId(l.id)} activeId={activeId} />}
-          {tab === "analysis" && tool === "explore" && !onLayout && <ToolCards tools={allTools.filter((t) => t.kind !== "raster")} onOpen={(t) => openTool(t.id)}
+          {tab === "analysis" && tool === "explore" && !onLayout && !gp.open && <ToolCards tools={allTools.filter((t) => t.kind !== "raster")} onOpen={(t) => openTool(t.id)}
             onAll={() => openTool(null)} onFlows={() => (me.features.includes("geoprocessing") ? setModelsOpen(true) : setDialog("plan"))} />}
           {tool !== "explore" && hint[tool] && <div className="ws-hintbar" role="status"><span>{hint[tool]}</span>
             <button type="button" onClick={() => (tool === "create" || tool === "pick-reshape" || tool === "reshape" ? chooseTool("explore") : chooseTool("explore"))}>Done <span className="kbd" style={{ background: "transparent", color: "#cfd6e4", borderColor: "rgba(255,255,255,.3)" }}>Esc</span></button></div>}
