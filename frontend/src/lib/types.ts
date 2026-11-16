@@ -160,3 +160,11 @@ export interface OrgScene { id: string; collection: string | null; datetime: str
 /** A live camera (Defence › Cameras): a phone or camera sending pictures, with where it is. */
 export interface Camera { id: string; project_id: string; name: string; live: boolean; last_at: string | null; lng: number | null; lat: number | null;
   accuracy: number | null; heading: number | null; located_at: string | null; created_at: string; send_url: string }
+
+/** Result of running the Python notebook against a layer. */
+export interface NotebookResult {
+  kind: "layer" | "table" | "text" | "none";
+  stdout: string; error: string | null; value?: string; rows?: number; input_truncated?: boolean;
+  table?: { columns: string[]; index: (string | number)[]; data: unknown[][] };
+  layer?: Layer;
+}

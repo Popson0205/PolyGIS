@@ -161,6 +161,26 @@ def test_calculate_geometry_writes_measures_into_a_field(editor, project):
     assert editor.post(f"/layers/{line}/rows", json={}).json()["rows"][0]["props"]["len"] > 5000
 
 
+def test_notebook_runs_python_and_can_make_a_layer(editor, project):
+    layers = upload(editor, project["id"], "f.geojson", json.dumps(GEOJSON).encode()).json()
+    pts = next(l for l in layers if l["geometry_type"] == "Point")["id"]
+    # text result + printed output
+    r = editor.post(f"/projects/{project['id']}/notebook/run", json={"code": "print('n', len(gdf)); result = int(gdf['stalls'].fillna(0).sum())", "layer_id": pts}).json()
+    assert r["kind"] == "text" and r["value"] == "124" and "n 3" in r["stdout"]
+    # a GeoDataFrame result becomes a new layer on the map
+    r = editor.post(f"/projects/{project['id']}/notebook/run",
+                    json={"code": "result = gdf.copy(); result['geometry'] = gdf.buffer(0.01)", "layer_id": pts, "output_name": "Buffered"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["kind"] == "layer" and body["layer"]["name"] == "Buffered" and body["layer"]["geometry_type"] in ("Polygon", "MultiPolygon")
+    assert body["layer"]["feature_count"] == 3
+    # an error is reported, not raised
+    assert editor.post(f"/projects/{project['id']}/notebook/run", json={"code": "result = 1/0", "layer_id": pts}).json()["error"].startswith("ZeroDivisionError")
+    # the subprocess carries no secrets
+    out = editor.post(f"/projects/{project['id']}/notebook/run", json={"code": "import os; print('DATABASE_URL' in os.environ)"}).json()
+    assert out["stdout"].strip() == "False"
+
+
 def test_editing_with_undo(person, editor, project):
     lay = editor.post(f"/projects/{project['id']}/layers", json={"name": "Plots", "geometry_type": "Polygon",
                                                                   "fields": [{"name": "plot", "type": "string"}, {"name": "area", "type": "number"}]}).json()
