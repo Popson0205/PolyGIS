@@ -1527,23 +1527,34 @@ def flood_tool(p, ctx: Ctx) -> Result:
         ratio = (adb / bdb).astype(np.float32)
     flooded = np.isfinite(ratio) & (ratio > thr) & (adb < bdb)
     notes = []
-    ctx.say("Removing permanent water and steep slopes", 0.82)
+    # The permanent-water and steep-slope filters are refinements read from other datasets; if one is slow or
+    # unavailable it must not stop the flood map, so each is optional and noted when it is skipped.
+    ctx.say("Removing permanent water", 0.82)
     try:
         season = surface_water(g, bbox, "seasonality")
         flooded &= ~(season >= 10)
         water_note = "permanent water (10 or more months a year, JRC) left out"
-    except (Exception,):  # noqa: BLE001 - fall back to WorldCover's permanent water class
-        flooded &= land_cover(g, bbox) != 80
-        water_note = "permanent water (ESA WorldCover) left out"
-    z = elevation(g, bbox)
-    gx, gy = rt.horn(grid_of(g, z))
-    flooded &= ~(np.degrees(np.arctan(np.hypot(gx, gy))) >= 5)
+    except Exception:  # noqa: BLE001 - fall back to WorldCover's permanent water class
+        try:
+            flooded &= land_cover(g, bbox) != 80
+            water_note = "permanent water (ESA WorldCover) left out"
+        except Exception:  # noqa: BLE001
+            water_note = "permanent water NOT removed (the water layers were unavailable)"
+    ctx.say("Removing steep slopes", 0.9)
+    slope_note = ""
+    try:
+        z = elevation(g, bbox)
+        gx, gy = rt.horn(grid_of(g, z))
+        flooded &= ~(np.degrees(np.arctan(np.hypot(gx, gy))) >= 5)
+    except Exception:  # noqa: BLE001
+        slope_note = " Steep slopes not removed (the elevation layer was unavailable)."
+    ctx.say("Finishing the flood map", 0.95)
     lab, k = ndimage.label(flooded, structure=np.ones((3, 3)))
     if k:
         sizes = ndimage.sum(flooded, lab, index=np.arange(1, k + 1))
         flooded &= np.isin(lab, np.flatnonzero(sizes >= 8) + 1)
     ha = float(flooded.sum() * cell_ha(g))
-    notes.append(f"Pass: {orbit}; {len(pre)} scenes before, {len(post)} during; {water_note}.")
+    notes.append(f"Pass: {orbit}; {len(pre)} scenes before, {len(post)} during; {water_note}.{slope_note}")
     sm = {"flooded area (ha)": round(ha, 2), "before": span_words(a0, b0), "during": span_words(a1, b1), "polarisation": pol.upper(),
           "pass": orbit, "threshold": thr}
     return Result([class_out("Flooded", flooded.astype(np.uint8), g, [(1, "Flooded", "#0050ff")], sm),
