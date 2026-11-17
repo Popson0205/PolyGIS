@@ -1209,10 +1209,10 @@ def zones_of(inp, key: str, g: Grid):
     return feats, geoms
 
 
-ZSTATS = ["count", "area_m2", "min", "max", "mean", "std", "sum", "median"]
+ZSTATS = ["count", "area_m2", "min", "max", "mean", "median", "std", "sum", "range", "p10", "p25", "p75", "p90"]
 
 
-@rtool("zonal_statistics", "Zonal statistics", "Statistics", "For each polygon, the statistics of the raster cells inside it (count, area, min, max, mean, std, sum, median).",
+@rtool("zonal_statistics", "Zonal statistics", "Statistics", "For each polygon, the statistics of the raster cells inside it (count, area, min, max, mean, median, std, sum, range and the 10/25/75/90th percentiles). The polygons download as a table or GeoJSON.",
        _p("zones", "Zones (polygons)", "layer", geometry=POLY), R_IN, BAND)
 def zonal_statistics_tool(p, inp):
     g = inp.grid("input", p.get("band", 1))
@@ -1232,8 +1232,10 @@ def zonal_statistics_tool(p, inp):
         vv = v[ok]
         st = {"count": int(ok.sum()), "area_m2": round(float(area[inside][ok].sum()), 2)}
         if vv.size:
+            p10, p25, p75, p90 = (float(x) for x in np.percentile(vv, [10, 25, 75, 90]))
             st.update(min=float(vv.min()), max=float(vv.max()), mean=round(float(vv.mean()), 6), std=round(float(vv.std()), 6),
-                      sum=round(float(vv.sum()), 6), median=float(np.median(vv)))
+                      sum=round(float(vv.sum()), 6), median=float(np.median(vv)), range=round(float(vv.max() - vv.min()), 6),
+                      p10=round(p10, 6), p25=round(p25, 6), p75=round(p75, 6), p90=round(p90, 6))
         rows.append((f["geom"], {**f["props"], **st}))
     lay = inp.layers["zones"]
     have = {x["name"] for x in lay["fields"]}

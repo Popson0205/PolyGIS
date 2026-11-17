@@ -679,8 +679,9 @@ def ramp_style(name: str, lo: float, hi: float, invert: bool = False) -> dict:
 
 def float_out(name: str, data: np.ndarray, g: dict, style: dict, summary: dict | None = None) -> rt.Out:
     data = clip_array(data, g)
-    if summary and "mean" in summary:
-        summary = {**summary, "mean": mean_of(data)}
+    if summary and "mean" in summary:                    # "mean" is the sign to attach the full statistics of the raster
+        rest = {k: v for k, v in summary.items() if k != "mean"}
+        summary = {**rest, **stats_of(data)}
     d = np.ma.masked_invalid(data.astype(np.float32))
     return rt.Out(name=name, data=d, crs=g["crs"], transform=g["transform"], dtype="float32", style=style, summary=summary or {})
 
@@ -709,6 +710,24 @@ def cell_ha(g: dict) -> float:
 def mean_of(a: np.ndarray) -> float | None:
     v = a[np.isfinite(a)]
     return round(float(v.mean()), 4) if v.size else None
+
+
+# The statistics every raster analysis reports, in this order. Kept in one place so the result card and the CSV agree.
+STAT_KEYS = ("count", "min", "max", "mean", "median", "std", "sum", "p10", "p25", "p75", "p90", "range")
+
+
+def stats_of(a: np.ndarray) -> dict:
+    """Every statistic of the finite cells of a raster (or any array): count, min, max, mean, median, std, sum and
+    the 10/25/75/90th percentiles, plus the range. Empty input gives just a count of 0."""
+    v = np.asarray(a, dtype="float64")
+    v = v[np.isfinite(v)]
+    if not v.size:
+        return {"count": 0}
+    p10, p25, p50, p75, p90 = (float(x) for x in np.percentile(v, [10, 25, 50, 75, 90]))
+    r = {"count": int(v.size), "min": float(v.min()), "max": float(v.max()), "mean": float(v.mean()),
+         "median": p50, "std": float(v.std()), "sum": float(v.sum()), "p10": p10, "p25": p25, "p75": p75, "p90": p90,
+         "range": float(v.max() - v.min())}
+    return {k: (r[k] if k == "count" else round(r[k], 4)) for k in STAT_KEYS}
 
 
 def span_words(a: dt.date, b: dt.date) -> str:
