@@ -712,6 +712,13 @@ def mean_of(a: np.ndarray) -> float | None:
     return round(float(v.mean()), 4) if v.size else None
 
 
+def fill_nodata(a: np.ndarray, valid: np.ndarray, max_distance: int = 60) -> np.ndarray:
+    """Interpolate the holes of `a` (where `valid` is False) from the nearby valid cells, up to max_distance cells away.
+    Holes farther than that from any data stay as they are, so a wide cloud bank is not wholly invented."""
+    from rasterio.fill import fillnodata
+    return fillnodata(a.astype("float32"), mask=valid.astype("uint8"), max_search_distance=max_distance)
+
+
 # The statistics every raster analysis reports, in this order. Kept in one place so the result card and the CSV agree.
 STAT_KEYS = ("count", "min", "max", "mean", "median", "std", "sum", "p10", "p25", "p75", "p90", "range")
 
@@ -846,7 +853,8 @@ PCT = _p("percentile", "Percentile", "number", min=0, default=25, when={"method"
        "One clear image of the area from many scenes: clouds and shadows masked pixel by pixel, then the scenes combined "
        "(median by default). Shown in true colour; all bands kept as surface reflectance x 10 000.",
        AREA, SENSOR, SOURCE, *PERIOD, CLOUD, SCENES, METHOD, PCT,
-       _p("bands", "Bands", "choice", default="all", choices=[["all", "All the satellite's bands"], ["rgbn", "Red, green, blue and near-infrared"]]))
+       _p("bands", "Bands", "choice", default="all", choices=[["all", "All the satellite's bands"], ["rgbn", "Red, green, blue and near-infrared"]]),
+       _p("fill_gaps", "Cloud gaps", "choice", default="yes", choices=[["yes", "Fill small gaps so the whole area is covered"], ["no", "Leave gaps where every scene was cloudy"]]))
 def composite_tool(p, ctx: Ctx) -> Result:
     sensor, src = sensor_of(p)
     a, b = span(p)
@@ -875,10 +883,23 @@ def composite_tool(p, ctx: Ctx) -> Result:
     out = outside(g)
     if out is not None:
         clear &= ~out
+    aoi = np.ones(clear.shape, bool) if out is None else ~out
+    want_full = (p.get("fill_gaps", "yes") or "yes") != "no"
+    holes = aoi & ~clear                                  # inside the area but cloudy in every scene
+    filled_pct = 0.0
+    if want_full and holes.any() and clear.any():
+        stack = stack.copy()
+        for i in range(len(bands)):                       # interpolate each band across the remaining cloud holes
+            stack[i] = fill_nodata(stack[i], clear)
+        full = aoi & np.isfinite(stack).all(0)
+        filled_pct = round(100 * float((full & holes).sum()) / max(1, int(aoi.sum())), 1)
+        clear = full
     data = np.ma.masked_array(np.clip(np.rint(np.nan_to_num(stack) * 10000), 1, 65535).astype(np.uint16), mask=np.repeat(~clear[None], len(bands), 0))
     name = f"{SENSORS[sensor]['name']} {'clearest-scene mosaic' if ctx.params['pick'] == 'best' else how + ' composite'} {span_words(a, b)}"
     summary = {"scenes": got["_n"], "dates": span_words(a, b), "method": how, "cell size m": g["cell"], "values": "surface reflectance x 10000",
-               "clear %": round(100 * float(clear.sum()) / max(1, (clear.size if out is None else int((~out).sum()))), 1)}
+               "clear %": round(100 * float(clear.sum()) / max(1, int(aoi.sum())), 1)}
+    if filled_pct:
+        summary["gaps filled %"] = filled_pct
     return Result([rt.Out(name=name, data=data, crs=g["crs"], transform=g["transform"], dtype="uint16", names=bands, summary=summary)])
 
 
