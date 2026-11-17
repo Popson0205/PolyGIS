@@ -60,7 +60,6 @@ export default function Contents({ projectName, layers, activeId, editingId, can
   const [view, setView] = useStored<View>("contents-view", "order");
   const [show, setShow] = useStored<Show>("contents-show", "all");
   const [q, setQ] = useState("");
-  const [unfolded, setUnfolded] = useStored<string[]>("legend-open", []);
   const [drag, setDrag] = useState<{ id: string; over: string | null; below: boolean } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; layer: Layer } | null>(null);
   const [filterMenu, setFilterMenu] = useState<{ x: number; y: number } | null>(null);
@@ -199,22 +198,16 @@ export default function Contents({ projectName, layers, activeId, editingId, can
             {(
               <ul className="ct-layers" role="tree" aria-label="Layers, top to bottom" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); drop(); }}>
                 {shown.map((l) => {
-                  const legend = hasLegend(l);
-                  const open = legend && unfolded.includes(l.id);
                   const cls = ["ct-layer", l.id === activeId && "is-active", !l.visible && "is-hidden", drag?.id === l.id && "is-dragging",
                     drag?.over === l.id && drag.id !== l.id && (drag.below ? "is-drop-below" : "is-drop-above")].filter(Boolean).join(" ");
                   return (
-                    <li key={l.id} className={cls} role="treeitem" aria-expanded={open} aria-selected={l.id === activeId} draggable={canEdit && renaming !== l.id}
+                    <li key={l.id} className={cls} role="treeitem" aria-selected={l.id === activeId} draggable={canEdit && renaming !== l.id}
                       onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", l.id); setDrag({ id: l.id, over: null, below: false }); }}
                       onDragOver={(e) => { if (!drag) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setDrag({ ...drag, over: l.id, below: e.clientY > r.top + Math.min(r.height, 30) / 2 }); }}
                       onDragEnd={() => setDrag(null)}>
                       <div className="ct-row" onContextMenu={(e) => openMenu(e, l)}>
-                        {check(l)}<span className="ct-sw"><Swatch layer={l} /></span>{name(l, <small className="ct-n">{size(l)}</small>)}
-                        {legend && <button type="button" className="ct-tw" aria-label={open ? `Fold ${l.name}'s legend` : `Show ${l.name}'s legend`} aria-expanded={open} title={open ? "Fold the legend" : "Legend"}
-                          onClick={() => setUnfolded(open ? unfolded.filter((x) => x !== l.id) : [...unfolded, l.id])}><Tri open={open} /></button>}
-                        {more(l)}
+                        {check(l)}<span className="ct-sw"><Swatch layer={l} /></span>{name(l)}
                       </div>
-                      {open && <Legend layer={l} />}
                     </li>
                   );
                 })}
@@ -261,9 +254,6 @@ export default function Contents({ projectName, layers, activeId, editingId, can
   );
 }
 
-function Tri({ open }: { open: boolean }) {
-  return <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" className={open ? "is-open" : ""}><path d={open ? "M1 3h8L5 8z" : "M3 1v8l5-4z"} /></svg>;
-}
 
 function sourceOf(l: Layer): string {
   const s = l.source;
