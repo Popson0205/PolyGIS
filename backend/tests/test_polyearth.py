@@ -108,6 +108,19 @@ def test_clouds_are_masked_pixel_by_pixel_and_the_median_taken(cat):
     assert o.summary["scenes"] == 3 and o.summary["clear %"] == 100.0
 
 
+def test_cloud_gaps_are_filled_or_left(cat):
+    g = G()
+    everywhere = np.full((g["height"], g["width"]), 4, np.uint8)
+    everywhere[:, :8] = 9                                                          # the west 8 columns are cloudy in every scene
+    for sid, d in (("a", "2026-01-05"), ("b", "2026-01-15"), ("c", "2026-01-25")):
+        s2_scene(cat, sid, d, {"Red": 0.20, "NIR": 0.30}, scl=everywhere)
+    base = {**BASE, "start": "2026-01-01", "end": "2026-01-31", "bands": "rgbn", "method": "median"}
+    full = pe.composite_tool({**base, "fill_gaps": "yes"}, ctx({})).outs[0]
+    assert not full.data.mask[0, :, :8].any() and full.summary["gaps filled %"] > 0   # the all-cloud strip is interpolated in
+    gap = pe.composite_tool({**base, "fill_gaps": "no"}, ctx({})).outs[0]
+    assert gap.data.mask[0, :, :8].all() and "gaps filled %" not in gap.summary       # left as a gap
+
+
 def test_planetary_computer_offset_is_removed_and_earth_search_left_alone(cat):
     s2_scene(cat, "new", "2026-02-01", {"Red": 0.05, "NIR": 0.35}, baseline="05.11")
     s2_scene(cat, "old", "2021-02-01", {"Red": 0.05, "NIR": 0.35}, baseline="02.12")

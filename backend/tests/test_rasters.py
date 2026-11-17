@@ -266,6 +266,12 @@ def test_zonal_and_generalization(pro, R):
     z = {r["zone"]: r for r in rows(pro, run(pro, R, "zonal_statistics", zones="zones", input="plane"))}
     assert z["NE"]["count"] == 60 * 50 and z["NE"]["mean"] == pytest.approx(float(PLANE[:60, 50:].mean()), rel=1e-6)
     assert z["S"]["area_m2"] == pytest.approx(40 * 100 * CELL * CELL)
+    ne = PLANE[:60, 50:]                                               # the full stats, not only the mean
+    assert z["NE"]["median"] == pytest.approx(float(np.median(ne)), rel=1e-6)
+    assert z["NE"]["std"] == pytest.approx(float(ne.std()), rel=1e-6)
+    assert z["NE"]["range"] == pytest.approx(float(ne.max() - ne.min()), rel=1e-6)
+    assert z["NE"]["p25"] == pytest.approx(float(np.percentile(ne, 25)), abs=1.0)   # abs: the raster is read back as float32
+    assert z["NE"]["p90"] == pytest.approx(float(np.percentile(ne, 90)), abs=1.0)
     t = {r["zone"]: r for r in rows(pro, run(pro, R, "tabulate_area", zones="zones", input="classes"))}
     assert t["S"]["class_3_m2"] == pytest.approx(40 * 100 * CELL * CELL) and t["NW"]["class_2_m2"] == pytest.approx(CELL * CELL)
     sv, _ = read(run(pro, R, "sieve", input="classes", cells=4))

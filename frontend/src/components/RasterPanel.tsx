@@ -133,6 +133,22 @@ function Symbology({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
   );
 }
 
+/** Every statistic the raster carries — the per-band min/max/mean and the analysis summary — as a CSV the user can save. */
+function downloadStatsCsv(layer: Layer) {
+  const cell = (s: unknown) => { const t = String(s ?? ""); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const rows: [string, unknown][] = [["layer", layer.name]];
+  for (const b of layer.raster?.bands ?? []) {
+    const p = layer.raster!.count > 1 ? `band ${b.band} ${b.name} ` : "";
+    rows.push([`${p}min`, b.min], [`${p}max`, b.max], [`${p}mean`, b.mean]);
+  }
+  for (const [k, v] of Object.entries(layer.source.summary ?? {})) rows.push([k.replace(/_/g, " "), Array.isArray(v) ? v.join(" ") : v]);
+  const csv = "statistic,value\n" + rows.map(([k, v]) => `${cell(k)},${cell(v)}`).join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = `${layer.name.replace(/[^\w.-]+/g, "_")} statistics.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+
 function Source({ layer, canExport }: { layer: Layer; canExport: boolean }) {
   const m = layer.raster!;
   const unit = m.geographic ? "°" : " m";
@@ -148,7 +164,8 @@ function Source({ layer, canExport }: { layer: Layer; canExport: boolean }) {
         {m.bands.map((b) => <div key={b.band} className="ws-dl-row"><dt>{b.name}</dt><dd>{fmt(b.min)} – {fmt(b.max)}, mean {fmt(b.mean)}</dd></div>)}
         {Object.entries(summary).map(([k, v]) => <div key={k} className="ws-dl-row"><dt>{k.replace(/_/g, " ")}</dt><dd>{typeof v === "number" ? fmt(v) : Array.isArray(v) ? v.map((x) => fmt(Number(x))).join(", ") : String(v)}</dd></div>)}
       </dl>
-      {canExport && <p><a className="ge-btn" href={rasterDownloadUrl(layer.id)} download>Download GeoTIFF</a></p>}
+      {canExport && <p className="rp-export"><a className="ge-btn" href={rasterDownloadUrl(layer.id)} download>Download GeoTIFF</a>
+        <button type="button" className="ge-btn" onClick={() => downloadStatsCsv(layer)}>Download statistics (CSV)</button></p>}
     </div>
   );
 }
