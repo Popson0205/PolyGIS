@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow" />
     <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="PolyGIS" />
+    <meta name="application-name" content="PolyGIS" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" />
@@ -16,5 +23,11 @@
             data-version="%APP_VERSION%" data-wait="app" data-quick="/share/"></script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Install PolyGIS to the desktop/home screen and keep the shell working offline.
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => { navigator.serviceWorker.register("/sw.js").catch(() => {}); });
+      }
+    </script>
   </body>
 </html>
