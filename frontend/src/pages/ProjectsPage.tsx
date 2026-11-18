@@ -1,9 +1,10 @@
-import { Clock, FolderOpen, Globe2, Layers, Map as MapIcon, MoreHorizontal, Plus, Search, Trash2, UserRound } from "lucide-react";
+import { Clock, FolderInput, FolderOpen, Globe2, HardDriveDownload, Layers, Map as MapIcon, MoreHorizontal, Plus, Search, Trash2, UserRound } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { CrsPicker, Dialog } from "../components/Dialogs";
-import { Button, ErrorText, Menu, useAction, useStored } from "../components/ui";
+import { Button, ErrorText, Menu, useAction, useStored, useToast } from "../components/ui";
 import { BASE, api } from "../lib/api";
+import { openProjectFile, pickSaveLocation, saveProjectFile, supportsFsAccess, writeToHandle } from "../lib/projectFile";
 import { useLoad } from "../lib/useLoad";
 import type { Me, Project } from "../lib/types";
 
@@ -23,9 +24,24 @@ export default function ProjectsPage({ me }: { me: Me }) {
   const nav = useNavigate();
   const { busy, run } = useAction();
   const [making, setMaking] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [q, setQ] = useState("");
   const [sort, setSort] = useStored<Sort>("project-sort", "recent");
+  const toast = useToast();
   const canMake = me.role !== "viewer" && me.can_write;
+
+  async function openFile() {
+    setImporting(true);
+    try {
+      const out = await openProjectFile();
+      if (out) {
+        const note = out.rasters_skipped ? ` (${out.rasters_skipped} raster layer${out.rasters_skipped > 1 ? "s" : ""} weren't in the file)` : "";
+        toast(`${out.name} opened${note}.`, "success");
+        nav(`/projects/${out.id}`);
+      }
+    } catch (e) { toast(e instanceof Error ? e.message : "Could not open the project file.", "error"); }
+    finally { setImporting(false); }
+  }
 
   const shown = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -42,7 +58,10 @@ export default function ProjectsPage({ me }: { me: Me }) {
     <main className="gis-start">
       <div className="gis-start-head">
         <div><h1>Projects</h1><p>{me.org_name ?? "Your organization"}'s maps. Open one to add data, style it, edit and analyse.</p></div>
-        {canMake && (data?.length ?? 0) > 0 && <Button variant="primary" onClick={() => setMaking(true)}><Plus size={17} aria-hidden="true" />New project</Button>}
+        {canMake && (data?.length ?? 0) > 0 && <div className="ws-row" style={{ gap: 8 }}>
+          <Button busy={importing} onClick={() => void openFile()}><FolderInput size={16} aria-hidden="true" />Open project file</Button>
+          <Button variant="primary" onClick={() => setMaking(true)}><Plus size={17} aria-hidden="true" />New project</Button>
+        </div>}
       </div>
       {(data?.length ?? 0) > 0 && (
         <div className="gis-tools">
@@ -58,7 +77,10 @@ export default function ProjectsPage({ me }: { me: Me }) {
       {data && data.length === 0 && (
         <div className="gis-empty"><MapIcon size={34} aria-hidden="true" /><strong>No projects yet</strong>
           <span>{canMake ? "A project is a map: start one, then add your survey files, imagery or elevation models." : "When someone in your organization makes a project, it appears here."}</span>
-          {canMake && <Button variant="primary" onClick={() => setMaking(true)}><Plus size={17} aria-hidden="true" />New project</Button>}
+          {canMake && <div className="ws-row" style={{ gap: 8, justifyContent: "center" }}>
+            <Button variant="primary" onClick={() => setMaking(true)}><Plus size={17} aria-hidden="true" />New project</Button>
+            <Button busy={importing} onClick={() => void openFile()}><FolderInput size={16} aria-hidden="true" />Open project file</Button>
+          </div>}
         </div>
       )}
       {data && data.length > 0 && shown.length === 0 && <p className="ge-muted">No project matches “{q}”.</p>}
@@ -96,14 +118,41 @@ export default function ProjectsPage({ me }: { me: Me }) {
 
 function NewProject({ onClose, onMade }: { onClose: () => void; onMade: (p: Project) => void }) {
   const { busy, run } = useAction();
+  const toast = useToast();
   const [form, setForm] = useState<{ name: string; description: string; epsg: number | null }>({ name: "", description: "", epsg: 26332 });
+
+  async function make(save: boolean) {
+    const name = form.name.trim();
+    if (!name) return;
+    // On supported browsers, ask where to save FIRST, inside the click, so the native dialog is allowed to open.
+    let handle = null;
+    if (save && supportsFsAccess) {
+      try { handle = await pickSaveLocation(name); } catch { return; }
+      if (!handle) return;   // the person cancelled the save dialog
+    }
+    const p = await run(save ? "save" : "new", () => api.createProject({ name, description: form.description.trim(), display_epsg: form.epsg ?? 4326 }), "Project made.");
+    if (!p) return;
+    if (handle) {
+      try { await writeToHandle(p.id, handle); toast("Project saved to your computer.", "success"); }
+      catch { toast("Project made, but saving the file didn't finish.", "error"); }
+    } else if (save) {
+      try { await saveProjectFile(p.id, p.name); } catch { /* download fallback cancelled */ }
+    }
+    onMade(p);
+  }
+
   return (
     <Dialog title="New project" onClose={onClose}>
-      <form className="ws-form" onSubmit={(e) => { e.preventDefault(); void run("new", () => api.createProject({ name: form.name.trim(), description: form.description.trim(), display_epsg: form.epsg ?? 4326 }), "Project made.").then((p) => p && onMade(p)); }}>
+      <form className="ws-form" onSubmit={(e) => { e.preventDefault(); void make(false); }}>
         <label className="ws-f">Name<input autoFocus required maxLength={200} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Kuje layout survey" /></label>
         <label className="ws-f">Description <span className="ws-help">Optional: what the map is for</span><textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
         <CrsPicker value={form.epsg} onChange={(epsg) => setForm({ ...form, epsg })} label="Show coordinates in" />
-        <div className="ws-row"><Button type="submit" variant="primary" busy={busy === "new"}>Make the project</Button><Button variant="ghost" onClick={onClose}>Cancel</Button></div>
+        <p className="ws-help">{supportsFsAccess ? "Save a copy to your computer to open it later as a project file." : "After it's made, you can save it to your computer as a project file."}</p>
+        <div className="ws-row">
+          <Button type="submit" variant="primary" busy={busy === "new"}>Make the project</Button>
+          <Button type="button" busy={busy === "save"} onClick={() => void make(true)}><HardDriveDownload size={15} aria-hidden="true" />Make &amp; save to computer</Button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        </div>
       </form>
     </Dialog>
   );

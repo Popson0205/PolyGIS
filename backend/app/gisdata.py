@@ -295,37 +295,71 @@ def _feature_arrays(fields: list[dict], rows: list[tuple]) -> tuple[list[str], l
     return names, arrays
 
 
+def _write_gpkg(target: Path, items: list[tuple], epsg: int) -> bool:
+    """Write items = [(gpkg_layer_name, fields, rows)] into one GeoPackage at `target`. Layer names are used as given
+    (the caller makes them unique). Empty layers are skipped. Returns whether anything was written."""
+    transformer = Transformer.from_crs(4326, epsg, always_xy=True) if epsg != 4326 else None
+    wrote = False
+    for lname, fields, rows in items:
+        if not rows:
+            continue
+        geoms = [g for _, g, _ in rows]
+        if transformer is not None:
+            geoms = [shapely.transform(g, lambda xy: np.column_stack(transformer.transform(xy[:, 0], xy[:, 1]))) for g in geoms]
+        kinds = {g.geom_type for g in geoms}
+        gtype = kinds.pop() if len(kinds) == 1 else "Unknown"
+        names, arrays = _feature_arrays(fields, rows)
+        wkb = np.array(shapely.to_wkb(geoms), dtype=object)
+        pyogrio.raw.write(str(target), wkb, arrays, names, driver="GPKG", geometry_type=gtype,
+                          crs=f"EPSG:{epsg}", encoding="UTF-8", layer=lname, append=wrote, promote_to_multi=False)
+        wrote = True
+    return wrote
+
+
 def write_geopackage(db_name: str, layers: list[tuple], epsg: int = 4326) -> tuple[bytes, str, str]:
     """Write a whole geodatabase to one GeoPackage. `layers` is [(name, fields, rows)] with
     rows = [(id, shapely geometry in WGS 84, props)]; empty layers are skipped. Returns (bytes, filename, media)."""
     safe_db = "".join(c if c.isalnum() or c in "-_ " else "_" for c in db_name).strip() or "geodatabase"
-    transformer = Transformer.from_crs(4326, epsg, always_xy=True) if epsg != 4326 else None
     used: set[str] = set()
+    items: list[tuple] = []
+    for name, fields, rows in layers:
+        safe_l = "".join(c if c.isalnum() or c in "-_ " else "_" for c in (name or "layer")).strip() or "layer"
+        base, i = safe_l, 2
+        while safe_l.lower() in used:
+            safe_l = f"{base}_{i}"; i += 1
+        used.add(safe_l.lower())
+        items.append((safe_l, fields, rows))
     with tempfile.TemporaryDirectory() as d:
         target = Path(d) / f"{safe_db}.gpkg"
-        wrote = False
-        for name, fields, rows in layers:
-            if not rows:
-                continue
-            safe_l = "".join(c if c.isalnum() or c in "-_ " else "_" for c in (name or "layer")).strip() or "layer"
-            base, i = safe_l, 2
-            while safe_l.lower() in used:
-                safe_l = f"{base}_{i}"; i += 1
-            used.add(safe_l.lower())
-            geoms = [g for _, g, _ in rows]
-            if transformer is not None:
-                geoms = [shapely.transform(g, lambda xy: np.column_stack(transformer.transform(xy[:, 0], xy[:, 1]))) for g in geoms]
-            kinds = {g.geom_type for g in geoms}
-            gtype = kinds.pop() if len(kinds) == 1 else "Unknown"
-            names, arrays = _feature_arrays(fields, rows)
-            wkb = np.array(shapely.to_wkb(geoms), dtype=object)
-            pyogrio.raw.write(str(target), wkb, arrays, names, driver="GPKG", geometry_type=gtype,
-                              crs=f"EPSG:{epsg}", encoding="UTF-8", layer=safe_l, append=wrote, promote_to_multi=False)
-            wrote = True
-        if not wrote:  # an empty geodatabase still downloads as a valid, empty GeoPackage
+        if not _write_gpkg(target, items, epsg):   # an empty geodatabase still makes a valid, empty GeoPackage
             pyogrio.raw.write(str(target), np.array([], dtype=object), [np.array([], dtype=np.int64)], ["polygis_id"],
                               driver="GPKG", geometry_type="Point", crs="EPSG:4326", encoding="UTF-8", layer="empty")
         return target.read_bytes(), f"{safe_db}.gpkg", "application/geopackage+sqlite3"
+
+
+def pack_geopackage(items: list[tuple], epsg: int = 4326) -> bytes:
+    """Write items = [(key, fields, rows)] to a GeoPackage and return its bytes; `key` is used verbatim as the layer
+    name, so an archive can read each layer back by the same key. Always returns a valid file (empty if no rows)."""
+    with tempfile.TemporaryDirectory() as d:
+        target = Path(d) / "gdb.gpkg"
+        if not _write_gpkg(target, items, epsg):
+            pyogrio.raw.write(str(target), np.array([], dtype=object), [np.array([], dtype=np.int64)], ["polygis_id"],
+                              driver="GPKG", geometry_type="Point", crs="EPSG:4326", encoding="UTF-8", layer="empty")
+        return target.read_bytes()
+
+
+def read_gpkg_layer(path: Path, key: str, fields: list[dict]) -> list[tuple]:
+    """Read one layer of a GeoPackage back as rows [(geom in WGS 84, props)], mapping columns to `fields` by name."""
+    meta, _fids, wkb, cols = pyogrio.raw.read(str(path), layer=key)
+    if wkb is None or len(wkb) == 0:
+        return []
+    geoms = shapely.from_wkb(wkb)
+    col_by = {n: cols[i] for i, n in enumerate(meta["fields"])}
+    out: list[tuple] = []
+    for i, g in enumerate(geoms):
+        props = {f["name"]: _value(col_by[f["name"]][i], f["type"]) for f in fields if f["name"] in col_by}
+        out.append((g, props))
+    return out
 
 
 def save_upload(data: bytes, filename: str) -> Path:

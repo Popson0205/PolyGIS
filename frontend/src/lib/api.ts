@@ -39,6 +39,7 @@ export const rasterDownloadUrl = (layerId: string) => `${BASE}/layers/${layerId}
 export const exportUrl = (layerId: string, format: string, epsg = 4326, ids?: number[]) =>
   `${BASE}/layers/${layerId}/export?format=${format}&epsg=${epsg}${ids?.length ? `&ids=${ids.join(",")}` : ""}`;
 export const geodatabaseDownloadUrl = (gdbId: string, epsg = 4326) => `${BASE}/geodatabases/${gdbId}/download?epsg=${epsg}`;
+export const projectFileUrl = (projectId: string) => `${BASE}/projects/${projectId}/file`;
 
 export const api = {
   me: () => req<Me>("GET", "/me"),
@@ -49,10 +50,19 @@ export const api = {
   projects: () => req<Project[]>("GET", "/projects"),
   project: (id: string) => req<Project>("GET", `/projects/${id}`),
   createProject: (b: { name: string; description?: string; display_epsg?: number }) => req<Project>("POST", "/projects", b),
+  importProjectFile: async (file: File) => {
+    const fd = new FormData(); fd.append("file", file);
+    let res: Response;
+    try { res = await fetch(`${BASE}/projects/import-file`, { method: "POST", credentials: "same-origin", headers: { "X-GeoEstate": "1" }, body: fd }); }
+    catch { throw new ApiError(0, "Can't reach PolyGIS. Check your connection."); }
+    return handle<{ id: string; name: string; layers: number; rasters_skipped: number }>(res, "/projects/import-file");
+  },
   geodatabases: (projectId: string) => req<Geodatabase[]>("GET", `/projects/${projectId}/geodatabases`),
   createGeodatabase: (projectId: string, name: string) => req<Geodatabase>("POST", `/projects/${projectId}/geodatabases`, { name }),
   updateGeodatabase: (id: string, b: { name?: string; is_default?: boolean }) => req<Geodatabase>("PATCH", `/geodatabases/${id}`, b),
   deleteGeodatabase: (id: string) => req<void>("DELETE", `/geodatabases/${id}`),
+  archiveGeodatabase: (id: string) => req<Geodatabase>("POST", `/geodatabases/${id}/archive`),
+  restoreGeodatabase: (id: string) => req<Geodatabase>("POST", `/geodatabases/${id}/restore`),
   layouts: (projectId: string) => req<SavedLayout[]>("GET", `/projects/${projectId}/layouts`),
   createLayout: (projectId: string, name: string, settings: LayoutDoc) => req<SavedLayout>("POST", `/projects/${projectId}/layouts`, { name, settings }),
   updateLayout: (id: string, b: { name?: string; settings?: LayoutDoc }) => req<SavedLayout>("PATCH", `/layouts/${id}`, b),
