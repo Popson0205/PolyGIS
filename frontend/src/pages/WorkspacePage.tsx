@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ArrowLeftRight, Box, BarChart3, ChevronDown, CloudFog, FlaskConical, CloudOff, CloudSun, Contrast, Earth, Focus, Gauge, Haze, MapPinned, PaintBucket, Palette, Sparkles, SunMedium, Flame, Layers3, Leaf, LineChart, Map as MapIcon, Sprout, Table2, Thermometer, ChevronRight, ChevronUp, CircleDot, CircleStop, Combine, Download, Droplets, Eraser, FilePlus2, Globe2, Grid3x3,
   LandPlot, Lasso, Layers, Link2, ListFilter, LocateFixed, Magnet, Maximize, Merge, Mountain, MousePointerClick, PanelLeftOpen,
-  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scissors, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, ZoomIn, Hand, Maximize2, Scan, Video, Minimize2, Moon, Database, PenLine, Image as ImageIcon, TerminalSquare,
+  PanelRightClose, PanelRightOpen, Printer, FolderTree, Crosshair, Grid2x2, ListPlus, Shield, Compass, Radar, MoveUpRight, Route, Orbit, Eye, ScanEye, Sun, MountainSnow, Shapes, ClipboardList, Activity, Target, Radio, Play, BellRing, Satellite, Ruler, UploadCloud, Scissors, SlidersHorizontal, Spline, SquarePen, Trash2, TrendingUp, Undo2, Waves, Workflow, Wrench, ZoomIn, Hand, Maximize2, Scan, Video, Minimize2, Moon, Database, PenLine, Image as ImageIcon, TerminalSquare, HardDriveDownload, FolderInput,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -42,6 +42,7 @@ import PublishDialog from "../components/PublishDialog";
 import LinkedDialog from "../components/LinkedDialog";
 import { Apps, UserMenu, licenceNotice, useApps } from "../components/Bar";
 import { Button, ErrorText, IconButton, Resizer, useStored, useToast } from "../components/ui";
+import { getHandle, openProjectFile, saveProjectFile, supportsFsAccess } from "../lib/projectFile";
 import RasterPanel from "../components/RasterPanel";
 import { ApiError, BASE, api, type SavedLayout, rasterDownloadUrl, rasterTileUrl, terrainTileUrl, tileUrl } from "../lib/api";
 import { formatCoords, loadCrs, metres, squareMetres } from "../lib/coords";
@@ -836,6 +837,15 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const openBrief = () => { setTrackingOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setGdbOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(true); setRightOpen(true); };
   const openSymbols = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setGdbOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(true); setRightOpen(true); };
   const openSight = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setGdbOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setSightOpen(true); setRightOpen(true); if (tool !== "explore") chooseTool("explore"); };
+  async function saveProjectToComputer() {
+    if (!project) return;
+    try { await saveProjectFile(id, project.name, await getHandle(id)); toast(supportsFsAccess ? "Project saved to your computer." : "Project file downloaded.", "success"); }
+    catch (e) { if (!(e instanceof DOMException && e.name === "AbortError")) toast(e instanceof Error ? e.message : "Could not save the project file.", "error"); }
+  }
+  async function openProjectFromFile() {
+    try { const out = await openProjectFile(); if (out) { toast(`${out.name} opened.`, "success"); window.location.assign(`/projects/${out.id}`); } }
+    catch (e) { if (!(e instanceof DOMException && e.name === "AbortError")) toast(e instanceof Error ? e.message : "Could not open the project file.", "error"); }
+  }
   const rasterOk = me.features.includes("raster");
   const kindWord = editLayer?.geometry_type === "Point" ? "points" : editLayer?.geometry_type === "LineString" ? "lines" : "polygons";
   const hint: Partial<Record<Tool, ReactNode>> = {
@@ -1030,6 +1040,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
             <Group name="Project">
               <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) { setCatalogOpen(false); } else { setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setGdbOpen(false); setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Library" />
               <Tb on={gdbOpen && rightOpen} onClick={() => { if (gdbOpen) { setGdbOpen(false); } else { setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setCamerasOpen(false); setCatalogOpen(false); setScenariosOpen(false); setNotebookOpen(false); setEarth({ open: false, start: null }); setGp({ open: false, start: null, query: "" }); setGdbOpen(true); setRightOpen(true); } }} icon={<Database />} label="Geodatabases" />
+              <Tb onClick={() => void saveProjectToComputer()} icon={<HardDriveDownload />} label={supportsFsAccess ? "Save to computer" : "Download file"} />
+              <Tb onClick={() => void openProjectFromFile()} icon={<FolderInput />} label="Open file" />
             </Group>
             <Group name="Coordinates">
               <Tb onClick={() => setDialog("crs")} icon={<Globe2 />} label={crs ? shortCrs(crs.name) : `EPSG:${project.display_epsg}`} />
