@@ -40,8 +40,14 @@ export interface Labels {
   anchor?: "auto" | "center" | "top" | "bottom" | "left" | "right" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
   offset?: number; line_placement?: "along" | "horizontal"; line_spacing?: number; wrap?: number; allow_overlap?: boolean;
 }
+/** A project's geodatabase (ArcGIS-style): where its layers and analysis results are stored. */
+export interface Geodatabase {
+  id: string; project_id: string; org_id: string; name: string; is_default: boolean;
+  storage: "postgis" | "archived"; archive_key: string | null;
+  layer_count: number; feature_count: number; created_at: string; updated_at: string;
+}
 export interface Layer {
-  id: string; project_id: string; name: string; geometry_type: GeometryType; fields: Field[]; style: Style; labels: Labels | null;
+  id: string; project_id: string; geodatabase_id: string; name: string; geometry_type: GeometryType; fields: Field[]; style: Style; labels: Labels | null;
   visible: boolean; position: number;
   map_id?: string | null;              // the map the layer is in
   data_id?: string | null;             // the layer whose data this one shows (the same data in another map)
