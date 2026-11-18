@@ -43,7 +43,7 @@ export interface Labels {
 /** A project's geodatabase (ArcGIS-style): where its layers and analysis results are stored. */
 export interface Geodatabase {
   id: string; project_id: string; org_id: string; name: string; is_default: boolean;
-  storage: "postgis" | "archived"; archive_key: string | null;
+  storage: "postgis" | "archived"; archived_at: string | null;
   layer_count: number; feature_count: number; created_at: string; updated_at: string;
 }
 export interface Layer {

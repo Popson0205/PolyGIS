@@ -1,7 +1,7 @@
 /** Geodatabases: a project's data stores, ArcGIS-style. Every project has a default geodatabase where new layers and
  *  analysis results land; you can add more, rename them, choose the default, download one as a GeoPackage, or delete
  *  one (and the layers in it). */
-import { Check, Database, Download, MoreHorizontal, Plus, Star, Trash2, X } from "lucide-react";
+import { Archive, ArchiveRestore, Check, Database, Download, MoreHorizontal, Plus, Star, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api, geodatabaseDownloadUrl } from "../lib/api";
 import type { Geodatabase } from "../lib/types";
@@ -44,12 +44,22 @@ export default function Geodatabases({ projectId, canEdit, onChanged, onClose }:
     try { await api.deleteGeodatabase(g.id); setConfirm(null); await load(); onChanged(); toast(`${g.name} deleted.`, "success"); }
     catch (e) { fail(e); } finally { setBusy(null); }
   }
+  async function archive(g: Geodatabase) {
+    setBusy(g.id);
+    try { await api.archiveGeodatabase(g.id); await load(); onChanged(); toast(`${g.name} archived to storage.`, "success"); }
+    catch (e) { fail(e); } finally { setBusy(null); }
+  }
+  async function restore(g: Geodatabase) {
+    setBusy(g.id);
+    try { await api.restoreGeodatabase(g.id); await load(); onChanged(); toast(`${g.name} restored.`, "success"); }
+    catch (e) { fail(e); } finally { setBusy(null); }
+  }
 
   return (
     <aside className="ws-panel prov" aria-label="Geodatabases">
       <div className="ws-pane-head"><strong>Geodatabases</strong><span className="ge-spacer" /><IconButton label="Close" onClick={onClose}><X size={16} /></IconButton></div>
       <div className="ws-scroll mil-body">
-        <p className="ws-muted">Each project has a default geodatabase. New layers and analysis results are stored in it — a working environment, like an ArcGIS project's default geodatabase. Download one as a GeoPackage to open it in QGIS or ArcGIS.</p>
+        <p className="ws-muted">Each project has a default geodatabase. New layers and analysis results are stored in it — a working environment, like an ArcGIS project's default geodatabase. Download one as a GeoPackage for QGIS or ArcGIS, or archive a geodatabase you're done with to storage to keep it out of the live database; restore it anytime.</p>
         <ErrorText error={error} />
         <ul className="trk-list">
           {(list ?? []).map((g) => (
@@ -68,22 +78,30 @@ export default function Geodatabases({ projectId, canEdit, onChanged, onClose }:
                     onBlur={(e) => void rename(g, e.target.value)} />
                 </div>
               ) : (
-                <div className="trk-row">
+                <div className={`trk-row${g.storage === "archived" ? " is-paused" : ""}`}>
                   <Database size={15} aria-hidden="true" />
                   <span className="trk-name">{g.name}
                     {g.is_default && <span className="ws-tag"><Star size={11} aria-hidden="true" /> Default</span>}
+                    {g.storage === "archived" && <span className="ws-tag"><Archive size={11} aria-hidden="true" /> Archived</span>}
                     <span className="ws-muted"> · {g.layer_count} layer{g.layer_count === 1 ? "" : "s"}{g.feature_count ? ` · ${g.feature_count.toLocaleString()} feature${g.feature_count === 1 ? "" : "s"}` : ""}</span>
                   </span>
-                  <a className="ib" href={geodatabaseDownloadUrl(g.id)} title={`Download ${g.name} as a GeoPackage`} aria-label={`Download ${g.name} as a GeoPackage`} download>
+                  {g.storage !== "archived" && <a className="ib" href={geodatabaseDownloadUrl(g.id)} title={`Download ${g.name} as a GeoPackage`} aria-label={`Download ${g.name} as a GeoPackage`} download>
                     <Download size={15} aria-hidden="true" />
-                  </a>
-                  {canEdit && <Menu align="end" label={`Actions for ${g.name}`} trigger={<MoreHorizontal size={16} />}
-                    items={[
+                  </a>}
+                  {canEdit && (busy === g.id
+                    ? <span className="ws-muted" style={{ fontSize: 12 }}>working…</span>
+                    : <Menu align="end" label={`Actions for ${g.name}`} trigger={<MoreHorizontal size={16} />}
+                    items={g.storage === "archived" ? [
+                      { label: "Restore from storage", icon: <ArchiveRestore size={15} />, onSelect: () => void restore(g) },
+                      { label: "Rename", icon: <Database size={15} />, onSelect: () => setRenaming(g.id) },
+                      { label: "Delete", icon: <Trash2 size={15} />, danger: true, onSelect: () => setConfirm(g.id) },
+                    ] : [
                       { label: "Set as default", icon: <Check size={15} />, disabled: g.is_default, onSelect: () => void makeDefault(g) },
                       { label: "Rename", icon: <Database size={15} />, onSelect: () => setRenaming(g.id) },
                       { label: "Download GeoPackage", icon: <Download size={15} />, onSelect: () => { window.location.href = geodatabaseDownloadUrl(g.id); } },
+                      { label: "Archive to storage", icon: <Archive size={15} />, disabled: g.is_default, onSelect: () => void archive(g) },
                       { label: "Delete", icon: <Trash2 size={15} />, danger: true, disabled: g.is_default, onSelect: () => setConfirm(g.id) },
-                    ]} />}
+                    ]} />)}
                 </div>
               )}
             </li>))}
