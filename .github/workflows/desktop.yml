@@ -1,0 +1,42 @@
+name: Desktop (Windows installer)
+
+# Builds the PolyGIS Windows installer (.exe). Run it by hand from the Actions tab (workflow_dispatch) to get a
+# downloadable artifact, or push a tag like "desktop-v1.0.0" to also attach the installer to a GitHub Release.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["desktop-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Build .exe (windows-latest)
+    runs-on: windows-latest
+    defaults: { run: { working-directory: desktop } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20", cache: npm, cache-dependency-path: desktop/package-lock.json }
+      - name: Install
+        run: npm ci
+      - name: Build installer
+        run: npm run dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PolyGIS-Windows-installer
+          path: |
+            desktop/release/*.exe
+            desktop/release/latest.yml
+          if-no-files-found: error
+      - name: Attach to release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop/release/*.exe
+            desktop/release/latest.yml

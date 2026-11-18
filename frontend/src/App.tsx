@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import Bar from "./components/Bar";
+import DesktopBridge from "./components/DesktopBridge";
 import { ErrorText } from "./components/ui";
 import { ApiError, api, signInUrl } from "./lib/api";
 import type { Me } from "./lib/types";
@@ -56,6 +57,7 @@ export default function App() {
   const inWorkspace = loc.pathname.startsWith("/projects/");
   return (
     <div className={inWorkspace ? "gis-app is-workspace" : "gis-app"}>
+      <DesktopBridge />
       {!inWorkspace && <Bar me={me} onSignOut={signOut} />}
       <Routes>
         <Route path="/" element={<ProjectsPage me={me} />} />
