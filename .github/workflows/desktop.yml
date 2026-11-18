@@ -22,9 +22,7 @@ jobs:
       - name: Install
         run: npm ci
       - name: Build installer
-        run: npm run dist
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist   # builds only; the release upload is done by the step below, not by electron-builder
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
