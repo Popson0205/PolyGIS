@@ -29,6 +29,7 @@ import { SymbolsPane } from "../components/MilSymbols";
 import BriefPane from "../components/AreaBrief";
 import { TrackingPane, useLiveTracking } from "../components/Tracking";
 import ProvidersPane from "../components/Providers";
+import Geodatabases from "../components/Geodatabases";
 import type { OrgImagery, TrackAlert } from "../lib/types";
 import { NOTATIONS, NOTATION_NAMES, writeCoordinate, type Notation } from "../lib/milcoords";
 import { bearingText } from "../lib/geodesy";
@@ -100,6 +101,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   const [camerasOpen, setCamerasOpen] = useState(false);
   const [watching, setWatching] = useState<string[]>([]);
   const [providersOpen, setProvidersOpen] = useState(false);
+  const [gdbOpen, setGdbOpen] = useState(false);
   const [providerTick, setProviderTick] = useState(0);
   const providerApplied = useRef(false);
   const [liveOn, setLiveOn] = useStored<boolean>(`tracking-live-${id}`, false);
@@ -824,16 +826,16 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       requestAnimationFrame(() => b?.click());
     }
   }
-  const openTool = (t: string | null, q = "", preset?: Record<string, unknown>) => { setEarth({ open: false, start: null }); setScenariosOpen(false); setNotebookOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setGp({ open: true, start: t, query: q, preset }); setRightOpen(true); };
-  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setNotebookOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
-  const openNotebook = () => { setGp({ open: false, start: null, query: "" }); setEarth({ open: false, start: null }); setScenariosOpen(false); setCatalogOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setNotebookOpen(true); setRightOpen(true); };
-  const openCoords = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setCoordsOpen(true); setRightOpen(true); };
-  const openProviders = () => { setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(true); setRightOpen(true); };
-  const openCameras = () => { setProvidersOpen(false); setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setCamerasOpen(true); setRightOpen(true); };
-  const openTracking = () => { setCamerasOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(true); setRightOpen(true); };
-  const openBrief = () => { setTrackingOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(true); setRightOpen(true); };
-  const openSymbols = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(true); setRightOpen(true); };
-  const openSight = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setSightOpen(true); setRightOpen(true); if (tool !== "explore") chooseTool("explore"); };
+  const openTool = (t: string | null, q = "", preset?: Record<string, unknown>) => { setEarth({ open: false, start: null }); setScenariosOpen(false); setNotebookOpen(false); setCatalogOpen(false); setGdbOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setGp({ open: true, start: t, query: q, preset }); setRightOpen(true); };
+  const openEarth = (t: string | null) => { setGp({ open: false, start: null, query: "" }); setScenariosOpen(false); setNotebookOpen(false); setCatalogOpen(false); setGdbOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setEarth({ open: true, start: t }); setRightOpen(true); };
+  const openNotebook = () => { setGp({ open: false, start: null, query: "" }); setEarth({ open: false, start: null }); setScenariosOpen(false); setCatalogOpen(false); setGdbOpen(false); setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setNotebookOpen(true); setRightOpen(true); };
+  const openCoords = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setGdbOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setCoordsOpen(true); setRightOpen(true); };
+  const openProviders = () => { setCatalogOpen(false); setGdbOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(true); setRightOpen(true); };
+  const openCameras = () => { setProvidersOpen(false); setCatalogOpen(false); setGdbOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setCamerasOpen(true); setRightOpen(true); };
+  const openTracking = () => { setCamerasOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setGdbOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(true); setRightOpen(true); };
+  const openBrief = () => { setTrackingOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setGdbOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setBriefOpen(true); setRightOpen(true); };
+  const openSymbols = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setGdbOpen(false); setSightOpen(false); setCoordsOpen(false); setSymbolsOpen(true); setRightOpen(true); };
+  const openSight = () => { setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setProvidersOpen(false);  setCatalogOpen(false); setGdbOpen(false); setCoordsOpen(false); setSymbolsOpen(false); setSightOpen(true); setRightOpen(true); if (tool !== "explore") chooseTool("explore"); };
   const rasterOk = me.features.includes("raster");
   const kindWord = editLayer?.geometry_type === "Point" ? "points" : editLayer?.geometry_type === "LineString" ? "lines" : "polygons";
   const hint: Partial<Record<Tool, ReactNode>> = {
@@ -883,7 +885,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     editor.current.create("polygon", (g) => { areaWait.current = null; resolve(g); setTimeout(() => { editor.current?.reset(); setTool("explore"); }, 0); });
   });
 
-  const right = providersOpen ? (
+  const right = gdbOpen ? (
+    <Geodatabases projectId={id} canEdit={canEdit} onChanged={() => void load()} onClose={() => setGdbOpen(false)} />
+  ) : providersOpen ? (
     <ProvidersPane projectId={id} map={map.current} isAdmin={me.role === "admin" && me.can_write} canAdd={canEdit && rasterOk} basemap={basemap}
       onBasemap={(b) => switchBasemap(b)} onLayer={(l) => { setLayers((cur) => [...cur, l]); setActiveId(l.id); }}
       onChanged={providersLoaded} view={() => (map.current ? mapBox() : null)} onClose={() => setProvidersOpen(false)} />
@@ -1024,7 +1028,8 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => setDialog("add")} icon={<FilePlus2 />} label="Add data" disabled={!canEdit} />
             </Group>
             <Group name="Project">
-              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) setCatalogOpen(false); else { setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Library" />
+              <Tb on={catalogOpen && rightOpen} onClick={() => { if (catalogOpen) { setCatalogOpen(false); } else { setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setGdbOpen(false); setCatalogOpen(true); setRightOpen(true); } }} icon={<FolderTree />} label="Library" />
+              <Tb on={gdbOpen && rightOpen} onClick={() => { if (gdbOpen) { setGdbOpen(false); } else { setCoordsOpen(false); setSightOpen(false); setSymbolsOpen(false); setBriefOpen(false); setTrackingOpen(false); setProvidersOpen(false); setCamerasOpen(false); setCatalogOpen(false); setScenariosOpen(false); setNotebookOpen(false); setEarth({ open: false, start: null }); setGp({ open: false, start: null, query: "" }); setGdbOpen(true); setRightOpen(true); } }} icon={<Database />} label="Geodatabases" />
             </Group>
             <Group name="Coordinates">
               <Tb onClick={() => setDialog("crs")} icon={<Globe2 />} label={crs ? shortCrs(crs.name) : `EPSG:${project.display_epsg}`} />
@@ -1101,7 +1106,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
           </div>
           <div className="ws-mode-tools" data-mode="analysis" hidden={tab !== "analysis"}>
             {me.features.includes("raster") && <Group name="What if">
-              <Tb on={scenariosOpen && rightOpen} onClick={() => { if (scenariosOpen) setScenariosOpen(false); else { setGp({ open: false, start: null, query: "" }); setEarth({ open: false, start: null }); setScenariosOpen(true); setRightOpen(true); } }}
+              <Tb on={scenariosOpen && rightOpen} onClick={() => { if (scenariosOpen) setScenariosOpen(false); else { setGdbOpen(false); setGp({ open: false, start: null, query: "" }); setEarth({ open: false, start: null }); setScenariosOpen(true); setRightOpen(true); } }}
                 icon={<FlaskConical />} label="Scenarios" />
             </Group>}
             <Group name="Measure">

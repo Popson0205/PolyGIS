@@ -6,7 +6,7 @@ import { snapPoint } from "../src/lib/snap";
 import type { Layer } from "../src/lib/types";
 
 const layer = (over: Partial<Layer> = {}): Layer => ({
-  id: "L1", project_id: "P", name: "Plots", geometry_type: "Polygon", fields: [{ name: "use", type: "string" }, { name: "area", type: "number" }],
+  id: "L1", project_id: "P", geodatabase_id: "G1", name: "Plots", geometry_type: "Polygon", fields: [{ name: "use", type: "string" }, { name: "area", type: "number" }],
   style: { type: "single", color: "#2f6db5", stroke: "#ffffff", width: 1, size: 6, opacity: 0.4 }, labels: null, visible: true, position: 0,
   source: {}, feature_count: 3, bbox: null, version: 1, updated_at: "", ...over,
 });

@@ -280,6 +280,54 @@ def _promote(g):
         g.geom_type, lambda x: x)([g]) if g.geom_type in ("Point", "LineString", "Polygon") else g
 
 
+def _feature_arrays(fields: list[dict], rows: list[tuple]) -> tuple[list[str], list[np.ndarray]]:
+    """Columns for pyogrio: the layer's polygis_id plus each field, typed from `fields`."""
+    names = ["polygis_id"] + [f["name"] for f in fields]
+    arrays: list[np.ndarray] = [np.array([r[0] for r in rows], dtype=np.int64)]
+    for f in fields:
+        vals = [r[2].get(f["name"]) for r in rows]
+        if f["type"] == "integer" and all(isinstance(v, (int, float)) for v in vals):
+            arrays.append(np.array(vals, dtype=np.int64))
+        elif f["type"] == "number" and all(v is None or isinstance(v, (int, float)) for v in vals):
+            arrays.append(np.array([np.nan if v is None else float(v) for v in vals], dtype=np.float64))
+        else:
+            arrays.append(np.array(["" if v is None else str(v) for v in vals], dtype=object))
+    return names, arrays
+
+
+def write_geopackage(db_name: str, layers: list[tuple], epsg: int = 4326) -> tuple[bytes, str, str]:
+    """Write a whole geodatabase to one GeoPackage. `layers` is [(name, fields, rows)] with
+    rows = [(id, shapely geometry in WGS 84, props)]; empty layers are skipped. Returns (bytes, filename, media)."""
+    safe_db = "".join(c if c.isalnum() or c in "-_ " else "_" for c in db_name).strip() or "geodatabase"
+    transformer = Transformer.from_crs(4326, epsg, always_xy=True) if epsg != 4326 else None
+    used: set[str] = set()
+    with tempfile.TemporaryDirectory() as d:
+        target = Path(d) / f"{safe_db}.gpkg"
+        wrote = False
+        for name, fields, rows in layers:
+            if not rows:
+                continue
+            safe_l = "".join(c if c.isalnum() or c in "-_ " else "_" for c in (name or "layer")).strip() or "layer"
+            base, i = safe_l, 2
+            while safe_l.lower() in used:
+                safe_l = f"{base}_{i}"; i += 1
+            used.add(safe_l.lower())
+            geoms = [g for _, g, _ in rows]
+            if transformer is not None:
+                geoms = [shapely.transform(g, lambda xy: np.column_stack(transformer.transform(xy[:, 0], xy[:, 1]))) for g in geoms]
+            kinds = {g.geom_type for g in geoms}
+            gtype = kinds.pop() if len(kinds) == 1 else "Unknown"
+            names, arrays = _feature_arrays(fields, rows)
+            wkb = np.array(shapely.to_wkb(geoms), dtype=object)
+            pyogrio.raw.write(str(target), wkb, arrays, names, driver="GPKG", geometry_type=gtype,
+                              crs=f"EPSG:{epsg}", encoding="UTF-8", layer=safe_l, append=wrote, promote_to_multi=False)
+            wrote = True
+        if not wrote:  # an empty geodatabase still downloads as a valid, empty GeoPackage
+            pyogrio.raw.write(str(target), np.array([], dtype=object), [np.array([], dtype=np.int64)], ["polygis_id"],
+                              driver="GPKG", geometry_type="Point", crs="EPSG:4326", encoding="UTF-8", layer="empty")
+        return target.read_bytes(), f"{safe_db}.gpkg", "application/geopackage+sqlite3"
+
+
 def save_upload(data: bytes, filename: str) -> Path:
     """Keep an upload in a temporary folder under its own name (GDAL picks the reader from the extension)."""
     d = Path(tempfile.mkdtemp(prefix="polygis-"))

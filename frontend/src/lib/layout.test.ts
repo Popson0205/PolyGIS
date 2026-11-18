@@ -9,7 +9,7 @@ import type { Layer } from "./types";
 
 const S: LayoutSettings = { ...DEFAULTS, title: "Bosso parcels", center: [6.53, 9.65], scale: 2500 };
 const layer = (o: Partial<Layer>): Layer => ({
-  id: "l1", project_id: "p", name: "Parcels", geometry_type: "Polygon", fields: [], labels: null, visible: true, position: 1, source: {},
+  id: "l1", project_id: "p", geodatabase_id: "g1", name: "Parcels", geometry_type: "Polygon", fields: [], labels: null, visible: true, position: 1, source: {},
   feature_count: 10, bbox: null, version: 1, updated_at: "",
   style: { type: "single", color: "#f4c542", stroke: "#333333", width: 1, size: 6, opacity: 0.8 }, ...o,
 });

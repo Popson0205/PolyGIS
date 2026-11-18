@@ -1,6 +1,6 @@
 import type { LayoutSettings } from "./layout";
 import type { LayoutDoc } from "./layoutDoc";
-import type { OrgImagery, OrgScene, AreaBrief, SightResult, Tracker, TrackingLive, Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, NotebookResult, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View, Camera } from "./types";
+import type { OrgImagery, OrgScene, AreaBrief, SightResult, Tracker, TrackingLive, Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, Geodatabase, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, NotebookResult, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View, Camera } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
@@ -38,6 +38,7 @@ export const georefImageUrl = (g: GeorefSource, size = 2048) => `${BASE}/georefe
 export const rasterDownloadUrl = (layerId: string) => `${BASE}/layers/${layerId}/raster/download`;
 export const exportUrl = (layerId: string, format: string, epsg = 4326, ids?: number[]) =>
   `${BASE}/layers/${layerId}/export?format=${format}&epsg=${epsg}${ids?.length ? `&ids=${ids.join(",")}` : ""}`;
+export const geodatabaseDownloadUrl = (gdbId: string, epsg = 4326) => `${BASE}/geodatabases/${gdbId}/download?epsg=${epsg}`;
 
 export const api = {
   me: () => req<Me>("GET", "/me"),
@@ -48,6 +49,10 @@ export const api = {
   projects: () => req<Project[]>("GET", "/projects"),
   project: (id: string) => req<Project>("GET", `/projects/${id}`),
   createProject: (b: { name: string; description?: string; display_epsg?: number }) => req<Project>("POST", "/projects", b),
+  geodatabases: (projectId: string) => req<Geodatabase[]>("GET", `/projects/${projectId}/geodatabases`),
+  createGeodatabase: (projectId: string, name: string) => req<Geodatabase>("POST", `/projects/${projectId}/geodatabases`, { name }),
+  updateGeodatabase: (id: string, b: { name?: string; is_default?: boolean }) => req<Geodatabase>("PATCH", `/geodatabases/${id}`, b),
+  deleteGeodatabase: (id: string) => req<void>("DELETE", `/geodatabases/${id}`),
   layouts: (projectId: string) => req<SavedLayout[]>("GET", `/projects/${projectId}/layouts`),
   createLayout: (projectId: string, name: string, settings: LayoutDoc) => req<SavedLayout>("POST", `/projects/${projectId}/layouts`, { name, settings }),
   updateLayout: (id: string, b: { name?: string; settings?: LayoutDoc }) => req<SavedLayout>("PATCH", `/layouts/${id}`, b),
