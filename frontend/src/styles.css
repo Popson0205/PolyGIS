@@ -873,6 +873,13 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 .cat-more:hover { background: var(--c-pane); color: var(--c-ink); }
 .cat-rename { flex: 1; min-width: 0; height: 26px; padding: 0 6px; border: 1px solid var(--c-select); border-radius: 4px; font: 13px var(--ge-font); }
 .cat-empty { padding: 4px 12px; margin: 0; font-size: 12px; }
+.cat-folder { display: block; }
+.cat-sublist { list-style: none; margin: 0 0 4px; padding: 0 0 0 20px; }
+.cat-sub { display: flex; align-items: center; }
+.cat-sub.ws-muted { padding: 4px 8px; font-size: 12px; }
+.cat-ds { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--c-ink); font: 13px var(--ge-font); text-align: left; cursor: pointer; }
+.cat-ds:hover:not(:disabled) { background: var(--c-hover); }
+.cat-ds:disabled { opacity: .6; cursor: default; }
 
 /* Military: coordinate conversion */
 .ws-textarea { width: 100%; min-height: 120px; padding: 8px; border: 1px solid var(--c-line); border-radius: 6px; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
