@@ -1,11 +1,16 @@
 name: Desktop (Windows installer)
 
-# Builds the PolyGIS Windows installer (.exe). Run it by hand from the Actions tab (workflow_dispatch) to get a
-# downloadable artifact, or push a tag like "desktop-v1.0.0" to also attach the installer to a GitHub Release.
+# Builds the PolyGIS Windows installer (.exe). It runs automatically on every push to main — the installer is uploaded
+# as a run artifact and published to a rolling "desktop-latest" pre-release so there's always a one-click download. It
+# also runs on desktop pull requests (to catch build breaks early), can be run by hand (workflow_dispatch), and on a
+# "desktop-v1.0.0" tag it attaches the installer to that version's Release.
 on:
-  workflow_dispatch:
   push:
+    branches: [main]
     tags: ["desktop-v*"]
+  pull_request:
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -31,7 +36,17 @@ jobs:
             desktop/release/*.exe
             desktop/release/latest.yml
           if-no-files-found: error
-      - name: Attach to release (on tag)
+      - name: Publish rolling "latest" installer (push to main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop-latest
+          name: PolyGIS Desktop (latest)
+          body: Latest PolyGIS Windows installer, built automatically from main. Windows SmartScreen may warn on first run (More info → Run anyway) until the app is code-signed.
+          prerelease: true
+          make_latest: false
+          files: desktop/release/*.exe
+      - name: Attach to release (on version tag)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:

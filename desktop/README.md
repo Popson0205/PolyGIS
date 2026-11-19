@@ -24,13 +24,16 @@ By default it connects to the production URL set in `main.js` (`DEFAULT_URL`). Y
 
 ## Build the installer
 
-### In GitHub Actions (recommended)
+### In GitHub Actions (automatic)
 
 The **Desktop (Windows installer)** workflow builds the `.exe` on a Windows runner.
 
-- Run it by hand from the repo's **Actions** tab (**Run workflow**) → download the `PolyGIS-Windows-installer`
-  artifact (contains `PolyGIS Setup <version>.exe`).
-- Or push a tag like `desktop-v1.0.0` to also attach the installer to a GitHub Release.
+- **Automatically on every push to `main`** — the installer is uploaded as a run artifact and published to a rolling
+  **`desktop-latest`** pre-release, so the newest build is always one click away under **Releases → PolyGIS Desktop
+  (latest)**.
+- On **desktop pull requests** it builds too (without publishing), to catch build breaks before merge.
+- Push a tag like `desktop-v1.0.0` to attach the installer to that version's own Release.
+- Or run it by hand from the **Actions** tab (**Run workflow**).
 
 ### Locally on Windows
 
