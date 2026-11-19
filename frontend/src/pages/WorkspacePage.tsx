@@ -924,7 +924,14 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   ) : catalogOpen ? (
     <Catalog maps={maps} layouts={savedLayouts} mapId={mapId} current={viewNow} canEdit={canEdit} layoutsAllowed={layoutsAllowed}
       onOpenMap={(m) => void openMap(m)} onNewMap={() => void newMap()} onCopyMap={(m) => void newMap(m)} onRenameMap={(m, n) => void renameMap(m, n)} onDeleteMap={(m) => void deleteMap(m)}
-      onOpenLayout={openLayoutTab} onNewLayout={newLayout} onRenameLayout={(l, n) => void renameLayout(l, n)} onDeleteLayout={(l) => void deleteLayout(l)} onClose={() => setCatalogOpen(false)} />
+      onOpenLayout={openLayoutTab} onNewLayout={newLayout} onRenameLayout={(l, n) => void renameLayout(l, n)} onDeleteLayout={(l) => void deleteLayout(l)}
+      onAddData={async (files) => {
+        const ls = await api.importFile(id, files, undefined, map.current ? mapBox() : undefined);
+        setLayers((cur) => [...cur, ...ls]); setActiveId(ls[ls.length - 1].id); setLeftOpen(true);
+        if (ls[0]?.bbox) zoomTo(ls[0].bbox);
+        toast(ls.length === 1 ? `${ls[0].name} added to the map.` : `${ls.length} layers added to the map.`, "success");
+      }}
+      onClose={() => setCatalogOpen(false)} />
   ) : notebookOpen ? (
     <Notebook projectId={id} layers={layers} activeId={activeId} onClose={() => setNotebookOpen(false)}
       onLayer={(l) => { setLayers((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? l : x)) : [...cur, l])); setActiveId(l.id); if (l.bbox) zoomTo(l.bbox); }} />
