@@ -6,6 +6,7 @@ import { ToastProvider } from "./components/ui";
 import "./geoestate.css";
 import "./styles.css";
 
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode><BrowserRouter><ToastProvider><App /></ToastProvider></BrowserRouter></StrictMode>,
 );
