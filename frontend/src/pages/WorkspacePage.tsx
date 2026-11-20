@@ -50,6 +50,7 @@ import { Editor } from "../lib/editor";
 import { allBasemaps, setProviderBasemaps, GLOBAL_TERRAIN, GLYPHS, allIds, basemapStyle, ids as layerIds, labelSrc, mapLayers, src } from "../lib/mapstyle";
 import type { CrsDef, GisMap, Layer, Me, Project, Selection, VectorType, View } from "../lib/types";
 import { attachMilSymbols } from "../lib/milsym";
+import { brandLockup } from "../lib/identity";
 
 type Tab = "map" | "insert" | "select" | "edit" | "analysis" | "imagery" | "military" | "earth" | "share";
 type Tool = "explore" | "select" | "select-area" | "draw-area" | "measure-line" | "measure-area" | "measure-bearing" | "create" | "reshape" | "pick-reshape";
@@ -981,7 +982,12 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     <div className={`ws${onLayout ? " is-layout" : ""}${focus && !onLayout ? " is-focus" : ""}`} style={{ "--left": `${leftW}px`, "--right": `${rightW}px`, "--table": `${tableH}px` } as React.CSSProperties}>
       <div className="ws-top">
       <header className="ws-titlebar">
-        <a className="ge-brand" href="/" aria-label="GeoEstate PolyGIS: all projects"><img src="/logo.png" alt="" /><span>Poly<strong>GIS</strong></span></a>
+        {(() => { const lk = brandLockup(me); return (
+          <a className="ge-brand" href="/" aria-label={`${lk.branded ? lk.name : "GeoEstate PolyGIS"}: all projects`}>
+            <img src={lk.logo_url ?? "/logo.png"} alt="" />
+            {lk.branded ? <span>{lk.name}</span> : <span>Poly<strong>GIS</strong></span>}
+          </a>
+        ); })()}
         <nav className="ws-crumbs" aria-label="Where you are">
           <ChevronRight size={14} aria-hidden="true" /><Link to="/">Projects</Link><ChevronRight size={14} aria-hidden="true" />
           <h1 className="ws-crumb-title" title={project.description || project.name}>{project.name}</h1>
