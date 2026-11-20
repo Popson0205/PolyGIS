@@ -1,7 +1,10 @@
 export type Role = "admin" | "editor" | "viewer";
+/** An organization's white-label identity, set by GeoEstate at org setup and applied at runtime (one build). */
+export interface OrgBrand { color: string | null; logo_url: string | null; name?: string | null; seal_url?: string | null }
 export interface Me {
   id: string; name: string; email: string; org_id: string | null; org_name: string | null; org_role: string | null; role: Role;
   staff_role: string | null; licence: string | null; can_write: boolean; features: string[]; geohub_url: string;
+  org_brand?: OrgBrand | null;
   product: { id: string; name: string; plan: string; plan_name: string; status: string; subscription_ends: string | null; grace_ends: string | null } | null;
 }
 export interface App { product: string; name: string; status: string; url: string | null; current: boolean }

@@ -4,6 +4,7 @@ import Bar from "./components/Bar";
 import DesktopBridge from "./components/DesktopBridge";
 import { ErrorText } from "./components/ui";
 import { ApiError, api, signInUrl } from "./lib/api";
+import { applyOrgBrand } from "./lib/identity";
 import type { Me } from "./lib/types";
 import { useLoad } from "./lib/useLoad";
 import { splash } from "./splash";
@@ -29,6 +30,7 @@ export default function App() {
       const plan = m.product?.plan_name?.replace(/^PolyGIS\s*/i, "");
       if (plan) splash.edition(plan);
       splash.step(`Opening ${m.org_name ?? "your organization"}'s projects`, 80);
+      applyOrgBrand(m.org_brand);   // white-label at runtime from the org record
       setMe(m);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401 && e.code !== "no_product") { splash.step("Taking you to sign in", 90); window.location.assign(signInUrl()); return; }
