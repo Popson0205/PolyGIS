@@ -417,7 +417,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
     const m = map.current;
     if (!m) return;
     if (b[0] === b[2] && b[1] === b[3]) m.flyTo({ center: [b[0], b[1]], zoom: Math.max(m.getZoom(), 16) });
-    else m.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 60, maxZoom: 18, duration: 600 });
+    else m.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 60, maxZoom: 20, duration: 600 });
   }
   async function zoomToFeature(l: Layer, fid: number) {
     const f = await api.feature(l.id, fid);
