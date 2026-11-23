@@ -33,8 +33,10 @@
   if (window.GeoEstateSplash) return;
   var me = document.currentScript || {};
   var ds = me.dataset || {};
-  var product = ds.product || document.title.split(/[–|-]/)[0].trim() || "GeoEstate";
-  var accent = ds.accent || "#3aa335";
+  // The remembered client brand (written after sign-in), so a returning customer's launch screen is their own.
+  var cached = null; try { cached = JSON.parse(localStorage.getItem("ge-brand") || "null"); } catch (e) { cached = null; }
+  var product = (cached && cached.name) || ds.product || document.title.split(/[–|-]/)[0].trim() || "GeoEstate";
+  var accent = (cached && cached.color) || ds.accent || "#3aa335";
   var key = "ge-splash:" + product;
   var warm = false;
   try { warm = sessionStorage.getItem(key) === "1"; sessionStorage.setItem(key, "1"); } catch (e) { /* private window */ }
