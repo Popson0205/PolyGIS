@@ -6,17 +6,22 @@ import type { Labels, Layer, RasterStyle } from "./types";
  *  cloudless 2016 by EOX (CC BY 4.0). VITE_IMAGERY_URL can add licensed high-resolution imagery. */
 export const GLYPHS = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf";
 export const FONT = ["Noto Sans Regular"];
-const raster = (url: string, attribution: string, maxzoom = 19): StyleSpecification => ({
+const raster = (url: string | string[], attribution: string, maxzoom = 19): StyleSpecification => ({
   version: 8, glyphs: GLYPHS,
-  sources: { basemap: { type: "raster", tiles: [url], tileSize: 256, attribution, maxzoom } },
+  sources: { basemap: { type: "raster", tiles: Array.isArray(url) ? url : [url], tileSize: 256, attribution, maxzoom } },
   layers: [{ id: "basemap", type: "raster", source: "basemap" }],
 });
+// Google map tiles (hybrid = satellite + labels, road), across the four mt subdomains for load sharing. These are
+// Google's unofficial endpoints; a licensed Map Tiles API URL via VITE_IMAGERY_URL is the supported route.
+const google = (lyrs: string) => ["mt0", "mt1", "mt2", "mt3"].map((h) => `https://${h}.google.com/vt/lyrs=${lyrs}&x={x}&y={y}&z={z}`);
 const extraImagery = import.meta.env.VITE_IMAGERY_URL as string | undefined;
 export const BASEMAPS: { id: string; name: string; style: string | StyleSpecification }[] = [
   { id: "streets", name: "Streets", style: "https://tiles.openfreemap.org/styles/liberty" },
+  { id: "satellite", name: "Satellite (Google)", style: raster(google("y"), "© Google", 21) },
+  { id: "google-streets", name: "Streets (Google)", style: raster(google("m"), "© Google", 20) },
   { id: "light", name: "Light grey", style: "https://tiles.openfreemap.org/styles/positron" },
   { id: "night", name: "Night", style: "https://tiles.openfreemap.org/styles/fiord" },
-  { id: "satellite", name: "Satellite (Sentinel-2, 10 m)", style: raster("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg",
+  { id: "sentinel", name: "Satellite (Sentinel-2, 10 m)", style: raster("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg",
     '<a href="https://s2maps.eu">Sentinel-2 cloudless – https://s2maps.eu by EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2016)', 15) },
   ...(extraImagery ? [{ id: "imagery", name: "Imagery (high resolution)", style: raster(extraImagery, import.meta.env.VITE_IMAGERY_ATTRIBUTION ?? "") }] : []),
   { id: "none", name: "No basemap", style: { version: 8, glyphs: GLYPHS, sources: {}, layers: [{ id: "background", type: "background", paint: { "background-color": "#f4f6fa" } }] } },
