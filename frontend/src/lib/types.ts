@@ -4,6 +4,7 @@ export interface OrgBrand { color: string | null; logo_url: string | null; name?
 export interface Me {
   id: string; name: string; email: string; org_id: string | null; org_name: string | null; org_role: string | null; role: Role;
   staff_role: string | null; licence: string | null; can_write: boolean; features: string[]; geohub_url: string;
+  edition?: "basic" | "advanced"; limits?: { users?: number } | null;
   org_brand?: OrgBrand | null;
   product: { id: string; name: string; plan: string; plan_name: string; status: string; subscription_ends: string | null; grace_ends: string | null } | null;
 }

@@ -40,7 +40,7 @@ class RunIn(BaseModel):
 
 
 @router.get("/poly-earth/tools", summary="The Poly Earth tools and their settings")
-async def tools(user=Depends(need())):
+async def tools(user=Depends(need(feature="poly_earth"))):
     return polyearth.catalog()
 
 
@@ -49,7 +49,7 @@ def _public(job: dict) -> dict:
 
 
 @router.get("/poly-earth/jobs/{job_id}", summary="How a Poly Earth run is going, and its results when done")
-async def job(job_id: str, user=Depends(need())):
+async def job(job_id: str, user=Depends(need(feature="poly_earth"))):
     j = JOBS.get(job_id)
     if not j or j["_user"] != user["id"]:
         raise Problem(404, "That run is not known (runs are kept for three hours).", code="not_found")
@@ -57,7 +57,7 @@ async def job(job_id: str, user=Depends(need())):
 
 
 @router.post("/projects/{project_id}/poly-earth/{tool}", status_code=202, summary="Start a Poly Earth run; poll its job for the result")
-async def start(project_id: UUID, tool: str, body: RunIn, user=Depends(need("editor", write=True, feature="raster")), conn=Depends(get_conn)):
+async def start(project_id: UUID, tool: str, body: RunIn, user=Depends(need("editor", write=True, feature="poly_earth")), conn=Depends(get_conn)):
     global _slots
     await project_of(conn, project_id, user)
     spec = polyearth.ETOOLS.get(tool)
@@ -237,7 +237,7 @@ async def _stopped(j: dict, project_id, tool, spec, params, output_name, user, m
 
 
 @router.post("/poly-earth/jobs/{job_id}/stop", summary="Stop a Poly Earth run; nothing it made is kept")
-async def stop(job_id: str, user=Depends(need())):
+async def stop(job_id: str, user=Depends(need(feature="poly_earth"))):
     j = JOBS.get(job_id)
     if not j or j["_user"] != user["id"]:
         raise Problem(404, "That run is not known (runs are kept for three hours).", code="not_found")

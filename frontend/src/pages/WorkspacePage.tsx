@@ -972,7 +972,10 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
   /** The modes down the left: each brings its own tools into the tool row. */
   const tabs: [Tab, string, ReactNode][] = [["map", "Explore", <Compass key="i" />], ["insert", "Data", <Database key="i" />], ["select", "Select", <MousePointerClick key="i" />],
     ["edit", "Edit", <PenLine key="i" />], ["analysis", "Analyse", <Wrench key="i" />], ...(me.features.includes("raster") ? [["imagery", "Imagery", <ImageIcon key="i" />] as [Tab, string, ReactNode]] : []),
-    ["military", "Defence", <Shield key="i" />], ["earth", "Earth", <Earth key="i" />], ["share", "Publish", <UploadCloud key="i" />]];
+    // Defence and Earth are PolyGIS Advanced: shown only when the licence includes them.
+    ...(me.features.includes("defence") ? [["military", "Defence", <Shield key="i" />] as [Tab, string, ReactNode]] : []),
+    ...(me.features.includes("poly_earth") ? [["earth", "Earth", <Earth key="i" />] as [Tab, string, ReactNode]] : []),
+    ["share", "Publish", <UploadCloud key="i" />]];
   const modeName = tabs.find(([t]) => t === tab)?.[1] ?? "";
   const openLayout = newLayout;
   const viewing = views.find((v) => viewKey(v) === viewNow) ?? null;
@@ -1150,9 +1153,9 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
               <Tb onClick={() => (me.features.includes("geoprocessing") ? setModelsOpen(true) : setDialog("plan"))} icon={<Workflow />} label="Flows" />
               {canEdit && me.features.includes("geoprocessing") && <Tb on={notebookOpen && rightOpen} onClick={() => (notebookOpen ? setNotebookOpen(false) : openNotebook())} icon={<TerminalSquare />} label="Notebook" />}
             </Group>
-            <Group name="Satellite">
+            {me.features.includes("poly_earth") && <Group name="Satellite">
               <Tb onClick={() => { setTab("earth"); openEarth(null); }} icon={<Earth />} label="Earth" />
-            </Group>
+            </Group>}
             {me.features.includes("raster") && <Group name="Raster">
               <Tb onClick={() => openTool("hillshade")} icon={<Mountain />} label="Hillshade" />
               <Tb onClick={() => openTool("slope")} icon={<TrendingUp />} label="Slope" />

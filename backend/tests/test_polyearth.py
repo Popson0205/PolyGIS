@@ -394,7 +394,7 @@ def test_land_cover_breakdown(cat):
 # ---------- the API: background runs ----------
 @pytest.fixture
 def analyst(person):
-    return person(role="member", name="Ngozi Analyst", features=["maps", "editing", "export", "raster", "geoprocessing"])
+    return person(role="member", name="Ngozi Analyst", features=["maps", "editing", "export", "raster", "geoprocessing", "poly_earth"])
 
 
 def wait(who, job, most=60):
@@ -450,10 +450,10 @@ def test_api_others_cannot_see_a_run_and_viewers_cannot_start_one(analyst, perso
     s2_scene(cat, "a", "2026-01-05", {"Red": 0.1, "NIR": 0.4})
     pid = analyst.post("/projects", json={"name": "Mine"}).json()["id"]
     j = analyst.post(f"/projects/{pid}/poly-earth/index", json={"params": {"bbox": MINNA, "start": "2026-01-01", "end": "2026-01-31"}}).json()
-    other = person(role="member", name="Other", features=["maps", "raster"])
+    other = person(role="member", name="Other", features=["maps", "raster", "poly_earth"])
     assert other.get(f"/poly-earth/jobs/{j['id']}").status_code == 404
     wait(analyst, j)
-    viewer = person(role="viewer", name="Vee", features=["maps", "raster"])
+    viewer = person(role="viewer", name="Vee", features=["maps", "raster", "poly_earth"])
     assert viewer.post(f"/projects/{pid}/poly-earth/index", json={"params": {}}).status_code == 403
     basic = person(role="member", name="Basic", features=["maps", "editing"])
     assert basic.post(f"/projects/{pid}/poly-earth/index", json={"params": {}}).status_code == 403
@@ -625,7 +625,7 @@ def test_only_the_runs_owner_can_stop_it(analyst, person, cat):
     s2_scene(cat, "a", "2026-01-05", {"Red": 0.1, "NIR": 0.4})
     pid = analyst.post("/projects", json={"name": "Mine to stop"}).json()["id"]
     j = analyst.post(f"/projects/{pid}/poly-earth/index", json={"params": {"bbox": MINNA, "start": "2026-01-01", "end": "2026-01-31"}}).json()
-    other = person(role="member", name="Not Mine", features=["maps", "raster"])
+    other = person(role="member", name="Not Mine", features=["maps", "raster", "poly_earth"])
     assert other.post(f"/poly-earth/jobs/{j['id']}/stop").status_code == 404
     wait(analyst, j)
 

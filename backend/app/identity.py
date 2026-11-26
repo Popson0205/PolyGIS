@@ -15,6 +15,7 @@ import time
 
 from fastapi import Depends, Request, Response
 
+from . import licensing
 from .config import settings
 from .errors import Problem
 from .geoestate_id import GeoEstateID, GeoEstateIDError
@@ -81,13 +82,22 @@ def person(claims: dict) -> dict:
         role = "viewer"                                     # GeoEstate staff helping a customer: read only
     else:
         role = ROLE_OF.get(org.get("role", ""), "viewer")
+    # An offline signed licence (on-prem / air-gapped) is canonical: when present and valid it
+    # replaces the Geohub product claim for entitlements. Absent/invalid -> use the claim.
+    off = licensing.offline_entitlement()
+    if off is not None:
+        p = off
     status = p.get("status")
+    features = list(p.get("features", []) or [])
+    # Basic / Advanced. Advanced unlocks Poly Earth and Defence; everything else is Basic.
+    edition = licensing.edition_of(features, p.get("plan"))
     return {"id": claims["sub"], "name": claims["name"], "email": claims["email"], "org_id": org.get("id"),
             "org_name": org.get("name"), "org_slug": org.get("slug"), "org_role": org.get("role"), "role": role, "staff_role": claims.get("staff_role"),
             # The organization's white-label identity (name, colour, logo, seal), set by GeoEstate at org setup and
             # carried in the GeoEstate ID token; applied at runtime so one build serves every client.
             "org_brand": org.get("brand"),
-            "product": p or None, "licence": status, "features": p.get("features", []), "limits": p.get("limits", {}),
+            "product": p or None, "licence": status, "edition": edition,
+            "features": features, "limits": p.get("limits", {}) or {},
             "can_write": status in ("demo", "active", "grace"), "claims": claims}
 
 
@@ -122,7 +132,8 @@ async def current_user(request: Request, response: Response) -> dict:
     return u
 
 
-FEATURE_WORDS = {"geoprocessing": "Geoprocessing tools", "raster": "Raster analysis", "layouts": "Print layouts"}
+FEATURE_WORDS = {"geoprocessing": "Geoprocessing tools", "raster": "Raster analysis", "layouts": "Print layouts",
+                 "poly_earth": "Poly Earth", "defence": "Defence tools"}
 
 
 def need(role: str = "viewer", write: bool = False, feature: str | None = None):
