@@ -107,7 +107,9 @@ body.is-resizing { cursor: col-resize; user-select: none; } body.is-resizing .ma
 .ws { flex: 1; min-height: 0; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr) auto auto; font-size: 13px; color: var(--c-ink); }
 
 /* title bar */
-.ws-titlebar { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 10px 0 12px; background: var(--c-pane); border-bottom: 1px solid var(--c-line); }
+/* position + z-index make the titlebar a stacking context above the ribbon, so its menus
+   (GeoEstate apps, user menu, Ask) overlay the ribbon instead of being painted under it. */
+.ws-titlebar { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 10px 0 12px; background: var(--c-pane); border-bottom: 1px solid var(--c-line); position: relative; z-index: 60; }
 .ws-titlebar .ge-brand img { height: 30px; } .ws-titlebar .ge-brand { font-size: 15px; }
 .ws-crumbs { display: flex; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 0; font-size: 14px; }
 .ws-crumbs a { color: var(--c-muted); text-decoration: none; padding: 4px 6px; border-radius: var(--r-m); } .ws-crumbs a:hover { background: var(--c-hover); color: var(--c-ink); }
