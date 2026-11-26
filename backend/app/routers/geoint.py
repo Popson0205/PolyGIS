@@ -41,7 +41,7 @@ def _affiliation(sidc: str) -> str:
 
 
 @router.post("/projects/{project_id}/area-brief", summary="What lies inside an area: size, position, ground, layers and military units")
-async def area_brief(project_id: UUID, body: BriefIn, user=Depends(need()), conn=Depends(get_conn)):
+async def area_brief(project_id: UUID, body: BriefIn, user=Depends(need(feature="defence")), conn=Depends(get_conn)):
     p = await project_of(conn, project_id, user)
     if body.layer_id and body.feature_id is not None:
         src = await layer_of(conn, body.layer_id, user)

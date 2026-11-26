@@ -394,7 +394,7 @@ def test_land_cover_breakdown(cat):
 # ---------- the API: background runs ----------
 @pytest.fixture
 def analyst(person):
-    return person(role="member", name="Ngozi Analyst", features=["maps", "editing", "export", "raster", "geoprocessing"])
+    return person(role="member", name="Ngozi Analyst", features=["maps", "editing", "export", "raster", "geoprocessing", "poly_earth"])
 
 
 def wait(who, job, most=60):

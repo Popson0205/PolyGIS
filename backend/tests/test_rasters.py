@@ -65,7 +65,7 @@ def square_ll(r1, c1, r2, c2):
 
 @pytest.fixture
 def pro(person):
-    return person(role="member", name="Rasa Analyst", features=["maps", "editing", "export", "geoprocessing", "raster"])
+    return person(role="member", name="Rasa Analyst", features=["maps", "editing", "export", "geoprocessing", "raster", "defence"])
 
 
 @pytest.fixture
