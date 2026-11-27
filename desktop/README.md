@@ -45,9 +45,14 @@ npm run dist        # writes release/PolyGIS Setup <version>.exe
 
 `npm start` runs the app without packaging (handy while developing).
 
-## Notes
+## Code signing
 
-- The installer is **unsigned** for now, so Windows SmartScreen will warn on first run ("More info → Run anyway").
-  Code-signing is a later step (needs a certificate).
+The build **signs the installer automatically** when a signing certificate is configured — no code change needed.
+Add the right secrets to the repository and the next build is signed; add nothing and it builds unsigned (SmartScreen
+warns on first run, "More info → Run anyway"). Three routes are supported — **Azure Trusted Signing** (recommended,
+EV-level trust in CI), a **.pfx certificate file**, or an **EV hardware token** (signed locally). Full step-by-step
+setup, including which certificate GeoEstate should buy, is in **[SIGNING.md](SIGNING.md)**.
+
+## Notes
 - Double-click-to-open a `.polygis` file needs the web app's project-file support deployed on the server it connects
   to. If the server doesn't have it yet, the app shows a short "update to the latest version" message.
