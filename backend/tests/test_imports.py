@@ -83,10 +83,11 @@ def test_ingest_small_file_end_to_end(person, tmp_path, monkeypatch):
     assert admin.post(f"/layers/{lid}/rows", json={"filters": []}).status_code == 409
     got = admin.post(f"/layers/{lid}/rows", json={"filters": [{"field": "name", "op": "=", "value": "A"}]})
     assert got.status_code == 200 and got.json()["total"] == 1
+    fid = got.json()["rows"][0]["id"]
 
-    # export is guarded without a selection
+    # export is guarded without a selection, allowed with one
     assert admin.get(f"/layers/{lid}/export").status_code == 409
-    assert admin.get(f"/layers/{lid}/export", params={"ids": "1"}).status_code == 200
+    assert admin.get(f"/layers/{lid}/export", params={"ids": str(fid)}).status_code == 200
 
 
 def test_start_rejects_missing_source(person, tmp_path, monkeypatch):
