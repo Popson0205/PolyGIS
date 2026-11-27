@@ -51,6 +51,7 @@ export function AddData({ projectId, onDone, onClose, onImagery, onGeoreference,
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
+  const [showCrs, setShowCrs] = useState(false);     // coordinate system is auto-detected; shown only if asked for
   const pick = (list: FileList | null) => { setFiles(list ? Array.from(list) : []); setError(null); };
   async function go(e: FormEvent) {
     e.preventDefault();
@@ -69,16 +70,14 @@ export function AddData({ projectId, onDone, onClose, onImagery, onGeoreference,
           <input type="file" multiple accept={ACCEPT} onChange={(e) => pick(e.target.files)} />
           <FileUp size={28} aria-hidden="true" />
           <strong>{files.length === 1 ? files[0].name : files.length ? `${files.length} files: ${files.map((f) => f.name).join(", ")}` : "Drop files here, or click to choose"}</strong>
-          <span>Vector: GeoJSON, Shapefile (choose its .shp, .shx, .dbf and .prj together, or zip them), GeoPackage, KML/KMZ, CSV with longitude/latitude
-            or WKT, DXF, DGN, GPX, GML, FlatGeobuf, MapInfo TAB/MIF, file geodatabase (zipped .gdb), SpatiaLite, OpenStreetMap, TopoJSON.<br />
-            Raster: GeoTIFF, Erdas IMG, ASCII and Surfer grids, JPEG 2000, ECW, MrSID, ENVI, NetCDF, HDF, GRIB, DTED, SRTM .hgt, Esri grid (zipped),
-            SAGA, Idrisi, MBTiles; JPEG, PNG and other pictures with their world file (.jgw, .pgw, .tfw…). A picture without one is put where
-            you are looking, ready to georeference.</span>
+          <span>Vector or raster data, a zipped Shapefile or geodatabase, or a picture to place on the map. The format and coordinate system are read for you.</span>
         </label>
-        {shp && <p className="ws-muted">A Shapefile needs its .shx and .dbf too (and .prj for its coordinate system): choose them together.</p>}
+        {shp && <p className="ws-muted">Choose the Shapefile's .shp, .shx, .dbf and .prj together (or a .zip).</p>}
         {onImagery && <p className="ws-muted">No imagery file? <button type="button" className="ws-link" onClick={onImagery}>Get data from an open source</button> (Sentinel-2, Landsat, radar, elevation, land cover, rainfall; Planetary Computer, Earth Search or Google Earth Engine) instead of downloading it yourself.</p>}
-        <CrsPicker value={epsg} onChange={setEpsg} label="Its coordinate system" allowNone="As the file says (WGS 84 if it does not say)" />
-        <p className="ws-muted">Choose one when the file does not say, e.g. a CSV of eastings and northings, a Shapefile without its .prj, or a picture's world file.</p>
+        {showCrs
+          ? <><CrsPicker value={epsg} onChange={setEpsg} label="Its coordinate system" allowNone="As the file says (WGS 84 if it does not say)" />
+            <p className="ws-muted">For a file that does not say — a CSV of eastings and northings, a Shapefile without its .prj, or a picture's world file.</p></>
+          : <button type="button" className="ws-link" onClick={() => setShowCrs(true)}>Set the coordinate system, if the file does not say</button>}
         <ErrorText error={error} />
         {unplaced && picture && onGeoreference && <div className="ws-callout">
           <span>Place <strong>{picture.name}</strong> by matching points on it to the map.</span>
