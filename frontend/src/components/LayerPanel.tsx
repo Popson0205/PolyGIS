@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api, exportUrl } from "../lib/api";
 import { CATEGORY_COLOURS, RAMPS, breaks, rampColours } from "../lib/mapstyle";
 import type { FieldType, Labels, Layer, Style } from "../lib/types";
+import ColorField from "./ColorField";
 import { SymbolPicker } from "./MilSymbols";
 import { AutoApplyBar, useAutoApply } from "./AutoApply";
 import { Button, ErrorText, IconButton, useAction } from "./ui";
@@ -152,8 +153,8 @@ function Symbology({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
           <section className="sy-sec" aria-label="Appearance">
             <h3>Appearance</h3>
             <div className="sy-grid">
-              <label>{geom === "LineString" ? "Line colour" : "Fill colour"}<input type="color" value={s.color} onChange={(e) => put({ ...s, color: e.target.value })} /></label>
-              {geom !== "LineString" && <label>Outline colour<input type="color" value={s.stroke} onChange={(e) => put({ ...s, stroke: e.target.value })} /></label>}
+              <label>{geom === "LineString" ? "Line colour" : "Fill colour"}<ColorField value={s.color} onChange={(c) => put({ ...s, color: c })} allowNone={geom === "Polygon"} label={geom === "LineString" ? "Line colour" : "Fill colour"} /></label>
+              {geom !== "LineString" && <label>Outline colour<ColorField value={s.stroke} onChange={(c) => put({ ...s, stroke: c })} allowNone label="Outline colour" /></label>}
               <label>{geom === "LineString" ? "Line width" : "Outline width"}
                 <input type="number" min={0} max={20} step={0.5} value={s.width} onChange={(e) => put({ ...s, width: Number(e.target.value) })} /></label>
               {geom === "Point" && <label>Size<input type="number" min={1} max={40} value={s.size} onChange={(e) => put({ ...s, size: Number(e.target.value) })} /></label>}
@@ -191,7 +192,7 @@ function Symbology({ layer, canEdit, onChange }: { layer: Layer; canEdit: boolea
               </tbody>
             </table>
             <div className="sy-grid">
-              {geom !== "LineString" && <label>Outline colour<input type="color" value={s.stroke} onChange={(e) => put({ ...s, stroke: e.target.value })} /></label>}
+              {geom !== "LineString" && <label>Outline colour<ColorField value={s.stroke} onChange={(c) => put({ ...s, stroke: c })} allowNone label="Outline colour" /></label>}
               <label>{geom === "LineString" ? "Line width" : "Outline width"}
                 <input type="number" min={0} max={20} step={0.5} value={s.width} onChange={(e) => put({ ...s, width: Number(e.target.value) })} /></label>
               {geom === "Point" && <label>Size<input type="number" min={1} max={40} value={s.size} onChange={(e) => put({ ...s, size: Number(e.target.value) })} /></label>}

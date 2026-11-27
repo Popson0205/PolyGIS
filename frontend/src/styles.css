@@ -1270,3 +1270,28 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 
 /* Raster panel: export buttons row */
 .rp-export { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* ColorField: PolyGIS's own colour picker (palette + no colour + eyedropper + custom) */
+.cf { position: relative; display: inline-block; }
+.cf-swatch { width: 34px; height: 22px; border-radius: 5px; border: 1px solid var(--c-line); cursor: pointer; padding: 0; background: #fff; }
+.cf-swatch.cf-none { position: relative; overflow: hidden; background: #fff; }
+.cf-swatch.cf-none::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom right, transparent calc(50% - 1px), #e5484d, transparent calc(50% + 1px)); }
+.cf-pop { position: fixed; z-index: 3000; background: var(--c-pane, #fff); border: 1px solid var(--c-line); border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.18); padding: 8px; width: 212px; }
+.cf-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+.cf-dot { width: 20px; height: 20px; border-radius: 4px; border: 1px solid rgba(0,0,0,.15); cursor: pointer; padding: 0; }
+.cf-dot.is-on { outline: 2px solid var(--c-violet, #6d4bd8); outline-offset: 1px; }
+.cf-row { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none; cursor: pointer; padding: 5px 4px; border-radius: 6px; font: inherit; color: inherit; }
+.cf-row:hover { background: var(--c-line-2, #eef1f6); }
+.cf-norow { margin-bottom: 6px; }
+.cf-norow .cf-swatch { width: 20px; height: 20px; }
+.cf-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--c-line); }
+.cf-custom { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--c-muted, #6b7280); }
+.cf-custom input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid var(--c-line); border-radius: 4px; background: none; cursor: pointer; }
+
+/* Contents: legend twisty, clickable symbol, legend under each layer */
+.ct-twist { background: none; border: none; cursor: pointer; padding: 2px; color: var(--c-muted, #889); display: inline-flex; align-items: center; }
+.ct-twist svg { transition: transform .12s ease; }
+.ct-twist.is-open svg { transform: rotate(90deg); }
+.ct-sw-btn { background: none; border: none; cursor: pointer; padding: 0; display: inline-flex; align-items: center; }
+.ct-legend-wrap { margin: 2px 0 4px 46px; cursor: pointer; border-radius: 6px; }
+.ct-legend-wrap:hover { background: var(--c-line-2, rgba(0,0,0,.04)); }
