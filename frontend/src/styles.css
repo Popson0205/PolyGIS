@@ -1293,5 +1293,9 @@ input:focus-visible + .aa-track { outline: 2px solid var(--c-navy); outline-offs
 .ct-twist svg { transition: transform .12s ease; }
 .ct-twist.is-open svg { transform: rotate(90deg); }
 .ct-sw-btn { background: none; border: none; cursor: pointer; padding: 0; display: inline-flex; align-items: center; }
-.ct-legend-wrap { margin: 2px 0 4px 46px; cursor: pointer; border-radius: 6px; }
-.ct-legend-wrap:hover { background: var(--c-line-2, rgba(0,0,0,.04)); }
+/* Legend sits left, modestly indented under the layer (ArcGIS-style). Scoped to the Contents
+   wrap so the public share page's legend keeps its own placement. */
+.ct-legend-wrap { margin: 0 0 5px; cursor: pointer; border-radius: 6px; }
+.ct-legend-wrap:hover { background: var(--c-hover); }
+.ct-legend-wrap .ct-legend { margin-left: 0; padding: 1px 6px 3px 40px; }
+.ct-legend-wrap .ct-legend li { min-height: 20px; }
