@@ -64,6 +64,8 @@ export default function Contents({ projectName, layers, activeId, editingId, can
   const [menu, setMenu] = useState<{ x: number; y: number; layer: Layer } | null>(null);
   const [filterMenu, setFilterMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [legendOff, setLegendOff] = useState<Set<string>>(new Set());   // layers whose legend is collapsed
+  const toggleLegend = (id: string) => setLegendOff((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const copied = useRef<Layer | null>(null);
   const [, bump] = useState(0);
 
@@ -206,8 +208,18 @@ export default function Contents({ projectName, layers, activeId, editingId, can
                       onDragOver={(e) => { if (!drag) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setDrag({ ...drag, over: l.id, below: e.clientY > r.top + Math.min(r.height, 30) / 2 }); }}
                       onDragEnd={() => setDrag(null)}>
                       <div className="ct-row" onContextMenu={(e) => openMenu(e, l)}>
-                        {check(l)}<span className="ct-sw"><Swatch layer={l} /></span>{name(l)}
+                        <button type="button" className={`ct-twist${legendOff.has(l.id) ? "" : " is-open"}`} onClick={() => toggleLegend(l.id)}
+                          aria-label={legendOff.has(l.id) ? `Show ${l.name} legend` : `Hide ${l.name} legend`} aria-expanded={!legendOff.has(l.id)}>
+                          <ChevronRight size={13} aria-hidden="true" /></button>
+                        {check(l)}
+                        <button type="button" className="ct-sw ct-sw-btn" onClick={() => onPanel(l, "symbology")} aria-label={`${l.name}: symbology`} title="Open symbology"><Swatch layer={l} /></button>
+                        {name(l)}
                       </div>
+                      {!legendOff.has(l.id) && (
+                        <div className="ct-legend-wrap" role="button" tabIndex={0} title="Open symbology"
+                          onClick={() => onPanel(l, "symbology")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPanel(l, "symbology"); } }}>
+                          <Legend layer={l} /></div>
+                      )}
                     </li>
                   );
                 })}
