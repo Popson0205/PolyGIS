@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from . import errors
 from .config import settings
 from .db import migrate, pool
-from .routers import auth, cameras, crs, features, georef, geoint, hub, maps, providers, tracking, visibility, scenarios, imagery, layers, layouts, linked, models, polyearth, projects, rasters, shares, thumbs, tools, geodatabases, projectfile
+from .routers import auth, cameras, crs, features, georef, geoint, hub, imports, maps, providers, tracking, visibility, scenarios, imagery, layers, layouts, linked, models, polyearth, projects, rasters, shares, thumbs, tools, geodatabases, projectfile
 
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -32,7 +32,7 @@ app = FastAPI(title="PolyGIS API", version="1.0.0", lifespan=lifespan,
               docs_url=f"{settings.api_prefix}/docs", openapi_url=f"{settings.api_prefix}/openapi.json")
 errors.install(app)
 P = settings.api_prefix
-for r in (auth.router, projects.router, layouts.router, shares.router, hub.router, linked.router, models.router, thumbs.router, layers.router, rasters.router, georef.router, maps.router, visibility.router, geoint.router, tracking.router, cameras.router, providers.router, scenarios.router, imagery.router, polyearth.router, features.router, crs.router, tools.router, geodatabases.router, projectfile.router):
+for r in (auth.router, projects.router, layouts.router, shares.router, hub.router, linked.router, models.router, thumbs.router, layers.router, rasters.router, georef.router, maps.router, visibility.router, geoint.router, tracking.router, cameras.router, providers.router, scenarios.router, imagery.router, polyearth.router, features.router, crs.router, tools.router, geodatabases.router, projectfile.router, imports.router):
     app.include_router(r, prefix=P)
 
 
