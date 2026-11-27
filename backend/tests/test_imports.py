@@ -74,8 +74,8 @@ def test_ingest_small_file_end_to_end(person, tmp_path, monkeypatch):
     assert s["features"] == 3
 
     # the layer is marked big, and renders as a tile
-    lay = admin.get(f"/projects/{pid}/layers").json()
-    mine = next(x for x in lay if x["id"] == lid)
+    proj = admin.get(f"/projects/{pid}").json()
+    mine = next(x for x in proj["layers"] if x["id"] == lid)
     assert mine["big"] is True and mine["feature_count"] == 3
     assert admin.get(f"/layers/{lid}/tiles/0/0/0.pbf").status_code == 200
 
