@@ -21,6 +21,13 @@ import pyogrio.raw
 import shapely
 from pyproj import CRS, Transformer
 
+# Shapefile DBF date fields are a common source of bad values (e.g. 0000-00-00 in official
+# boundary data); read them as text so GDAL does not choke on an out-of-range year.
+try:
+    pyogrio.set_gdal_config_options({"OGR_SHAPE_DBF_DATE_AS_STRING": "YES"})
+except Exception:  # noqa: BLE001
+    pass
+
 KINDS = {"Point": "Point", "MultiPoint": "Point", "LineString": "LineString", "MultiLineString": "LineString",
          "LinearRing": "LineString", "Polygon": "Polygon", "MultiPolygon": "Polygon"}
 WORDS = {"Point": "points", "LineString": "lines", "Polygon": "polygons"}
@@ -136,6 +143,26 @@ CSV_OPTIONS = {"X_POSSIBLE_NAMES": "lon,lng,long,longitude,x,easting,X,Lon,Longi
                "GEOM_POSSIBLE_NAMES": "wkt,WKT,geometry,geom,the_geom", "KEEP_GEOM_COLUMNS": "NO", "AUTODETECT_TYPE": "YES"}
 
 
+def _raw_read(src: str, layer, options: dict):
+    """pyogrio.raw.read, but survive a bad date field. A Shapefile's dates are read as text
+    (see OGR_SHAPE_DBF_DATE_AS_STRING above); for any other format, a feature whose date
+    cannot be parsed (year 0 etc.) would otherwise fail the whole import, so retry without the
+    date field(s) rather than lose the layer."""
+    try:
+        return pyogrio.raw.read(src, layer=layer, **options)
+    except ValueError:
+        info = pyogrio.read_info(src, layer=layer) if layer else pyogrio.read_info(src)
+        fa, da = info.get("fields"), info.get("dtypes")
+        names = list(fa) if fa is not None else []
+        kinds = [np.dtype(d).kind for d in (list(da) if da is not None else [])]
+        drop = {n for n, k in zip(names, kinds) if k == "M"}
+        if not drop:
+            raise
+        keep = [n for n in names if n not in drop]
+        opts = {k: v for k, v in options.items() if k != "columns"}
+        return pyogrio.raw.read(src, layer=layer, columns=keep, **opts)
+
+
 def read_file(path: Path, display_name: str, given_epsg: int | None = None, max_features: int = 500_000) -> list[ReadLayer]:
     """Every layer in the file, ready to store. `given_epsg` is the system to assume when the file does not say
     (a CSV, a Shapefile without its .prj) or to override it."""
@@ -149,7 +176,7 @@ def read_file(path: Path, display_name: str, given_epsg: int | None = None, max_
     total = 0
     for lname in names[:20]:
         try:
-            meta, _fids, wkb, cols = pyogrio.raw.read(src, layer=lname, **options)
+            meta, _fids, wkb, cols = _raw_read(src, lname, options)
         except Exception as e:  # noqa: BLE001
             raise ReadError(f"PolyGIS could not read the layer {lname} in {display_name}: {_gdal_words(e)}") from e
         if wkb is None or len(wkb) == 0:
@@ -413,8 +440,8 @@ def stream_batches(path: Path, layer: str | None = None, batch: int = 50_000):
     types = {f["name"]: f["type"] for f in fields}
     skip = 0
     while True:
-        meta, _fids, geoms, cols = pyogrio.raw.read(
-            str(path), layer=layer, max_features=batch, skip_features=skip)
+        meta, _fids, geoms, cols = _raw_read(
+            str(path), layer, {"max_features": batch, "skip_features": skip})
         n = len(geoms)
         if n == 0:
             break
