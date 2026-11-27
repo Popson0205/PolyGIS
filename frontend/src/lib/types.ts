@@ -9,6 +9,11 @@ export interface Me {
   product: { id: string; name: string; plan: string; plan_name: string; status: string; subscription_ends: string | null; grace_ends: string | null } | null;
 }
 export interface App { product: string; name: string; status: string; url: string | null; current: boolean }
+export interface ImportJob {
+  id: string; layer_id: string | null; source: string; name: string;
+  status: "queued" | "running" | "done" | "failed"; features: number; total: number | null;
+  message?: string | null; created_by_name?: string; created_at?: string; updated_at?: string;
+}
 
 export type GeometryType = "Point" | "LineString" | "Polygon" | "Raster";
 export type VectorType = Exclude<GeometryType, "Raster">;
@@ -53,6 +58,7 @@ export interface Geodatabase {
 export interface Layer {
   id: string; project_id: string; geodatabase_id: string; name: string; geometry_type: GeometryType; fields: Field[]; style: Style; labels: Labels | null;
   visible: boolean; position: number;
+  big?: boolean;                       // a large (gigabyte / national) dataset: tile-rendered, table/export need a filter
   map_id?: string | null;              // the map the layer is in
   data_id?: string | null;             // the layer whose data this one shows (the same data in another map)
   source: { filename?: string; crs?: string | null; dropped?: number; drawn?: boolean; tool?: string; tool_name?: string; summary?: Record<string, unknown>;

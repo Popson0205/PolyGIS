@@ -518,12 +518,15 @@ async def tile(layer_id: UUID, z: int, x: int, y: int, v: str | None = None, use
 
 async def mvt(conn, layer_id, z: int, x: int, y: int) -> bytes:
     """One vector tile of a layer's features (the caller has checked who may see it)."""
+    # Drop sub-pixel detail before building the tile: at low zoom a national polygon's full vertex
+    # count is wasted work, so simplify to roughly the tile's own resolution (0 at the deepest zoom).
+    tol = 40075016.686 / (2 ** z) / 4096.0
     cur = await conn.execute(
         "WITH b AS (SELECT ST_TileEnvelope(%s, %s, %s) AS env) "
         "SELECT ST_AsMVT(t, 'features', 4096, 'geom', 'id') AS tile FROM ("
-        "  SELECT f.id, ST_AsMVTGeom(ST_Transform(f.geom, 3857), b.env, 4096, 64, true) AS geom, f.props "
+        "  SELECT f.id, ST_AsMVTGeom(ST_Simplify(ST_Transform(f.geom, 3857), %s), b.env, 4096, 64, true) AS geom, f.props "
         "  FROM features f, b WHERE f.layer_id = layer_data(%s) AND f.geom && ST_Transform(b.env, 4326)) t WHERE t.geom IS NOT NULL",
-        (z, x, y, layer_id))
+        (z, x, y, tol, layer_id))
     return bytes((await cur.fetchone())["tile"] or b"")
 
 
@@ -581,6 +584,9 @@ class RowsIn(BaseModel):
 @router.post("/layers/{layer_id}/rows", summary="The attribute table: a page of features, filtered and sorted")
 async def rows(layer_id: UUID, body: RowsIn, user=Depends(need()), conn=Depends(get_conn)):
     layer = await layer_of(conn, layer_id, user)
+    if layer.get("big") and not body.filters and body.ids is None:
+        raise Problem(409, "This is a large dataset. Add a filter or select features on the map before opening the attribute table.",
+                      code="big_layer_filter")
     where, vals = where_of(layer, body.filters)
     if body.ids is not None:
         where += " AND id = ANY(%s)"; vals.append(body.ids)
@@ -679,6 +685,9 @@ async def export(layer_id: UUID, format: Literal["geojson", "gpkg", "shp", "csv"
                  ids: str | None = Query(None, description="Comma-separated feature ids: only these"),
                  user=Depends(need()), conn=Depends(get_conn)):
     layer = await layer_of(conn, layer_id, user)
+    if layer.get("big") and not ids:
+        raise Problem(409, "This is a large dataset. Select the features you need on the map first, then export the selection.",
+                      code="big_layer_filter")
     data, filename, media, n = await export_file(conn, layer, format, epsg, ids)
     await audit(conn, user, "layer.export", "layer", layer_id, format=format, features=n)
     return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{filename}"'})

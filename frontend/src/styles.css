@@ -385,6 +385,7 @@ body.is-resizing { cursor: col-resize; user-select: none; } body.is-resizing .ma
 .pe-bar i { display: block; height: 100%; background: linear-gradient(90deg, #1f7a5a, #3aa57a); border-radius: 3px; transition: width .4s ease; }
 .pe-spin { animation: pe-spin 1s linear infinite; color: var(--c-violet); }
 @keyframes pe-spin { to { transform: rotate(360deg); } }
+.ge-spin { animation: pe-spin 1s linear infinite; }
 .pe-result { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; border-top: 1px solid var(--c-line-2); }
 .pe-layer .ws-dl { margin-top: 4px; }
 .pe-chart { margin: 0; padding: 10px; border: 1px solid var(--c-line); border-radius: var(--r-l); background: var(--c-pane); display: flex; flex-direction: column; gap: 6px; }

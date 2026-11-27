@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # Uploads: the largest file accepted, and the most features one layer may hold.
     max_upload_mb: int = 200
     max_features: int = 500_000
+    # Server-side ingest of large (gigabyte / national) datasets: a directory on the server
+    # where an admin places files for PolyGIS to stream straight into PostGIS. Empty = disabled.
+    ingest_dir: str = ""
+    ingest_batch: int = 50_000                 # features read per batch while streaming a large file
     land_api: str = ""                         # Land Registry's API for linked layers; default: its address from Geohub + /api
     farm_api: str = ""                         # FarmScan's API (its routes start /api/); default: its address from Geohub
     linked_max: int = 50_000                   # features in a linked layer

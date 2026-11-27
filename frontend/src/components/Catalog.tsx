@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { SavedLayout } from "../lib/api";
 import type { GisMap } from "../lib/types";
 import FolderConnections from "./FolderConnections";
+import LargeDatasets from "./LargeDatasets";
 import { IconButton, Menu } from "./ui";
 
 export type ViewTab = { kind: "map"; id: string } | { kind: "layout"; id: string };
@@ -43,9 +44,10 @@ export function ViewTabs({ tabs, current, maps, layouts, onPick, onClose, onNewM
   );
 }
 
-export default function Catalog({ maps, layouts, mapId, current, canEdit, layoutsAllowed, onOpenMap, onNewMap, onCopyMap, onRenameMap, onDeleteMap,
+export default function Catalog({ maps, layouts, mapId, current, canEdit, layoutsAllowed, projectId, isAdmin, onImported, onOpenMap, onNewMap, onCopyMap, onRenameMap, onDeleteMap,
   onOpenLayout, onNewLayout, onRenameLayout, onDeleteLayout, onAddData, onClose }: {
   maps: GisMap[]; layouts: SavedLayout[]; mapId: string | null; current: string; canEdit: boolean; layoutsAllowed: boolean;
+  projectId: string; isAdmin: boolean; onImported: () => void;
   onOpenMap: (m: GisMap) => void; onNewMap: () => void; onCopyMap: (m: GisMap) => void; onRenameMap: (m: GisMap, name: string) => void; onDeleteMap: (m: GisMap) => void;
   onOpenLayout: (l: SavedLayout) => void; onNewLayout: () => void; onRenameLayout: (l: SavedLayout, name: string) => void; onDeleteLayout: (l: SavedLayout) => void;
   onAddData: (files: File[]) => Promise<void>; onClose: () => void;
@@ -63,6 +65,7 @@ export default function Catalog({ maps, layouts, mapId, current, canEdit, layout
       <div className="ws-pane-head"><strong>Library</strong><span className="ge-spacer" /><IconButton label="Close the Library" onClick={onClose}><X size={16} /></IconButton></div>
       <div className="ws-scroll cat-body">
         <FolderConnections canEdit={canEdit} onAddData={onAddData} />
+        {isAdmin && <LargeDatasets projectId={projectId} onImported={onImported} />}
         <section>
           <div className="cat-head"><MapIcon size={15} aria-hidden="true" /><h3>Maps</h3><span className="cat-n">{maps.length}</span><span className="ge-spacer" />
             {canEdit && <IconButton label="New map" onClick={onNewMap}><Plus size={15} /></IconButton>}</div>

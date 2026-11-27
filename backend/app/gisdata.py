@@ -377,3 +377,55 @@ def remove_upload(p: Path) -> None:
         os.rmdir(p.parent)
     except OSError:
         pass
+
+
+# ---- streaming ingest of large (gigabyte / national) datasets ---------------------------------
+# read_file() loads a whole file into memory; these read it in batches so a file far larger than
+# memory can be streamed straight into PostGIS. Geometry stays in its SOURCE srid (WKB); PostGIS
+# does the reprojection to 4326 in bulk, which is far faster than per-feature Python.
+
+def large_meta(path: Path, layer: str | None = None, given_epsg: int | None = None) -> dict:
+    """Header of a large source: normalized geometry type, fields, source EPSG srid and count.
+    Raises ReadError if the file has no single geometry type or no resolvable EPSG."""
+    info = pyogrio.read_info(str(path), layer=layer) if layer else pyogrio.read_info(str(path))
+    gt = info.get("geometry_type")
+    kind = KINDS.get((gt or "").replace("3D ", "").strip())
+    if kind is None:
+        raise ReadError(f"PolyGIS cannot stream a layer of mixed or unknown geometry type ({gt!r}). "
+                        "Export a single geometry type (points, lines or polygons) and try again.")
+    crs = _crs_of(info.get("crs"), given_epsg)
+    epsg = crs.to_epsg() if crs else None
+    if not epsg:
+        raise ReadError("The file's coordinate system is not a standard EPSG code. "
+                        "Reproject it to a known EPSG, or give the source EPSG when starting the import.")
+    fa, da = info.get("fields"), info.get("dtypes")
+    names = list(fa) if fa is not None else []
+    dtypes = list(da) if da is not None else []
+    fields = [{"name": str(n), "type": _field_type(d)} for n, d in zip(names, dtypes)]
+    return {"geometry_type": kind, "fields": fields, "srid": int(epsg),
+            "crs": f"EPSG:{epsg}", "total": int(info.get("features") or 0), "layer": layer}
+
+
+def stream_batches(path: Path, layer: str | None = None, batch: int = 50_000):
+    """Yield (wkb_bytes, props_dict) for every feature with a geometry, reading `batch` at a time.
+    WKB is in the file's own srid; the caller reprojects in PostGIS."""
+    fields = large_meta(path, layer)["fields"]
+    types = {f["name"]: f["type"] for f in fields}
+    skip = 0
+    while True:
+        meta, _fids, geoms, cols = pyogrio.raw.read(
+            str(path), layer=layer, max_features=batch, skip_features=skip)
+        n = len(geoms)
+        if n == 0:
+            break
+        mf = meta.get("fields")
+        names = [str(x) for x in (mf if mf is not None else [])]
+        for i in range(n):
+            g = geoms[i]
+            if g is None:
+                continue
+            props = {names[j]: _value(cols[j][i], types.get(names[j], "string")) for j in range(len(names))}
+            yield g, props
+        skip += n
+        if n < batch:
+            break

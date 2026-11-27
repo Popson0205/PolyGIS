@@ -1,6 +1,6 @@
 import type { LayoutSettings } from "./layout";
 import type { LayoutDoc } from "./layoutDoc";
-import type { OrgImagery, OrgScene, AreaBrief, SightResult, Tracker, TrackingLive, Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, Geodatabase, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, Labels, Layer, Me, NotebookResult, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View, Camera } from "./types";
+import type { OrgImagery, OrgScene, AreaBrief, SightResult, Tracker, TrackingLive, Activity, App, Crs, CrsDef, EarthJob, Field, FieldType, Filter, Geodatabase, GeorefFit, GisMap, Scenario, ScenarioKind, GeorefMethod, GeorefPoint, GeorefSource, ImageryProvider, ImageryRequest, ImageryScene, ImportJob, Labels, Layer, Me, NotebookResult, Project, RasterStyle, Row, Run, Selection, Stats, Style, Tool, VectorType, View, Camera } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
@@ -57,6 +57,13 @@ export const api = {
     catch { throw new ApiError(0, "Can't reach PolyGIS. Check your connection."); }
     return handle<{ id: string; name: string; layers: number; rasters_skipped: number }>(res, "/projects/import-file");
   },
+  // Large (gigabyte / national) datasets: ingested server-side from the ingest folder.
+  importSources: () => req<{ dir: string; files: { name: string; size: number }[] }>("GET", "/imports/sources"),
+  projectImports: (projectId: string) => req<{ imports: ImportJob[] }>("GET", `/projects/${projectId}/imports`),
+  startImport: (projectId: string, b: { source: string; name: string; epsg?: number }) =>
+    req<ImportJob>("POST", `/projects/${projectId}/imports`, b),
+  importStatus: (id: string) => req<ImportJob>("GET", `/imports/${id}`),
+
   geodatabases: (projectId: string) => req<Geodatabase[]>("GET", `/projects/${projectId}/geodatabases`),
   createGeodatabase: (projectId: string, name: string) => req<Geodatabase>("POST", `/projects/${projectId}/geodatabases`, { name }),
   updateGeodatabase: (id: string, b: { name?: string; is_default?: boolean }) => req<Geodatabase>("PATCH", `/geodatabases/${id}`, b),

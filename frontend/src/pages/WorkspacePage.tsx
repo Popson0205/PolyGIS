@@ -924,6 +924,7 @@ export default function WorkspacePage({ me, onSignOut }: { me: Me; onSignOut: ()
       onTool={canEdit ? (t, text) => openTool(t, "", { origin: "typed", origin_text: text }) : undefined} />
   ) : catalogOpen ? (
     <Catalog maps={maps} layouts={savedLayouts} mapId={mapId} current={viewNow} canEdit={canEdit} layoutsAllowed={layoutsAllowed}
+      projectId={id} isAdmin={me.role === "admin"} onImported={async () => { const p = await api.project(id); setLayers(p.layers ?? []); setLeftOpen(true); }}
       onOpenMap={(m) => void openMap(m)} onNewMap={() => void newMap()} onCopyMap={(m) => void newMap(m)} onRenameMap={(m, n) => void renameMap(m, n)} onDeleteMap={(m) => void deleteMap(m)}
       onOpenLayout={openLayoutTab} onNewLayout={newLayout} onRenameLayout={(l, n) => void renameLayout(l, n)} onDeleteLayout={(l) => void deleteLayout(l)}
       onAddData={async (files) => {
