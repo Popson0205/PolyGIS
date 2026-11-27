@@ -8,39 +8,11 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win --publish never",
-    "dist:dir": "electron-builder --win --dir"
+    "dist": "electron-builder --win --config electron-builder.config.js --publish never",
+    "dist:dir": "electron-builder --win --dir --config electron-builder.config.js"
   },
   "devDependencies": {
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8"
-  },
-  "build": {
-    "appId": "com.geoestate.polygis",
-    "productName": "PolyGIS",
-    "copyright": "© 2026 GeoEstate",
-    "files": ["main.js", "preload.js", "assets/**"],
-    "directories": { "output": "release", "buildResources": "assets" },
-    "fileAssociations": [
-      {
-        "ext": "polygis",
-        "name": "PolyGIS Project",
-        "description": "PolyGIS project file",
-        "icon": "assets/icon.ico",
-        "role": "Editor"
-      }
-    ],
-    "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
-      "icon": "assets/icon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "PolyGIS"
-    }
   }
 }

@@ -28,6 +28,20 @@ jobs:
         run: npm ci
       - name: Build installer
         run: npm run dist   # builds only; the release upload is done by the step below, not by electron-builder
+        env:
+          # Code signing — see desktop/SIGNING.md. When none of these are set, the build is simply unsigned.
+          # 1) Azure Trusted Signing (recommended for CI; EV-level SmartScreen trust, no hardware token):
+          AZURE_CODE_SIGNING_ENDPOINT: ${{ secrets.AZURE_CODE_SIGNING_ENDPOINT }}
+          AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          AZURE_CODE_SIGNING_PROFILE: ${{ secrets.AZURE_CODE_SIGNING_PROFILE }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          # 2) Certificate file (.pfx / .p12) — OV or exportable cert:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+          # Optional, shared by both routes:
+          WINDOWS_PUBLISHER_NAME: ${{ secrets.WINDOWS_PUBLISHER_NAME }}
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
@@ -42,7 +56,7 @@ jobs:
         with:
           tag_name: desktop-latest
           name: PolyGIS Desktop (latest)
-          body: Latest PolyGIS Windows installer, built automatically from main. Windows SmartScreen may warn on first run (More info → Run anyway) until the app is code-signed.
+          body: Latest PolyGIS Windows installer, built automatically from main. It is code-signed when a signing certificate is configured in the repository secrets (see desktop/SIGNING.md); if none is set yet, the build is unsigned and Windows SmartScreen may warn on first run (More info → Run anyway).
           prerelease: true
           make_latest: false
           files: desktop/release/*.exe
